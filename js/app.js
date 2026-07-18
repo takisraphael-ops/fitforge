@@ -1025,7 +1025,7 @@
     const header = $("#header");
     clear(header);
     header.appendChild(el("div", { class: "logo" },
-      el("span", { html: `<svg viewBox="0 0 32 32" aria-label="FitForge logo"><rect x="2" y="12" width="4" height="8" rx="1" fill="currentColor"/><rect x="26" y="12" width="4" height="8" rx="1" fill="currentColor"/><rect x="6" y="14" width="2" height="4" fill="currentColor"/><rect x="24" y="14" width="2" height="4" fill="currentColor"/><rect x="8" y="15" width="16" height="2" fill="currentColor"/></svg>` }),
+      el("span", { class: "logo-mark", html: `<svg viewBox="0 0 32 32" aria-label="FitForge logo"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-opacity=".2" stroke-width="2"/><circle cx="16" cy="16" r="13" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-dasharray="22 60" transform="rotate(-90 16 16)"/><circle cx="16" cy="16" r="7" fill="none" stroke="var(--accent)" stroke-opacity=".45" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="11 33" transform="rotate(120 16 16)"/><circle cx="16" cy="16" r="2.6" fill="var(--accent)"/></svg>` }),
       "FitForge"
     ));
     const isDark = document.documentElement.classList.contains("dark");

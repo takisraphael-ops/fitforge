@@ -12,20 +12,49 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
-  <link rel="stylesheet" href="./css/styles.css?v=46" />
+  <link rel="stylesheet" href="./css/styles.css?v=47" />
 </head>
 <body>
+  <!-- Launch splash — orbit mark, plays once per load then fades into the app -->
+  <div id="splash" class="splash" role="presentation" aria-hidden="true">
+    <div class="splash-mark">
+      <span class="s-ring s-ring-1"></span>
+      <span class="s-ring s-ring-2"></span>
+      <span class="s-ring s-ring-3"></span>
+      <span class="s-core"></span>
+    </div>
+    <div class="splash-word">FitForge</div>
+    <div class="splash-tag">TRAIN · FUEL · TRACK</div>
+    <div class="splash-load"><i></i></div>
+  </div>
+  <script>
+    (function () {
+      var s = document.getElementById("splash");
+      if (!s) return;
+      var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      var hold = reduce ? 300 : 2000;
+      var t;
+      function done() {
+        clearTimeout(t);
+        s.classList.add("splash-done");
+        setTimeout(function () { if (s.parentNode) s.parentNode.removeChild(s); }, 650);
+      }
+      t = setTimeout(done, hold);
+      s.addEventListener("click", done);
+    })();
+  </script>
+
   <div class="app">
     <header id="header" class="header"></header>
     <main id="main"></main>
   </div>
   <!-- Cache-bust query so PWA clients cannot stick on old JS -->
-  <script src="./data/exercises.js?v=46"></script>
-  <script src="./data/meals.js?v=46"></script>
-  <script src="./js/meal-search.js?v=46"></script>
-  <script src="./js/utils.js?v=46"></script>
-  <script src="./js/storage.js?v=46"></script>
-  <script src="./js/body-map.js?v=46"></script>
-  <script src="./js/app.js?v=46"></script>
+  <script src="./data/exercises.js?v=47"></script>
+  <script src="./data/meals.js?v=47"></script>
+  <script src="./js/meal-search.js?v=47"></script>
+  <script src="./js/utils.js?v=47"></script>
+  <script src="./js/storage.js?v=47"></script>
+  <script src="./js/body-map.js?v=47"></script>
+  <script src="./js/app.js?v=47"></script>
 </body>
 </html>
