@@ -889,7 +889,10 @@
       /(push-?up|plank|dead.?bug|hollow|nordic|burpee)/.test(hay) ||
       (isBwEquip && !isLoadableBw);
 
-    if (isLoadableBw) return "weighted_bodyweight";
+    // Loadable calisthenics (pull-ups / chin-ups / dips) default to plain
+    // Bodyweight — most sets are done unweighted. The "BW +kg" mode is still
+    // available from the type dropdown for anyone using a belt or vest.
+    if (isLoadableBw) return "bodyweight";
     if (isPureBw || (isBwEquip && !/barbell|dumbbell|machine|cable|kettlebell/.test(equipment))) {
       return "bodyweight";
     }
@@ -995,9 +998,13 @@
       if (!ex.type) {
         ex.type = inferred;
       } else if (onlyEmpty && !hasStrengthData) {
+        // Only auto-correct a stale generic "weighted" default (e.g. a pull-up
+        // that was saved as plain weighted) toward the inferred shape. Never
+        // auto-upgrade an explicit "bodyweight" choice to BW +kg — that fought
+        // the user's dropdown selection on every re-render.
         if (
-          (ex.type === "weighted" && (inferred === "bodyweight" || inferred === "weighted_bodyweight" || inferred === "cardio")) ||
-          (ex.type === "bodyweight" && inferred === "weighted_bodyweight")
+          ex.type === "weighted" &&
+          (inferred === "bodyweight" || inferred === "weighted_bodyweight" || inferred === "cardio")
         ) {
           ex.type = inferred;
           if (inferred === "cardio") ex.sets = [emptySetForType("cardio")];
