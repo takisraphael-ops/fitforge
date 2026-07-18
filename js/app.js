@@ -865,7 +865,9 @@
     const id = String(ex.id || ex.exerciseId || "").toLowerCase();
     if (CARDIO_IDS.has(id)) return true;
     const name = String(ex.name || "").toLowerCase();
-    return /\b(run|running|row|rowing|cycle|cycling|bike|erg|jump\s*rope|burpee|treadmill|cardio|assault\s*bike)\b/.test(name);
+    // NB: match "rowing"/"erg" but NOT bare "row" — the latter also appears in
+    // strength moves (bent-over row, cable row, upright row, …) which are not cardio.
+    return /\b(run|running|rowing|rower|cycle|cycling|bike|erg|ergometer|jump\s*rope|burpee|treadmill|cardio|elliptical|assault\s*bike)\b/.test(name);
   }
 
   function inferExerciseType(ex) {
