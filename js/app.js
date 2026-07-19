@@ -888,13 +888,18 @@
       equipment === "none / treadmill";
     const isLoadableBw = /(pull-?up|chin-?up|\bdip\b|dips)/.test(hay);
     const isPureBw =
-      /(push-?up|plank|dead.?bug|hollow|nordic|burpee)/.test(hay) ||
+      /(push-?up|plank|dead.?bug|hollow|nordic|burpee|rollout|ab wheel)/.test(hay) ||
       (isBwEquip && !isLoadableBw);
+    // A bodyweight-capable move whose name calls out a load implement
+    // (e.g. "Dumbbell Step-Up") should default to BW +kg so the added weight
+    // gets logged, rather than reps-only bodyweight.
+    const nameNamesLoad = /\b(dumbbell|barbell|kettlebell)\b/.test(name);
 
     // Loadable calisthenics (pull-ups / chin-ups / dips) default to plain
     // Bodyweight — most sets are done unweighted. The "BW +kg" mode is still
     // available from the type dropdown for anyone using a belt or vest.
     if (isLoadableBw) return "bodyweight";
+    if (isBwEquip && nameNamesLoad) return "weighted_bodyweight";
     if (isPureBw || (isBwEquip && !/barbell|dumbbell|machine|cable|kettlebell/.test(equipment))) {
       return "bodyweight";
     }
@@ -953,7 +958,7 @@
     if (isCalisthenic) return ["bodyweight", "weighted_bodyweight"];
 
     // Static holds / floor core — bodyweight only.
-    if (/(plank|dead.?bug|hollow|bird.?dog|side plank|superman|crunch|sit-?up|leg raise|mountain climber)/.test(hay) &&
+    if (/(plank|dead.?bug|hollow|bird.?dog|side plank|superman|crunch|sit-?up|leg raise|mountain climber|rollout|ab wheel)/.test(hay) &&
         !/cable|machine|weighted/.test(hay)) {
       return ["bodyweight", "weighted_bodyweight"];
     }
