@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=58").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=59").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1295,7 +1295,7 @@
     );
     const mealPanel = el("button", {
       class: "qa-fork-panel qa2-meal", "data-testid": "quick-log-meal",
-      on: { click: () => { close(); openQuickAdd(); } }
+      on: { click: () => go("nutrition") }
     },
       el("span", { class: "qa2-art", html: MEAL_ART }),
       el("span", { class: "qa2-label" }, "Log meal"),
