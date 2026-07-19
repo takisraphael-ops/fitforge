@@ -2565,7 +2565,7 @@ input:disabled.input,
   animation: qaForkFade .2s ease;
 }
 .qa-fork-panel {
-  flex: 1 1 50%; min-width: 0;
+  flex: 1 1 0; min-width: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 16px;
   padding: calc(24px + env(safe-area-inset-top, 0px)) 20px calc(24px + env(safe-area-inset-bottom, 0px));
@@ -2578,7 +2578,7 @@ input:disabled.input,
 .qa2-workout { animation: qaForkLeft .32s cubic-bezier(.22, 1, .36, 1) both; }
 .qa2-meal { animation: qaForkRight .32s cubic-bezier(.22, 1, .36, 1) both; }
 @media (hover: hover) {
-  .qa-fork-panel:hover { background: var(--accent-soft); flex-grow: 1.3; }
+  .qa-fork-panel:hover { background: var(--accent-soft); flex-grow: 2.4; }
 }
 .qa-fork-panel .qa2-art { width: 92px; height: 92px; color: var(--accent); }
 .qa2-art svg { width: 100%; height: 100%; display: block; overflow: visible; }
