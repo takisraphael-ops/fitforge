@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=57").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=58").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1303,7 +1303,6 @@
     );
     overlay.appendChild(workoutPanel);
     overlay.appendChild(mealPanel);
-    overlay.appendChild(el("span", { class: "qa-fork-or" }, "or"));
     overlay.appendChild(el("button", { class: "qa-fork-close", "aria-label": "Close", title: "Close", html: CLOSE_ART, on: { click: close } }));
     document.body.appendChild(overlay);
   }

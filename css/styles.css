@@ -2585,14 +2585,6 @@ input:disabled.input,
 .qa-fork-panel .qa2-label { font-weight: 700; font-size: 22px; letter-spacing: -.01em; }
 .qa-fork-panel .qa2-sub { font-size: 13.5px; color: var(--text-muted); line-height: 1.4; max-width: 16ch; text-align: center; }
 
-.qa-fork-or {
-  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 2;
-  width: 42px; height: 42px; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  background: var(--bg); border: 1px solid var(--border);
-  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em;
-  color: var(--text-muted); pointer-events: none;
-}
 .qa-fork-close {
   position: absolute; top: calc(14px + env(safe-area-inset-top, 0px)); right: 16px; z-index: 3;
   width: 40px; height: 40px; border-radius: 50%;
