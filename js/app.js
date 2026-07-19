@@ -2149,41 +2149,43 @@
   // ============ WORKOUT ============
   async function renderWorkout(view) {
     if (!state.activeWorkout) {
-      // Empty workout state — quick start + templates
-      view.appendChild(el("div", { class: "card" },
-        el("h2", { style: "margin-bottom: 8px;" }, "Start a workout"),
-        el("p", { class: "text-muted text-sm mb-8" }, "Repeat last time for speed, use a template, or start empty and add exercises as you go."),
-        el("input", { class: "input", id: "new-workout-name", placeholder: "e.g. Sunday Lower Body", value: suggestedName() }),
-        el("button", { class: "btn btn-primary btn-block mt-16", on: { click: () => startNewWorkout() } },
-          el("span", { html: icons.play }), "Start empty workout"
-        )
-      ));
+      // Primary path — pick an exercise and the session starts immediately.
+      const all = await getAllExercises();
+      const startCard = el("div", { class: "card" },
+        el("h2", { style: "margin-bottom: 6px;" }, "Start a workout"),
+        el("p", { class: "text-muted text-sm mb-8" },
+          "Pick an exercise to begin — your session starts the moment you choose one. Add more as you go.")
+      );
+      const picker = buildExercisePickerUI(all, async (id, name) => {
+        await beginWorkoutSession({
+          name: suggestedName(),
+          exercises: [await buildExerciseEntry(id, name)],
+          source: "empty"
+        });
+      });
+      startCard.appendChild(picker.body);
+      view.appendChild(startCard);
+      picker.refresh();
 
-      // Repeat last completed session (fastest path for weekend routines)
+      // Repeat last completed session — compact fast path.
       const last = await getLastCompletedWorkout();
       if (last) {
         const exCount = (last.exercises || []).length;
-        const setCount = (last.exercises || []).reduce((n, ex) => n + (ex.sets || []).filter(s => s.done).length, 0);
         const names = (last.exercises || []).slice(0, 4).map(e => e.name).join(" · ");
         const more = exCount > 4 ? ` +${exCount - 4} more` : "";
         view.appendChild(el("div", { class: "card session-speed-card" },
-          el("div", { class: "row-between", style: "gap: 8px; align-items: flex-start" },
-            el("div", {},
+          el("div", { class: "row-between", style: "gap: 12px; align-items: center" },
+            el("div", { style: "min-width: 0" },
               el("div", { class: "card-title", style: "margin: 0 0 4px 0" }, "Repeat last session"),
-              el("div", { class: "text-sm" }, last.name || "Workout"),
-              el("div", { class: "text-xs text-faint mt-8" },
-                `${U.formatDate(last.date)} · ${exCount} exercise${exCount === 1 ? "" : "s"}` +
-                (setCount ? ` · ${setCount} logged set${setCount === 1 ? "" : "s"}` : "")
-              ),
-              el("div", { class: "text-xs text-muted mt-8 session-speed-preview" }, names + more)
-            )
-          ),
-          el("p", { class: "text-xs text-faint mt-8 mb-8" },
-            "Copies exercises and last loads. Nothing is marked done — tick sets as you go."),
-          el("button", {
-            class: "btn btn-primary btn-block",
-            on: { click: () => startFromLastWorkout(last) }
-          }, el("span", { html: icons.play }), "Start from last time")
+              el("div", { class: "text-xs text-muted session-speed-preview" },
+                (last.name ? last.name + " · " : "") + names + more)
+            ),
+            el("button", {
+              class: "btn btn-primary btn-sm",
+              style: "flex: none",
+              on: { click: () => startFromLastWorkout(last) }
+            }, "Start")
+          )
         ));
       }
 
@@ -2195,13 +2197,8 @@
         el("span", { class: "text-xs text-faint" }, "Save routines when you finish a workout")
       ));
       if (templates.length === 0) {
-        tplCard.appendChild(emptyState({
-          compact: true,
-          body: "No templates yet. Finish a workout and you will be offered to save it as a template.",
-          primaryLabel: "Start empty workout",
-          onPrimary: () => startNewWorkout(),
-          primaryTestId: "empty-templates-start"
-        }));
+        tplCard.appendChild(el("p", { class: "text-sm text-faint", style: "margin: 8px 0" },
+          "No templates yet. Build one below, or finish a workout and save it as a template."));
       } else {
         const grid = el("div", { class: "template-grid" });
         for (const t of templates.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))) {
@@ -3933,49 +3930,56 @@
     openModal("New custom exercise", body, footer);
   }
 
+  /** Build the search + category-filter + exercise-grid UI. Reused by the
+      "Add exercise" modal and the inline start-a-workout screen.
+      onPick(id, name) fires when a card is tapped. Returns { body, refresh, focus }. */
+  function buildExercisePickerUI(all, onPick) {
+    const searchI = el("input", { class: "input", placeholder: "Search exercises…" });
+    const grid = el("div", { class: "exercise-grid" });
+    const filterRow = el("div", { class: "filter-row" });
+    let activeCat = "all";
+    for (const c of ["all", ...Object.keys(EXERCISE_CATEGORIES)]) {
+      const chip = el("button", {
+        class: "filter-chip" + (c === "all" ? " active" : ""),
+        on: { click: () => {
+          activeCat = c;
+          filterRow.querySelectorAll(".filter-chip").forEach(x => x.classList.remove("active"));
+          chip.classList.add("active");
+          refresh();
+        } }
+      }, c === "all" ? "All" : EXERCISE_CATEGORIES[c]);
+      filterRow.appendChild(chip);
+    }
+    function refresh() {
+      const q = searchI.value.trim().toLowerCase();
+      clear(grid);
+      const filtered = all.filter(ex => {
+        const catOk = activeCat === "all" || ex.category === activeCat;
+        if (!catOk) return false;
+        if (!q) return true;
+        return ex.name.toLowerCase().includes(q) || (ex.muscles || []).some(m => m.toLowerCase().includes(q));
+      });
+      for (const ex of filtered.slice(0, 100)) {
+        grid.appendChild(el("div", {
+          class: "exercise-card",
+          on: { click: () => onPick(ex.id, ex.name) }
+        },
+          el("div", { class: "exercise-card-name" }, ex.name),
+          el("div", { class: "exercise-card-meta" }, `${EXERCISE_CATEGORIES[ex.category]} · ${ex.equipment || "—"}`)
+        ));
+      }
+    }
+    searchI.addEventListener("input", U.debounce(refresh, 100));
+    const body = el("div", {}, searchI, filterRow, grid);
+    return { body, refresh, focus: () => searchI.focus() };
+  }
+
   function openExercisePicker(onPick) {
-    // Reuse library rendering in modal
     getAllExercises().then(all => {
-      const searchI = el("input", { class: "input", placeholder: "Search exercises…", autofocus: true });
-      const grid = el("div", { class: "exercise-grid" });
-      const filterRow = el("div", { class: "filter-row" });
-      let activeCat = "all";
-      for (const c of ["all", ...Object.keys(EXERCISE_CATEGORIES)]) {
-        const chip = el("button", {
-          class: "filter-chip" + (c === "all" ? " active" : ""),
-          on: { click: () => {
-            activeCat = c;
-            filterRow.querySelectorAll(".filter-chip").forEach(x => x.classList.remove("active"));
-            chip.classList.add("active");
-            refresh();
-          } }
-        }, c === "all" ? "All" : EXERCISE_CATEGORIES[c]);
-        filterRow.appendChild(chip);
-      }
-      function refresh() {
-        const q = searchI.value.trim().toLowerCase();
-        clear(grid);
-        const filtered = all.filter(ex => {
-          const catOk = activeCat === "all" || ex.category === activeCat;
-          if (!catOk) return false;
-          if (!q) return true;
-          return ex.name.toLowerCase().includes(q) || (ex.muscles || []).some(m => m.toLowerCase().includes(q));
-        });
-        for (const ex of filtered.slice(0, 100)) {
-          grid.appendChild(el("div", {
-            class: "exercise-card",
-            on: { click: () => { closeModal(); onPick(ex.id, ex.name); } }
-          },
-            el("div", { class: "exercise-card-name" }, ex.name),
-            el("div", { class: "exercise-card-meta" }, `${EXERCISE_CATEGORIES[ex.category]} · ${ex.equipment || "—"}`)
-          ));
-        }
-      }
-      searchI.addEventListener("input", U.debounce(refresh, 100));
-      const body = el("div", {}, searchI, filterRow, grid);
-      openModal("Add exercise", body, null);
-      refresh();
-      setTimeout(() => searchI.focus(), 50);
+      const picker = buildExercisePickerUI(all, (id, name) => { closeModal(); onPick(id, name); });
+      openModal("Add exercise", picker.body, null);
+      picker.refresh();
+      setTimeout(picker.focus, 50);
     });
   }
 
