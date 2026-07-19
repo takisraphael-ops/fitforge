@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=59").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=60").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -3937,44 +3937,94 @@
   /** Build the search + category-filter + exercise-grid UI. Reused by the
       "Add exercise" modal and the inline start-a-workout screen.
       onPick(id, name) fires when a card is tapped. Returns { body, refresh, focus }. */
-  function buildExercisePickerUI(all, onPick) {
-    const searchI = el("input", { class: "input", placeholder: "Search exercises…" });
-    const grid = el("div", { class: "exercise-grid" });
-    const filterRow = el("div", { class: "filter-row" });
-    let activeCat = "all";
-    for (const c of ["all", ...Object.keys(EXERCISE_CATEGORIES)]) {
-      const chip = el("button", {
-        class: "filter-chip" + (c === "all" ? " active" : ""),
-        on: { click: () => {
-          activeCat = c;
-          filterRow.querySelectorAll(".filter-chip").forEach(x => x.classList.remove("active"));
-          chip.classList.add("active");
-          refresh();
-        } }
-      }, c === "all" ? "All" : EXERCISE_CATEGORIES[c]);
-      filterRow.appendChild(chip);
+  // Animated movement glyph per muscle group (adapted from the "Category Picker"
+  // Claude Design reference) — each mimics the motion that group trains.
+  function categoryGlyphHTML(cat) {
+    switch (cat) {
+      case "chest": return `<span class="xg xg-chest"><i class="xb"></i><i class="xb"></i></span>`;
+      case "back": return `<span class="xg xg-back"><i class="xside"></i><i class="xside"></i><i class="xb xbar"></i></span>`;
+      case "shoulders": return `<span class="xg xg-shoulders"><i class="xd"></i><i class="xc"></i><i class="xd"></i></span>`;
+      case "arms": return `<span class="xg xg-arms"><i class="xb"></i><i class="xd"></i></span>`;
+      case "legs": return `<span class="xg xg-legs"><i class="xleg"></i></span>`;
+      case "core": return `<span class="xg xg-core"><i class="xb"></i><i class="xd"></i></span>`;
+      case "cardio": return `<span class="xg xg-cardio"><i class="xripple"></i><i class="xd xbeat"></i></span>`;
+      case "full_body": return `<span class="xg xg-fb"><i class="xd"></i><i class="xfb"></i></span>`;
+      default: return `<span class="xg xg-all"><i class="xd"></i><i class="xd"></i><i class="xd"></i></span>`;
     }
-    function refresh() {
-      const q = searchI.value.trim().toLowerCase();
-      clear(grid);
-      const filtered = all.filter(ex => {
-        const catOk = activeCat === "all" || ex.category === activeCat;
-        if (!catOk) return false;
-        if (!q) return true;
-        return ex.name.toLowerCase().includes(q) || (ex.muscles || []).some(m => m.toLowerCase().includes(q));
-      });
-      for (const ex of filtered.slice(0, 100)) {
-        grid.appendChild(el("div", {
-          class: "exercise-card",
-          on: { click: () => onPick(ex.id, ex.name) }
-        },
+  }
+
+  // Category-first exercise picker: choose a muscle group (animated tiles) → browse
+  // its exercises. A search box on top jumps straight to any exercise by name.
+  // Reused by both the start-a-workout screen and the in-workout "Add exercise" modal.
+  function buildExercisePickerUI(all, onPick) {
+    const BACK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>`;
+    let mode = "categories"; // "categories" | "exercises"
+    let activeCat = null;
+    const searchI = el("input", { class: "input", placeholder: "Search exercises…" });
+    const content = el("div", { class: "xpick-content" });
+
+    const catLabel = (c) => c === "all" ? "All" : EXERCISE_CATEGORIES[c];
+    const countFor = (c) => c === "all" ? all.length : all.filter(e => e.category === c).length;
+
+    function exerciseGrid(list) {
+      const grid = el("div", { class: "exercise-grid" });
+      if (!list.length) {
+        grid.appendChild(el("div", { class: "text-sm text-faint", style: "padding: 16px 4px" }, "No exercises found."));
+      }
+      for (const ex of list.slice(0, 150)) {
+        grid.appendChild(el("div", { class: "exercise-card", on: { click: () => onPick(ex.id, ex.name) } },
           el("div", { class: "exercise-card-name" }, ex.name),
           el("div", { class: "exercise-card-meta" }, `${EXERCISE_CATEGORIES[ex.category]} · ${ex.equipment || "—"}`)
         ));
       }
+      return grid;
     }
-    searchI.addEventListener("input", U.debounce(refresh, 100));
-    const body = el("div", {}, searchI, filterRow, grid);
+
+    function showCategories() {
+      clear(content);
+      const grid = el("div", { class: "xcat-grid" });
+      for (const c of ["all", ...Object.keys(EXERCISE_CATEGORIES)]) {
+        grid.appendChild(el("button", {
+          class: `xcat-tile xcat-${c}`, "data-testid": `xcat-${c}`,
+          on: { click: () => { activeCat = c; mode = "exercises"; showExercises(); } }
+        },
+          el("span", { class: "xcat-glyph", html: categoryGlyphHTML(c) }),
+          el("span", { class: "xcat-name" }, catLabel(c)),
+          el("span", { class: "xcat-count" }, `${countFor(c)}`)
+        ));
+      }
+      content.appendChild(grid);
+    }
+
+    function showExercises() {
+      clear(content);
+      content.appendChild(el("button", {
+        class: "xpick-back", "data-testid": "xpick-back",
+        on: { click: () => { mode = "categories"; activeCat = null; showCategories(); } }
+      }, el("span", { class: "xpick-back-ic", html: BACK }), catLabel(activeCat)));
+      const list = all.filter(e => activeCat === "all" || e.category === activeCat);
+      content.appendChild(exerciseGrid(list));
+    }
+
+    function showSearch(q) {
+      clear(content);
+      const matches = all.filter(ex =>
+        ex.name.toLowerCase().includes(q) ||
+        (ex.muscles || []).some(m => m.toLowerCase().includes(q)) ||
+        (ex.equipment || "").toLowerCase().includes(q));
+      content.appendChild(el("div", { class: "xpick-search-head" }, `${matches.length} result${matches.length === 1 ? "" : "s"}`));
+      content.appendChild(exerciseGrid(matches));
+    }
+
+    function refresh() {
+      const q = searchI.value.trim().toLowerCase();
+      if (q) showSearch(q);
+      else if (mode === "exercises" && activeCat) showExercises();
+      else showCategories();
+    }
+
+    searchI.addEventListener("input", U.debounce(refresh, 120));
+    const body = el("div", { class: "xpick" }, searchI, content);
     return { body, refresh, focus: () => searchI.focus() };
   }
 
