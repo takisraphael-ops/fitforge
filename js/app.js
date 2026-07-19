@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=61").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=62").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -3937,7 +3937,18 @@
   /** Build the search + category-filter + exercise-grid UI. Reused by the
       "Add exercise" modal and the inline start-a-workout screen.
       onPick(id, name) fires when a card is tapped. Returns { body, refresh, focus }. */
-  // Clean line icon per muscle group — a recognizable gym symbol, static.
+  // Category tile visual: a custom PNG asset (icons/categories/<cat>.png) if one
+  // exists, otherwise fall back to the built-in line icon. Missing files 404 →
+  // onerror swaps in the SVG, so nothing looks broken while assets are added.
+  function categoryIconNode(cat) {
+    const span = el("span", { class: "xcat-glyph" });
+    const img = el("img", { class: "xcat-img", alt: "", src: `./icons/categories/${cat}.png` });
+    img.addEventListener("error", () => { span.innerHTML = categoryGlyphHTML(cat); }, { once: true });
+    span.appendChild(img);
+    return span;
+  }
+
+  // Clean line icon per muscle group — a recognizable gym symbol, static (fallback).
   function categoryGlyphHTML(cat) {
     const svg = (paths) => `<svg class="xcat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
     switch (cat) {
@@ -3997,7 +4008,7 @@
           class: `xcat-tile xcat-${c}`, "data-testid": `xcat-${c}`,
           on: { click: () => { activeCat = c; mode = "exercises"; showExercises(); } }
         },
-          el("span", { class: "xcat-glyph", html: categoryGlyphHTML(c) }),
+          categoryIconNode(c),
           el("span", { class: "xcat-name" }, catLabel(c)),
           el("span", { class: "xcat-count" }, `${countFor(c)}`)
         ));
