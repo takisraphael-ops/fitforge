@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=54").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=55").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1274,36 +1274,37 @@
 
   function openQuickSheet() {
     if (state.tab === "workout") { renderMain(); window.scrollTo(0, 0); return; }
-    const overlay = el("div", { class: "modal-overlay quick-sheet-overlay", on: { click: (e) => { if (e.target === overlay) overlay.remove(); } } });
-    const go = (tab) => { overlay.remove(); goTab(tab); window.scrollTo(0, 0); };
-    // Animated marks — dumbbell "reps" on the workout tile, steam rises off the meal bowl.
+    // Full-screen "fork in the road" — the screen splits down the middle into
+    // two paths. Covers the app; dismiss with the close button or Escape.
+    const overlay = el("div", { class: "qa-fork-overlay", "data-testid": "quick-sheet", role: "dialog", "aria-label": "Quick actions" });
+    function onKey(e) { if (e.key === "Escape") { e.preventDefault(); close(); } }
+    const close = () => { document.removeEventListener("keydown", onKey, true); overlay.remove(); };
+    document.addEventListener("keydown", onKey, true);
+    const go = (tab) => { close(); goTab(tab); window.scrollTo(0, 0); };
+    // Animated marks — dumbbell "reps" on the workout path, steam rises off the meal bowl.
     const DUMBBELL_ART = `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><g class="qa2-dumbbell" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><line x1="18" y1="24" x2="30" y2="24"/><line x1="13" y1="18" x2="13" y2="30"/><line x1="8.5" y1="21" x2="8.5" y2="27"/><line x1="35" y1="18" x2="35" y2="30"/><line x1="39.5" y1="21" x2="39.5" y2="27"/></g></svg>`;
     const MEAL_ART = `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><g class="qa2-steam" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M18 15c-2.5-2-2.5-4 0-6"/><path d="M24 15c-2.5-2-2.5-4 0-6"/><path d="M30 15c-2.5-2-2.5-4 0-6"/></g><path d="M9 25h30a15 15 0 0 1-30 0z" fill="currentColor" fill-opacity="0.16"/><path d="M9 25h30a15 15 0 0 1-30 0z" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><line x1="7" y1="25" x2="41" y2="25" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>`;
-    const sheet = el("div", { class: "modal modal-sm quick-sheet", "data-testid": "quick-sheet" },
-      el("div", { class: "qa2-grid" },
-        el("button", {
-          class: "qa2-tile qa2-workout", "data-testid": "quick-start-workout",
-          on: { click: () => go("workout") }
-        },
-          el("span", { class: "qa2-tile-inner" },
-            el("span", { class: "qa2-art", html: DUMBBELL_ART }),
-            el("span", { class: "qa2-label" }, state.activeWorkout ? "Resume workout" : "Start workout"),
-            el("span", { class: "qa2-sub" }, state.activeWorkout ? "Pick up where you left off" : "Pick an exercise to begin")
-          )
-        ),
-        el("button", {
-          class: "qa2-tile qa2-meal", "data-testid": "quick-log-meal",
-          on: { click: () => { overlay.remove(); openQuickAdd(); } }
-        },
-          el("span", { class: "qa2-tile-inner" },
-            el("span", { class: "qa2-art", html: MEAL_ART }),
-            el("span", { class: "qa2-label" }, "Log meal"),
-            el("span", { class: "qa2-sub" }, "Add food to today")
-          )
-        )
-      )
+    const CLOSE_ART = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>`;
+    const workoutPanel = el("button", {
+      class: "qa-fork-panel qa2-workout", "data-testid": "quick-start-workout",
+      on: { click: () => go("workout") }
+    },
+      el("span", { class: "qa2-art", html: DUMBBELL_ART }),
+      el("span", { class: "qa2-label" }, state.activeWorkout ? "Resume workout" : "Start workout"),
+      el("span", { class: "qa2-sub" }, state.activeWorkout ? "Pick up where you left off" : "Pick an exercise to begin")
     );
-    overlay.appendChild(sheet);
+    const mealPanel = el("button", {
+      class: "qa-fork-panel qa2-meal", "data-testid": "quick-log-meal",
+      on: { click: () => { close(); openQuickAdd(); } }
+    },
+      el("span", { class: "qa2-art", html: MEAL_ART }),
+      el("span", { class: "qa2-label" }, "Log meal"),
+      el("span", { class: "qa2-sub" }, "Add food to today")
+    );
+    overlay.appendChild(workoutPanel);
+    overlay.appendChild(mealPanel);
+    overlay.appendChild(el("span", { class: "qa-fork-or" }, "or"));
+    overlay.appendChild(el("button", { class: "qa-fork-close", "aria-label": "Close", title: "Close", html: CLOSE_ART, on: { click: close } }));
     document.body.appendChild(overlay);
   }
 

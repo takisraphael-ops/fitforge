@@ -2557,31 +2557,53 @@ input:disabled.input,
 .dock-fab:active { transform: scale(0.94); }
 
 /* Quick action sheet */
-.quick-sheet-overlay { align-items: flex-end; padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px)); }
-.quick-sheet { max-width: 420px; }
-.qa2-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 14px; }
-.qa2-tile {
-  display: flex; align-items: stretch; justify-content: center;
-  min-height: 158px; padding: 20px 14px;
-  border-radius: 18px; border: 1px solid var(--border);
-  background: var(--card-sheen), var(--bg-elev);
-  cursor: pointer;
-  transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease;
+/* ===== Quick Actions — full-screen "fork in the road" ===== */
+.qa-fork-overlay {
+  position: fixed; inset: 0; z-index: 2000;
+  display: flex; align-items: stretch;
+  background: var(--bg);
+  animation: qaForkFade .2s ease;
 }
-.qa2-tile:hover { border-color: var(--accent); transform: translateY(-3px); box-shadow: var(--glow); }
-.qa2-tile:active { transform: translateY(-1px) scale(.985); }
-.qa2-tile-inner {
+.qa-fork-panel {
+  flex: 1 1 50%; min-width: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 12px; text-align: center;
-  animation: qaTileIn .34s ease both;
+  gap: 16px;
+  padding: calc(24px + env(safe-area-inset-top, 0px)) 20px calc(24px + env(safe-area-inset-bottom, 0px));
+  border: none; background: var(--bg-elev); color: var(--text);
+  cursor: pointer; position: relative;
+  transition: flex-grow .35s cubic-bezier(.22, 1, .36, 1), background .25s ease;
 }
-.qa2-grid .qa2-tile:nth-child(2) .qa2-tile-inner { animation-delay: .07s; }
-.qa2-art { width: 58px; height: 58px; color: var(--accent); }
+.qa-fork-panel.qa2-meal { border-left: 1px solid var(--border); }
+.qa-fork-panel:active { background: var(--accent-soft); }
+.qa2-workout { animation: qaForkLeft .32s cubic-bezier(.22, 1, .36, 1) both; }
+.qa2-meal { animation: qaForkRight .32s cubic-bezier(.22, 1, .36, 1) both; }
+@media (hover: hover) {
+  .qa-fork-panel:hover { background: var(--accent-soft); flex-grow: 1.3; }
+}
+.qa-fork-panel .qa2-art { width: 92px; height: 92px; color: var(--accent); }
 .qa2-art svg { width: 100%; height: 100%; display: block; overflow: visible; }
-.qa2-label { font-weight: 650; font-size: 16px; letter-spacing: -.01em; }
-.qa2-sub { font-size: 12px; color: var(--text-muted); line-height: 1.35; }
+.qa-fork-panel .qa2-label { font-weight: 700; font-size: 22px; letter-spacing: -.01em; }
+.qa-fork-panel .qa2-sub { font-size: 13.5px; color: var(--text-muted); line-height: 1.4; max-width: 16ch; text-align: center; }
 
-/* Idle-once on open; loop on hover (pointer devices) */
+.qa-fork-or {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 2;
+  width: 42px; height: 42px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg); border: 1px solid var(--border);
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--text-muted); pointer-events: none;
+}
+.qa-fork-close {
+  position: absolute; top: calc(14px + env(safe-area-inset-top, 0px)); right: 16px; z-index: 3;
+  width: 40px; height: 40px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-sunken); border: 1px solid var(--border); color: var(--text-muted);
+  cursor: pointer; transition: color .15s ease, border-color .15s ease;
+}
+.qa-fork-close svg { width: 20px; height: 20px; }
+.qa-fork-close:hover { color: var(--text); border-color: var(--border-strong); }
+
+/* Icon motion — once on open, loop on hover (pointer devices) */
 .qa2-dumbbell { transform-origin: 24px 24px; animation: qaRep .9s ease-in-out 1; }
 .qa2-steam path { opacity: 0; animation: qaSteam 1.3s ease-in-out 1; }
 .qa2-steam path:nth-child(2) { animation-delay: .16s; }
@@ -2592,12 +2614,14 @@ input:disabled.input,
   .qa2-meal:hover .qa2-steam path:nth-child(2) { animation-delay: .16s; }
   .qa2-meal:hover .qa2-steam path:nth-child(3) { animation-delay: .32s; }
 }
-@keyframes qaTileIn { from { opacity: 0; transform: translateY(12px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes qaForkFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes qaForkLeft { from { opacity: 0; transform: translateX(-26px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes qaForkRight { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes qaRep { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-5px) rotate(-8deg); } }
 @keyframes qaSteam { 0% { opacity: 0; transform: translateY(4px); } 45% { opacity: .85; } 100% { opacity: 0; transform: translateY(-7px); } }
 @media (prefers-reduced-motion: reduce) {
-  .qa2-tile-inner, .qa2-dumbbell, .qa2-steam path { animation: none !important; }
-  .qa2-tile:hover { transform: none; }
+  .qa2-workout, .qa2-meal, .qa2-dumbbell, .qa2-steam path { animation: none !important; }
+  .qa-fork-panel:hover { flex-grow: 1; }
   .qa2-steam path { opacity: .7; }
 }
 
