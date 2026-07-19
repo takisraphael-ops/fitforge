@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=60").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=61").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -3937,19 +3937,28 @@
   /** Build the search + category-filter + exercise-grid UI. Reused by the
       "Add exercise" modal and the inline start-a-workout screen.
       onPick(id, name) fires when a card is tapped. Returns { body, refresh, focus }. */
-  // Animated movement glyph per muscle group (adapted from the "Category Picker"
-  // Claude Design reference) — each mimics the motion that group trains.
+  // Clean line icon per muscle group — a recognizable gym symbol, static.
   function categoryGlyphHTML(cat) {
+    const svg = (paths) => `<svg class="xcat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
     switch (cat) {
-      case "chest": return `<span class="xg xg-chest"><i class="xb"></i><i class="xb"></i></span>`;
-      case "back": return `<span class="xg xg-back"><i class="xside"></i><i class="xside"></i><i class="xb xbar"></i></span>`;
-      case "shoulders": return `<span class="xg xg-shoulders"><i class="xd"></i><i class="xc"></i><i class="xd"></i></span>`;
-      case "arms": return `<span class="xg xg-arms"><i class="xb"></i><i class="xd"></i></span>`;
-      case "legs": return `<span class="xg xg-legs"><i class="xleg"></i></span>`;
-      case "core": return `<span class="xg xg-core"><i class="xb"></i><i class="xd"></i></span>`;
-      case "cardio": return `<span class="xg xg-cardio"><i class="xripple"></i><i class="xd xbeat"></i></span>`;
-      case "full_body": return `<span class="xg xg-fb"><i class="xd"></i><i class="xfb"></i></span>`;
-      default: return `<span class="xg xg-all"><i class="xd"></i><i class="xd"></i><i class="xd"></i></span>`;
+      case "chest": // bench press — barbell over a bench
+        return svg(`<line x1="4" y1="7" x2="20" y2="7"/><line x1="7" y1="4.5" x2="7" y2="9.5"/><line x1="17" y1="4.5" x2="17" y2="9.5"/><line x1="6" y1="14" x2="18" y2="14"/><line x1="8" y1="14" x2="8" y2="19"/><line x1="16" y1="14" x2="16" y2="19"/>`);
+      case "back": // pull-up bar with hanging handles
+        return svg(`<line x1="3" y1="5" x2="21" y2="5"/><line x1="8" y1="5" x2="8" y2="12.5"/><line x1="16" y1="5" x2="16" y2="12.5"/><line x1="6.5" y1="13" x2="9.5" y2="13"/><line x1="14.5" y1="13" x2="17.5" y2="13"/>`);
+      case "shoulders": // overhead press — barbell pushed up
+        return svg(`<line x1="5" y1="6" x2="19" y2="6"/><line x1="8" y1="3.5" x2="8" y2="8.5"/><line x1="16" y1="3.5" x2="16" y2="8.5"/><polyline points="8.5 15 12 11.5 15.5 15"/><line x1="12" y1="11.5" x2="12" y2="20"/>`);
+      case "arms": // dumbbell
+        return svg(`<line x1="3.5" y1="12" x2="20.5" y2="12"/><line x1="6.5" y1="8" x2="6.5" y2="16"/><line x1="3.8" y1="9.5" x2="3.8" y2="14.5"/><line x1="17.5" y1="8" x2="17.5" y2="16"/><line x1="20.2" y1="9.5" x2="20.2" y2="14.5"/>`);
+      case "legs": // two legs with feet under a hip bar
+        return svg(`<line x1="6" y1="4.5" x2="18" y2="4.5"/><line x1="9" y1="4.5" x2="9" y2="17"/><line x1="15" y1="4.5" x2="15" y2="17"/><line x1="9" y1="17.5" x2="6" y2="17.5"/><line x1="15" y1="17.5" x2="18" y2="17.5"/>`);
+      case "core": // torso with ab divisions
+        return svg(`<rect x="7" y="4" width="10" height="16" rx="4"/><line x1="7.5" y1="10" x2="16.5" y2="10"/><line x1="7.5" y1="14" x2="16.5" y2="14"/><line x1="12" y1="5" x2="12" y2="19"/>`);
+      case "cardio": // heart with a pulse line
+        return svg(`<path d="M12 20s-6.5-4.2-6.5-9.2A3.7 3.7 0 0 1 12 8a3.7 3.7 0 0 1 6.5 2.8C18.5 15.8 12 20 12 20z"/><polyline points="6 12.2 9 12.2 10.6 9.6 12.4 14.6 14 12.2 18 12.2"/>`);
+      case "full_body": // standing figure
+        return svg(`<circle cx="12" cy="5" r="2.1"/><line x1="12" y1="7.5" x2="12" y2="14.5"/><line x1="12" y1="10" x2="8" y2="12.5"/><line x1="12" y1="10" x2="16" y2="12.5"/><line x1="12" y1="14.5" x2="9" y2="20"/><line x1="12" y1="14.5" x2="15" y2="20"/>`);
+      default: // all — grid
+        return svg(`<rect x="3.5" y="3.5" width="7.5" height="7.5" rx="2"/><rect x="13" y="3.5" width="7.5" height="7.5" rx="2"/><rect x="3.5" y="13" width="7.5" height="7.5" rx="2"/><rect x="13" y="13" width="7.5" height="7.5" rx="2"/>`);
     }
   }
 

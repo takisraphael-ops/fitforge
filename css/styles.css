@@ -2935,76 +2935,22 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .xpick-back-ic svg { width: 16px; height: 16px; }
 .xpick-search-head { font-size: 12px; color: var(--text-faint); margin: 2px 2px 8px; }
 
-/* Movement glyphs */
-.xg { width: 34px; height: 34px; position: relative; display: flex; align-items: center; justify-content: center; color: var(--accent); }
-.xg i { display: block; background: currentColor; }
-.xg .xb, .xg .xc, .xg .xleg, .xg .xside, .xg .xfb, .xg .xbar { border-radius: 3px; }
-.xg .xd { border-radius: 50%; }
-.xg-chest { gap: 8px; }
-.xg-chest .xb { width: 5px; height: 22px; }
-.xg-back .xside { position: absolute; top: 50%; margin-top: -13px; width: 3px; height: 26px; border-radius: 2px; opacity: .35; }
-.xg-back .xside:nth-child(1) { left: 5px; }
-.xg-back .xside:nth-child(2) { right: 5px; }
-.xg-back .xbar { width: 22px; height: 6px; }
-.xg-shoulders { align-items: flex-end; gap: 6px; }
-.xg-shoulders .xd { width: 10px; height: 10px; }
-.xg-shoulders .xc { width: 7px; height: 16px; opacity: .5; }
-.xg-arms { flex-direction: column; }
-.xg-arms .xb { width: 7px; height: 20px; transform-origin: bottom center; }
-.xg-arms .xd { width: 7px; height: 7px; margin-top: 1px; opacity: .55; }
-.xg-legs .xleg { width: 16px; height: 22px; border-radius: 5px; transform-origin: bottom center; }
-.xg-core .xb { width: 22px; height: 8px; border-radius: 4px; }
-.xg-core .xd { position: absolute; top: 50%; left: 50%; margin: -2.5px 0 0 -2.5px; width: 5px; height: 5px; opacity: .5; }
-.xg-cardio .xripple { position: absolute; top: 50%; left: 50%; margin: -12px 0 0 -12px; width: 24px; height: 24px; border-radius: 50%; border: 2px solid currentColor; background: transparent; }
-.xg-cardio .xbeat { width: 14px; height: 14px; }
-.xg-fb { flex-direction: column; gap: 2px; }
-.xg-fb .xd { width: 9px; height: 9px; }
-.xg-fb .xfb { width: 9px; height: 15px; border-radius: 4px; }
-.xg-all { gap: 5px; }
-.xg-all .xd { width: 8px; height: 8px; }
-
-/* Play once when tiles appear; loop on hover */
-.xg-all .xd:nth-child(1) { animation: gPulse .9s ease-in-out 1; }
-.xg-all .xd:nth-child(2) { animation: gPulse .9s ease-in-out .15s 1; }
-.xg-all .xd:nth-child(3) { animation: gPulse .9s ease-in-out .3s 1; }
-.xg-chest .xb:nth-child(1) { animation: gChestL .9s ease-in-out 1; }
-.xg-chest .xb:nth-child(2) { animation: gChestR .9s ease-in-out 1; }
-.xg-back .xbar { animation: gBack 1s ease-in-out 1; }
-.xg-shoulders .xd:nth-child(1) { animation: gRaise .9s ease-in-out 1; }
-.xg-shoulders .xd:nth-child(3) { animation: gRaise .9s ease-in-out .05s 1; }
-.xg-arms .xb { animation: gCurl 1s ease-in-out 1; }
-.xg-legs .xleg { animation: gSquat 1s ease-in-out 1; }
-.xg-core .xb { animation: gTwist 1.1s ease-in-out 1; }
-.xg-cardio .xripple { animation: gRipple 1.2s ease-out 1; }
-.xg-cardio .xbeat { animation: gBeat .9s ease-in-out 1; }
-.xg.xg-fb { animation: gBounce .8s ease-in-out 1; }
+/* Category icons — clean line marks, static; gentle scale on hover */
+.xcat-glyph { display: inline-flex; align-items: center; justify-content: center; height: 34px; }
+.xcat-icon { width: 30px; height: 30px; color: var(--accent); transition: transform .16s ease; }
+.xcat-tile { animation: xcatIn .28s ease both; }
+.xcat-grid .xcat-tile:nth-child(2) { animation-delay: .03s; }
+.xcat-grid .xcat-tile:nth-child(3) { animation-delay: .06s; }
+.xcat-grid .xcat-tile:nth-child(4) { animation-delay: .09s; }
+.xcat-grid .xcat-tile:nth-child(5) { animation-delay: .12s; }
+.xcat-grid .xcat-tile:nth-child(6) { animation-delay: .15s; }
+.xcat-grid .xcat-tile:nth-child(7) { animation-delay: .18s; }
+.xcat-grid .xcat-tile:nth-child(8) { animation-delay: .21s; }
+.xcat-grid .xcat-tile:nth-child(9) { animation-delay: .24s; }
 @media (hover: hover) {
-  .xcat-tile:hover .xg-all .xd:nth-child(1) { animation: gPulse .9s ease-in-out infinite; }
-  .xcat-tile:hover .xg-all .xd:nth-child(2) { animation: gPulse .9s ease-in-out .15s infinite; }
-  .xcat-tile:hover .xg-all .xd:nth-child(3) { animation: gPulse .9s ease-in-out .3s infinite; }
-  .xcat-tile:hover .xg-chest .xb:nth-child(1) { animation: gChestL .9s ease-in-out infinite; }
-  .xcat-tile:hover .xg-chest .xb:nth-child(2) { animation: gChestR .9s ease-in-out infinite; }
-  .xcat-tile:hover .xg-back .xbar { animation: gBack 1s ease-in-out infinite; }
-  .xcat-tile:hover .xg-shoulders .xd:nth-child(1) { animation: gRaise .9s ease-in-out infinite; }
-  .xcat-tile:hover .xg-shoulders .xd:nth-child(3) { animation: gRaise .9s ease-in-out .05s infinite; }
-  .xcat-tile:hover .xg-arms .xb { animation: gCurl 1s ease-in-out infinite; }
-  .xcat-tile:hover .xg-legs .xleg { animation: gSquat 1s ease-in-out infinite; }
-  .xcat-tile:hover .xg-core .xb { animation: gTwist 1.1s ease-in-out infinite; }
-  .xcat-tile:hover .xg-cardio .xripple { animation: gRipple 1.2s ease-out infinite; }
-  .xcat-tile:hover .xg-cardio .xbeat { animation: gBeat .9s ease-in-out infinite; }
-  .xcat-tile:hover .xg.xg-fb { animation: gBounce .8s ease-in-out infinite; }
+  .xcat-tile:hover .xcat-icon { transform: scale(1.12); }
 }
-@keyframes gBeat { 0%,100% { transform: scale(1); } 28% { transform: scale(1.38); } 44% { transform: scale(1.06); } 60% { transform: scale(1.26); } }
-@keyframes gRipple { 0% { transform: scale(.5); opacity: .65; } 100% { transform: scale(1.75); opacity: 0; } }
-@keyframes gChestL { 0%,100% { transform: translateX(-3px); } 50% { transform: translateX(-10px); } }
-@keyframes gChestR { 0%,100% { transform: translateX(3px); } 50% { transform: translateX(10px); } }
-@keyframes gBack { 0%,100% { transform: translateY(-7px); } 50% { transform: translateY(5px); } }
-@keyframes gRaise { 0%,100% { transform: translateY(6px); } 50% { transform: translateY(-6px); } }
-@keyframes gCurl { 0%,100% { transform: rotate(14deg); } 50% { transform: rotate(-54deg); } }
-@keyframes gSquat { 0%,100% { transform: scaleY(1) translateY(0); } 50% { transform: scaleY(.58) translateY(6px); } }
-@keyframes gTwist { 0%,100% { transform: rotate(-22deg); } 50% { transform: rotate(22deg); } }
-@keyframes gBounce { 0%,100% { transform: translateY(4px) scaleY(.94); } 42% { transform: translateY(-10px) scaleY(1.06); } }
-@keyframes gPulse { 0%,100% { transform: scale(.65); opacity: .45; } 50% { transform: scale(1.1); opacity: 1; } }
+@keyframes xcatIn { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .xg i, .xg { animation: none !important; }
+  .xcat-tile, .xcat-icon { animation: none !important; transition: none !important; }
 }
