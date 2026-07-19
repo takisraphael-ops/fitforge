@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
-  <link rel="stylesheet" href="./css/styles.css?v=52" />
+  <link rel="stylesheet" href="./css/styles.css?v=53" />
 </head>
 <body>
   <!-- Launch splash — orbit mark, plays once per load then fades into the app -->
@@ -32,7 +32,7 @@
       var s = document.getElementById("splash");
       if (!s) return;
       var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      var hold = reduce ? 300 : 5000;
+      var hold = reduce ? 300 : 3500;
       var t;
       function done() {
         clearTimeout(t);
@@ -49,12 +49,12 @@
     <main id="main"></main>
   </div>
   <!-- Cache-bust query so PWA clients cannot stick on old JS -->
-  <script src="./data/exercises.js?v=52"></script>
-  <script src="./data/meals.js?v=52"></script>
-  <script src="./js/meal-search.js?v=52"></script>
-  <script src="./js/utils.js?v=52"></script>
-  <script src="./js/storage.js?v=52"></script>
-  <script src="./js/body-map.js?v=52"></script>
-  <script src="./js/app.js?v=52"></script>
+  <script src="./data/exercises.js?v=53"></script>
+  <script src="./data/meals.js?v=53"></script>
+  <script src="./js/meal-search.js?v=53"></script>
+  <script src="./js/utils.js?v=53"></script>
+  <script src="./js/storage.js?v=53"></script>
+  <script src="./js/body-map.js?v=53"></script>
+  <script src="./js/app.js?v=53"></script>
 </body>
 </html>
