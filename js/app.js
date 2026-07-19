@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=62").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=63").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1442,6 +1442,8 @@
     const wI = el("input", { type: "number", step: "0.1", inputmode: "decimal",
       class: "input input-num", placeholder: latest ? `${latest.kg}` : "kg",
       value: todayEntry?.kg ?? "", style: "max-width: 140px" });
+    // Tap-first numeric keypad, same as logging reps/weight in a workout.
+    attachNumPad(wI, { decimals: true, step: 0.1, unit: "kg", label: "Log bodyweight" });
     const saveBtn = el("button", { class: "btn btn-primary btn-sm", on: { click: async () => {
       const kg = parseFloat(wI.value);
       if (isNaN(kg) || kg <= 0) return toast("Enter a valid weight");
