@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=80").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=81").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1179,7 +1179,7 @@
         title: it.label,
         "data-testid": "dock-" + it.id,
         html: it.icon,
-        on: { click: () => { nutritionScrollKey = null; state.tab = it.id; renderMain(); window.scrollTo(0, 0); } }
+        on: { click: () => { nutritionScrollKey = null; workoutScrollIdx = 0; state.tab = it.id; renderMain(); window.scrollTo(0, 0); } }
       }));
     }
     document.body.appendChild(dock);
@@ -2329,53 +2329,197 @@
       return;
     }
 
-    const w = state.activeWorkout;
+    await renderActiveWorkout(view);
+  }
 
-    // Header — name, timer, actions
+  // Full-screen celebration overlay. Tap anywhere or the CTA to continue.
+  const EX_CHEERS = [
+    { e: "💪", t: "Crushed it!" }, { e: "🔥", t: "On fire!" },
+    { e: "😤", t: "Strong work!" }, { e: "⚡", t: "Electric!" },
+    { e: "🎯", t: "Dialled in!" }, { e: "🚀", t: "Keep climbing!" },
+    { e: "🦁", t: "Beast mode!" }, { e: "👏", t: "Well done!" }
+  ];
+  function showCelebration({ emoji, title, message, stats, ctaLabel = "Continue", onContinue, big = false }) {
+    const prev = document.getElementById("celebration");
+    if (prev) prev.remove();
+    const overlay = el("div", { id: "celebration", class: "celebration" + (big ? " celebration-big" : "") });
+    let fired = false;
+    const done = () => {
+      if (fired) return; fired = true;
+      overlay.classList.add("out");
+      setTimeout(() => overlay.remove(), 240);
+      if (onContinue) onContinue();
+    };
+    const inner = el("div", { class: "celebration-inner" },
+      el("div", { class: "celebration-emoji" }, emoji),
+      el("div", { class: "celebration-title" }, title),
+      message ? el("div", { class: "celebration-msg" }, message) : null,
+      (stats && stats.length) ? el("div", { class: "celebration-stats" },
+        ...stats.map(s => el("div", { class: "celebration-stat" },
+          el("div", { class: "celebration-stat-val" }, s.value),
+          el("div", { class: "celebration-stat-lbl" }, s.label)
+        ))
+      ) : null,
+      el("button", { class: "btn btn-primary btn-block celebration-cta", on: { click: (e) => { e.stopPropagation(); done(); } } }, ctaLabel)
+    );
+    overlay.appendChild(inner);
+    overlay.addEventListener("click", done);
+    document.body.appendChild(overlay);
+  }
+
+  // Active workout as a vertical card pager — one card per exercise (or per
+  // superset group), a Finish card at the end, celebrations on completion.
+  async function renderActiveWorkout(view) {
+    const w = state.activeWorkout;
+    const exs = w.exercises || [];
+
+    // Group consecutive exercises that share a supersetGroup into one card.
+    const cards = [];
+    for (let i = 0; i < exs.length; i++) {
+      const g = exs[i].supersetGroup;
+      const last = cards[cards.length - 1];
+      if (g && last && last.group === g) last.idxs.push(i);
+      else cards.push({ group: g || null, idxs: [i] });
+    }
+    const totalCards = cards.length;
+    const panelCount = totalCards + 1; // + Finish card
+
+    const screen = el("div", { class: "wpager-screen" });
+
+    // Slim top bar: name + timer + Finish
     const timeElapsed = Math.floor((Date.now() - w.startedAt) / 1000);
-    view.appendChild(el("div", { class: "workout-header" },
-      el("div", {},
-        el("h1", { style: "font-size: 24px;" }, w.name || "Workout"),
-        el("div", { class: "text-xs text-faint mt-8" }, U.formatDate(w.date, { weekday: "long" }))
+    screen.appendChild(el("div", { class: "wtopbar" },
+      el("div", { class: "wtopbar-main" },
+        el("div", { class: "wtopbar-name" }, w.name || "Workout"),
+        el("div", { class: "workout-timer", id: "workout-elapsed" }, U.formatTime(timeElapsed))
       ),
-      el("div", { class: "row" },
-        el("div", { class: "workout-timer", id: "workout-elapsed" }, U.formatTime(timeElapsed)),
-        el("button", { class: "btn btn-primary", on: { click: finishWorkout } }, "Finish")
-      )
+      el("button", { class: "btn btn-primary btn-sm", on: { click: onFinishWorkout } }, "Finish")
     ));
 
-    // Workout-level notes (collapsed by default)
-    const notesArea = el("textarea", {
-      class: "input workout-notes",
-      placeholder: "Session notes (energy, sleep, how it felt)…",
-      rows: "2"
-    });
-    notesArea.value = w.notes || "";
-    const debouncedNotes = U.debounce(async () => {
-      w.notes = notesArea.value;
-      await Storage.saveWorkout(w);
-    }, 400);
-    notesArea.addEventListener("input", debouncedNotes);
-    view.appendChild(el("div", { class: "workout-notes-wrap" }, notesArea));
+    const pager = el("div", { class: "wpager", "data-testid": "wpager" });
+    const dots = el("div", { class: "wpager-dots" });
+    screen.appendChild(pager);
+    screen.appendChild(dots);
 
-    // Exercises
-    for (const [idx, ex] of (w.exercises || []).entries()) {
-      view.appendChild(await renderExerciseBlock(ex, idx));
+    let activeIdx = 0;
+    function goToPanel(i) {
+      const p = pager.children[i];
+      if (p) { workoutScrollIdx = i; pager.scrollTo({ top: p.offsetTop, behavior: "smooth" }); }
+    }
+    function renderDots() {
+      clear(dots);
+      for (let i = 0; i < panelCount; i++) {
+        const finished = i < totalCards && cards[i].idxs.every(x => exs[x].finished);
+        dots.appendChild(el("button", {
+          class: "wdot" + (i === activeIdx ? " active" : "") + (finished ? " done" : ""),
+          type: "button", "data-idx": String(i), on: { click: () => goToPanel(i) }
+        }));
+      }
+    }
+    function syncDots() {
+      for (const d of Array.from(dots.children)) d.classList.toggle("active", Number(d.getAttribute("data-idx")) === activeIdx);
     }
 
-    // Add exercise
-    view.appendChild(el("button", { class: "btn btn-block mt-16", on: { click: () => openExercisePicker(async (items) => {
+    function finishCard(ci) {
+      for (const i of cards[ci].idxs) exs[i].finished = true;
+      Storage.saveWorkout(w);
+      const cheer = EX_CHEERS[Math.floor(Math.random() * EX_CHEERS.length)];
+      const remaining = cards.filter((c, i) => i !== ci && !c.idxs.every(x => exs[x].finished)).length;
+      showCelebration({
+        emoji: cheer.e,
+        title: cheer.t,
+        message: remaining > 0 ? `${remaining} exercise${remaining === 1 ? "" : "s"} to go` : "Last one done — finish up!",
+        ctaLabel: ci + 1 < totalCards ? "Next exercise" : "Review & finish",
+        onContinue: () => goToPanel(ci + 1)
+      });
+    }
+
+    async function onFinishWorkout() {
+      const doneSets = exs.reduce((s, e) => s + (e.sets || []).filter(x => x.done).length, 0);
+      if (!doneSets) { await finishWorkout(); return; }
+      const volume = Math.round(exs.reduce((s, e) => s + (e.sets || []).filter(x => x.done).reduce((a, x) => a + ((x.weight || 0) * (x.reps || 0)), 0), 0));
+      const kcal = workoutKcalTotal(w);
+      const dur = U.formatDuration(Math.floor((Date.now() - w.startedAt) / 1000));
+      showCelebration({
+        big: true,
+        emoji: "🎉",
+        title: "Workout complete!",
+        message: "Great session — logged and saved.",
+        stats: [
+          { value: String(doneSets), label: "sets" },
+          { value: volume > 0 ? volume.toLocaleString("en-GB") : "—", label: "kg volume" },
+          { value: kcal > 0 ? String(kcal) : "—", label: "kcal" },
+          { value: dur, label: "time" }
+        ],
+        ctaLabel: "Finish workout",
+        onContinue: () => { finishWorkout(); }
+      });
+    }
+
+    // ---- Exercise / superset cards ----
+    for (let ci = 0; ci < cards.length; ci++) {
+      const card = cards[ci];
+      const finished = card.idxs.every(i => exs[i].finished);
+      const panel = el("div", { class: "wpanel" + (finished ? " is-finished" : ""), "data-ci": String(ci) });
+      panel.appendChild(el("div", { class: "wpanel-eyebrow" },
+        card.group ? `SUPERSET · ${ci + 1} of ${totalCards}` : `EXERCISE ${ci + 1} of ${totalCards}`));
+      const bodyWrap = el("div", { class: "wpanel-body" });
+      for (const i of card.idxs) bodyWrap.appendChild(await renderExerciseBlock(exs[i], i));
+      panel.appendChild(bodyWrap);
+      const foot = el("div", { class: "wpanel-foot" });
+      foot.appendChild(el("button", {
+        class: "btn btn-block wfinish-btn" + (finished ? " is-done" : " btn-primary"),
+        on: { click: () => finishCard(ci) }
+      }, finished ? "✓ Done · Next" : (card.group ? "Finish superset" : "Finish exercise")));
+      panel.appendChild(foot);
+      pager.appendChild(panel);
+    }
+
+    // ---- Finish card ----
+    const fin = el("div", { class: "wpanel wpanel-finish" });
+    fin.appendChild(el("div", { class: "wpanel-eyebrow" }, "WRAP UP"));
+    fin.appendChild(el("h2", { class: "wfinish-title" }, "Finish workout"));
+    const finishedCount = cards.filter(c => c.idxs.every(x => exs[x].finished)).length;
+    fin.appendChild(el("div", { class: "wfinish-progress" }, `${finishedCount} of ${totalCards} exercises done`));
+    const notesArea = el("textarea", { class: "input workout-notes", placeholder: "Session notes (energy, sleep, how it felt)…", rows: "2" });
+    notesArea.value = w.notes || "";
+    notesArea.addEventListener("input", U.debounce(async () => { w.notes = notesArea.value; await Storage.saveWorkout(w); }, 400));
+    fin.appendChild(el("div", { class: "workout-notes-wrap" }, notesArea));
+    fin.appendChild(el("button", { class: "btn btn-block mt-8", on: { click: () => openExercisePicker(async (items) => {
       for (const it of items) w.exercises.push(await buildExerciseEntry(it.id, it.name));
       await Storage.saveWorkout(w);
       renderMain();
       toast(`Added ${items.length} exercise${items.length === 1 ? "" : "s"}`);
-    }, { existingIds: new Set((w.exercises || []).map(e => e.exerciseId)), title: "Add exercises" }) } },
-      el("span", { html: icons.plus }), "Add exercise"
-    ));
+    }, { existingIds: new Set(exs.map(e => e.exerciseId)), title: "Add exercises" }) } },
+      el("span", { html: icons.plus }), "Add exercise"));
+    fin.appendChild(el("button", { class: "btn btn-primary btn-block mt-8", on: { click: onFinishWorkout } }, "Finish workout"));
+    fin.appendChild(el("button", { class: "btn btn-ghost text-danger btn-block mt-8", on: { click: cancelWorkout } }, "Cancel workout"));
+    pager.appendChild(fin);
 
-    view.appendChild(el("div", { class: "row mt-16", style: "gap: 8px; justify-content: flex-end;" },
-      el("button", { class: "btn btn-ghost text-danger", on: { click: cancelWorkout } }, "Cancel workout")
-    ));
+    // ---- Dots + scroll sync ----
+    renderDots();
+    let sRAF = null;
+    pager.addEventListener("scroll", () => {
+      if (sRAF) return;
+      sRAF = requestAnimationFrame(() => {
+        sRAF = null;
+        const center = pager.scrollTop + pager.clientHeight / 2;
+        let best = 0, bd = Infinity;
+        for (let i = 0; i < pager.children.length; i++) {
+          const cc = pager.children[i].offsetTop + pager.children[i].offsetHeight / 2;
+          const d = Math.abs(cc - center);
+          if (d < bd) { bd = d; best = i; }
+        }
+        if (best !== activeIdx) { activeIdx = best; workoutScrollIdx = best; syncDots(); }
+      });
+    }, { passive: true });
+
+    view.appendChild(screen);
+    // Restore the card after an action re-render.
+    if (workoutScrollIdx > 0 && workoutScrollIdx < panelCount) {
+      const ri = workoutScrollIdx;
+      requestAnimationFrame(() => { if (pager.children[ri]) { pager.scrollTop = pager.children[ri].offsetTop; activeIdx = ri; syncDots(); } });
+    }
   }
 
   function suggestedName() {
@@ -2491,6 +2635,7 @@
   }
 
   async function beginWorkoutSession({ name, exercises, templateId = null, source = "empty", sourceWorkoutId = null }) {
+    workoutScrollIdx = 0;
     const workout = {
       id: U.uid(),
       name: (name || suggestedName()).trim() || suggestedName(),
@@ -4995,6 +5140,8 @@
   // Remembers which nutrition card was active so an action-triggered re-render
   // returns there instead of snapping back to Overview. Cleared on dock nav.
   let nutritionScrollKey = null;
+  // Same idea for the active-workout exercise pager (index of the active card).
+  let workoutScrollIdx = 0;
 
   // Redesigned nutrition tab: a vertical card pager — Overview, then one card
   // per meal section, then a Trends card. Swipe up/down; dots on the right.
