@@ -759,7 +759,7 @@ window.EXERCISE_DB = [
     variations: ["Double-unders", "Boxer skip", "High-knee skip", "Criss-cross"],
     alternatives: ["Running", "Rowing", "Burpees"] },
 
-  { id: "burpee", name: "Burpee", category: "cardio", met: 8.0, muscles: ["Full body"], equipment: "Bodyweight", technique: [
+  { id: "burpee", name: "Burpee", category: "full_body", met: 8.0, muscles: ["Full body"], equipment: "Bodyweight", technique: [
     "Stand tall with feet shoulder-width apart.",
     "Squat down and place hands on the floor.",
     "Jump the feet back to a plank / push-up position.",

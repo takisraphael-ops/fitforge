@@ -1716,7 +1716,12 @@ input:disabled.input,
 
   .set-row.type-cardio,
   .set-row-header.type-cardio {
-    grid-template-columns: 24px minmax(44px, 0.75fr) minmax(58px, 1fr) minmax(40px, 0.65fr) minmax(40px, 0.65fr) auto !important;
+    grid-template-columns: 24px minmax(44px, 1fr) minmax(40px, 0.7fr) minmax(40px, 0.7fr) auto !important;
+    gap: 4px;
+  }
+  .set-row.type-cardio.no-dist,
+  .set-row-header.type-cardio.no-dist {
+    grid-template-columns: 24px minmax(44px, 1fr) minmax(40px, 0.7fr) auto !important;
     gap: 4px;
   }
   .set-row.type-cardio select.input-sm { font-size: 11px; padding: 4px 2px; }
@@ -2147,7 +2152,11 @@ input:disabled.input,
 .set-row-header.type-bodyweight { grid-template-columns: 40px 1fr 1fr 0.7fr auto !important; }
 .set-row.type-cardio,
 .set-row-header.type-cardio {
-  grid-template-columns: 40px 0.9fr 1.2fr 0.9fr 0.7fr auto !important;
+  grid-template-columns: 40px 1fr 0.9fr 0.8fr auto !important;
+}
+.set-row.type-cardio.no-dist,
+.set-row-header.type-cardio.no-dist {
+  grid-template-columns: 40px 1fr 0.8fr auto !important;
 }
 .set-row.type-cardio select.input-sm {
   font-size: 12px;

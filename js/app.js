@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=63").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=64").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -857,7 +857,19 @@
 
   // ============ Determine exercise "type" (weighted / bodyweight / weighted+bw / cardio) ============
   // Built-in cardio ids from the exercise database.
-  const CARDIO_IDS = new Set(["run", "rowing", "cycling", "jump-rope", "burpee"]);
+  const CARDIO_IDS = new Set(["run", "rowing", "cycling", "jump-rope"]);
+  // Cardio exercises that are not distance-based (e.g. jump rope) hide the km field.
+  const NO_DISTANCE_CARDIO_IDS = new Set(["jump-rope"]);
+
+  /** Whether a cardio exercise should show/track a distance (km) field. */
+  function cardioTracksDistance(ex) {
+    if (!ex) return true;
+    const id = String(ex.exerciseId || ex.id || "").toLowerCase();
+    if (NO_DISTANCE_CARDIO_IDS.has(id)) return false;
+    const name = String(ex.name || "").toLowerCase();
+    if (/\b(jump\s*rope|skip(ping|s)?)\b/.test(name)) return false;
+    return true;
+  }
 
   function looksLikeCardio(ex) {
     if (!ex) return false;
@@ -868,7 +880,7 @@
     const name = String(ex.name || "").toLowerCase();
     // NB: match "rowing"/"erg" but NOT bare "row" — the latter also appears in
     // strength moves (bent-over row, cable row, upright row, …) which are not cardio.
-    return /\b(run|running|rowing|rower|cycle|cycling|bike|erg|ergometer|jump\s*rope|burpee|treadmill|cardio|elliptical|assault\s*bike)\b/.test(name);
+    return /\b(run|running|rowing|rower|cycle|cycling|bike|erg|ergometer|jump\s*rope|treadmill|cardio|elliptical|assault\s*bike)\b/.test(name);
   }
 
   function inferExerciseType(ex) {
@@ -2461,28 +2473,18 @@
 
         let fields;
         if (isCardio) {
-          // Cardio targets are minutes + intensity, not sets/reps.
+          // Cardio targets are minutes, not sets/reps.
           delete te.targetSets;
           delete te.targetReps;
           if (te.targetDurationMin == null) te.targetDurationMin = 20;
-          if (!te.targetIntensity) te.targetIntensity = "moderate";
           const minsI = el("input", {
             type: "number", inputmode: "numeric", min: "1", max: "600",
             class: "input input-sm input-num", value: te.targetDurationMin
           });
           minsI.addEventListener("input", () => { te.targetDurationMin = parseInt(minsI.value) || 20; });
-          const intSel = el("select", { class: "input input-sm", style: "width: 84px" });
-          for (const [key, meta] of Object.entries(U.INTENSITY)) {
-            const opt = el("option", { value: key }, meta.label);
-            if (key === te.targetIntensity) opt.selected = true;
-            intSel.appendChild(opt);
-          }
-          intSel.addEventListener("change", () => { te.targetIntensity = intSel.value; });
           fields = [
             el("div", { class: "template-editor-field" },
-              el("label", {}, "Minutes"), minsI),
-            el("div", { class: "template-editor-field" },
-              el("label", {}, "Intensity"), intSel)
+              el("label", {}, "Minutes"), minsI)
           ];
         } else {
           const setsI = el("input", {
@@ -2895,20 +2897,20 @@
     // Approx burn rate for this exercise
     const kpm = U.kcalPerMin({ ...defForMet, type: exType, category: def?.category || (isCardio ? "cardio" : defForMet.category) }, bwKg);
     body.appendChild(el("div", { class: "text-xs text-faint", style: "margin-bottom:8px" },
-      `≈ ${kpm} kcal/min at ${bwKg}kg` + (isCardio ? " · intensity adjusts burn" : " · estimate from effort")));
+      `≈ ${kpm} kcal/min at ${bwKg}kg` + (isCardio ? " · type your machine/watch reading to override" : " · estimate from effort")));
 
     if (isCardio) {
-      const header = el("div", { class: "set-row set-row-header type-cardio" },
+      const showDist = cardioTracksDistance(ex);
+      const header = el("div", { class: "set-row set-row-header type-cardio" + (showDist ? "" : " no-dist") },
         el("div", { class: "set-index" }, "#"),
         el("div", {}, "Min"),
-        el("div", {}, "Intensity"),
-        el("div", {}, "km"),
+        showDist ? el("div", {}, "km") : null,
         el("div", {}, "kcal"),
         el("div", { style: "text-align:right" }, "Log")
       );
       body.appendChild(header);
       for (const [si, s] of ex.sets.entries()) {
-        body.appendChild(await renderCardioRow(ex, si, s, prs, prev, defForMet, bwKg));
+        body.appendChild(await renderCardioRow(ex, si, s, prs, prev, defForMet, bwKg, showDist));
       }
       const controls = el("div", { class: "row", style: "gap:12px; align-items:center; margin-top:8px; flex-wrap:wrap;" },
         el("button", { class: "btn btn-ghost btn-sm", on: { click: async () => {
@@ -2965,7 +2967,7 @@
     return block;
   }
 
-  async function renderCardioRow(ex, si, s, prs, prev, def, bwKg) {
+  async function renderCardioRow(ex, si, s, prs, prev, def, bwKg, showDist = true) {
     const prevSet = prev?.sets[si];
     if (!s.intensity) s.intensity = "moderate";
 
@@ -2977,27 +2979,17 @@
       value: s.durationMin ?? "",
       title: "Duration (minutes)"
     });
-    const intensitySel = el("select", {
-      class: "input input-sm",
-      style: "width:100%",
-      "data-cardio-field": "intensity"
-    });
-    for (const [key, meta] of Object.entries(U.INTENSITY)) {
-      const opt = el("option", { value: key }, meta.label);
-      if (key === (s.intensity || "moderate")) opt.selected = true;
-      intensitySel.appendChild(opt);
-    }
-    const distInput = el("input", {
+    const distInput = showDist ? el("input", {
       type: "number", step: "0.1", inputmode: "decimal", min: "0",
       class: "input input-sm input-num",
       "data-cardio-field": "distanceKm",
       placeholder: prevSet?.distanceKm != null ? String(prevSet.distanceKm) : "—",
       value: s.distanceKm ?? "",
       title: "Distance (km)"
-    });
+    }) : null;
 
-    const metFor = (intensity, durationMin) => {
-      const met = U.getMET({ ...def, category: "cardio", type: "cardio", met: ex.met ?? def.met }, intensity);
+    const metFor = (durationMin) => {
+      const met = U.getMET({ ...def, category: "cardio", type: "cardio", met: ex.met ?? def.met }, s.intensity || "moderate");
       return U.estimateKcal(met, bwKg, durationMin || 0);
     };
 
@@ -3005,8 +2997,7 @@
       const dur = durInput.value === ""
         ? (s.durationMin ?? 0)
         : parseFloat(durInput.value);
-      const intensity = intensitySel.value || s.intensity || "moderate";
-      return metFor(intensity, dur || 0) || 0;
+      return metFor(dur || 0) || 0;
     };
 
     // Manual kcal from machine/watch; placeholder shows MET estimate when empty.
@@ -3064,8 +3055,8 @@
     const mirrorCardioInputs = () => {
       s.touched = true;
       s.durationMin = durInput.value === "" ? null : parseFloat(durInput.value);
-      s.intensity = intensitySel.value || "moderate";
-      s.distanceKm = distInput.value === "" ? null : parseFloat(distInput.value);
+      if (!s.intensity) s.intensity = "moderate";
+      if (distInput) s.distanceKm = distInput.value === "" ? null : parseFloat(distInput.value);
       // Keep manual kcal when the user typed it; otherwise refresh estimate.
       if (kcalInput.value !== "") {
         s.kcalManual = true;
@@ -3085,12 +3076,13 @@
     }, 250);
     durInput.addEventListener("input", () => { mirrorCardioInputs(); debouncedSave(); });
     attachNumPad(durInput, { label: `${ex.name} \u00b7 interval ${si + 1} \u00b7 minutes`, unit: "min", step: 5, decimals: true });
-    attachNumPad(distInput, { label: `${ex.name} \u00b7 interval ${si + 1} \u00b7 distance`, unit: "km", step: 0.5, decimals: true });
     attachNumPad(kcalInput, { label: `${ex.name} \u00b7 interval ${si + 1} \u00b7 calories`, unit: "kcal", step: 10 });
-    selectOnFocus(distInput);
     selectOnFocus(kcalInput);
-    intensitySel.addEventListener("change", () => { mirrorCardioInputs(); debouncedSave(); });
-    distInput.addEventListener("input", () => { mirrorCardioInputs(); debouncedSave(); });
+    if (distInput) {
+      attachNumPad(distInput, { label: `${ex.name} \u00b7 interval ${si + 1} \u00b7 distance`, unit: "km", step: 0.5, decimals: true });
+      selectOnFocus(distInput);
+      distInput.addEventListener("input", () => { mirrorCardioInputs(); debouncedSave(); });
+    }
     kcalInput.addEventListener("input", () => {
       if (kcalInput.value === "") {
         s.kcalManual = false;
@@ -3114,8 +3106,8 @@
       on: { click: async () => {
         if (!s.done) {
           s.durationMin = durInput.value === "" ? null : parseFloat(durInput.value);
-          s.intensity = intensitySel.value || "moderate";
-          s.distanceKm = distInput.value === "" ? null : parseFloat(distInput.value);
+          if (!s.intensity) s.intensity = "moderate";
+          if (distInput) s.distanceKm = distInput.value === "" ? null : parseFloat(distInput.value);
           if (!s.durationMin || s.durationMin <= 0) { toast("Enter duration in minutes first"); return; }
           // Prefer typed machine/watch kcal; fall back to MET estimate.
           const kcal = resolveKcal();
@@ -3174,10 +3166,9 @@
       } }
     });
 
-    const row = el("div", { class: "set-row type-cardio" + (isPR ? " is-pr" : "") + (s.kcalManual ? " has-manual-kcal" : "") },
+    const row = el("div", { class: "set-row type-cardio" + (showDist ? "" : " no-dist") + (isPR ? " is-pr" : "") + (s.kcalManual ? " has-manual-kcal" : "") },
       el("div", { class: "set-index" }, String(si + 1)),
       durInput,
-      intensitySel,
       distInput,
       kcalInput,
       el("div", { class: "set-row-actions" }, noteBtn, doneBtn)
@@ -5648,12 +5639,12 @@
           el("div", { class: "exercise-block-body" },
             ...ex.sets.map((s, i) => {
               if (ex.type === "cardio" || s.durationMin != null) {
-                const dist = s.distanceKm != null ? `${s.distanceKm} km` : "—";
-                return el("div", { class: "set-row type-cardio", style: "grid-template-columns: 40px 1fr 1fr 1fr 1fr" },
+                const showDist = cardioTracksDistance(ex) && s.distanceKm != null;
+                const cols = showDist ? "40px 1fr 1fr 1fr" : "40px 1fr 1fr";
+                return el("div", { class: "set-row type-cardio", style: `grid-template-columns: ${cols}` },
                   el("div", { class: "set-index" }, String(i + 1)),
                   el("div", { class: "mono", style: "text-align:center" }, `${s.durationMin || 0} min`),
-                  el("div", { class: "mono", style: "text-align:center" }, U.intensityLabel(s.intensity)),
-                  el("div", { class: "mono", style: "text-align:center" }, dist),
+                  showDist ? el("div", { class: "mono", style: "text-align:center" }, `${s.distanceKm} km`) : null,
                   el("div", { class: "mono text-muted", style: "text-align:center" },
                     s.kcal ? `≈ ${s.kcal} kcal` : "—",
                     s.isPR ? el("span", { class: "pr-badge" }, "PR") : null,
