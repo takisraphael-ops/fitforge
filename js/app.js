@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=70").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=72").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -2270,15 +2270,12 @@
         ));
       }
 
-      // Templates section
+      // Templates section — collapsible, collapsed by default to keep the
+      // exercise card the focus on small screens.
       const templates = await Storage.getTemplates();
-      const tplCard = el("div", { class: "card" });
-      tplCard.appendChild(el("div", { class: "row-between" },
-        el("div", { class: "card-title", style: "margin: 0" }, "Templates"),
-        el("span", { class: "text-xs text-faint" }, "Save routines when you finish a workout")
-      ));
+      const tplBody = el("div", { class: "xcollapse-body" });
       if (templates.length === 0) {
-        tplCard.appendChild(el("p", { class: "text-sm text-faint", style: "margin: 8px 0" },
+        tplBody.appendChild(el("p", { class: "text-sm text-faint", style: "margin: 8px 0" },
           "No templates yet. Build one below, or finish a workout and save it as a template."));
       } else {
         const grid = el("div", { class: "template-grid" });
@@ -2308,12 +2305,24 @@
             )
           ));
         }
-        tplCard.appendChild(grid);
+        tplBody.appendChild(grid);
       }
       // Manual "New template" button
-      tplCard.appendChild(el("button", { class: "btn btn-ghost btn-sm mt-8", on: { click: () => openTemplateEditor(null) } },
+      tplBody.appendChild(el("button", { class: "btn btn-ghost btn-sm mt-8", on: { click: () => openTemplateEditor(null) } },
         el("span", { html: icons.plus }), "Create template manually"
       ));
+      const tplChevron = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+      const tplHead = el("button", { class: "xcollapse-head", type: "button", "aria-expanded": "false", "data-testid": "templates-toggle" },
+        el("span", { class: "xcollapse-title" }, "Templates"),
+        el("span", { class: "xcollapse-count" }, String(templates.length)),
+        el("span", { class: "xcollapse-spacer" }),
+        el("span", { class: "xcollapse-chev", html: tplChevron })
+      );
+      const tplCard = el("div", { class: "card xcollapse" }, tplHead, tplBody);
+      tplHead.addEventListener("click", () => {
+        const open = tplCard.classList.toggle("open");
+        tplHead.setAttribute("aria-expanded", open ? "true" : "false");
+      });
       view.appendChild(tplCard);
       return;
     }
@@ -4278,6 +4287,7 @@
 
     const searchI = el("input", { class: "input", placeholder: "Search exercises…" });
     const chipRow = el("div", { class: "xpick-chips", "data-testid": "xpick-chips" });
+    const dotsRow = el("div", { class: "xpick-dots", "data-testid": "xpick-dots" });
     const content = el("div", { class: "xpick-content" });
     const cta = el("button", { class: "btn btn-primary btn-block xpick-cta-btn", type: "button", "data-testid": "xpick-cta" });
     const footer = el("div", { class: "xpick-cta", style: "display:none" }, cta);
@@ -4292,8 +4302,29 @@
     let activeCat = cats[0] || null;
     let pager = null; // the horizontal scroll-snap container (null while searching)
 
+    function onCustomCreated(ex) {
+      if (customImmediate) { onConfirm([{ id: ex.id, name: ex.name }]); return; }
+      all.push({ ...ex, isCustom: true });
+      if (!cats.includes(ex.category) && countFor(ex.category) > 0) cats.push(ex.category);
+      selected.set(ex.id, { id: ex.id, name: ex.name });
+      searchI.value = "";
+      renderChips();
+      renderDots();
+      renderContent();
+      scrollToCat(ex.category);
+      updateCta();
+    }
+
     function renderChips() {
       clear(chipRow);
+      if (allowCustom) {
+        chipRow.appendChild(el("button", {
+          class: "xpick-chip xpick-chip-custom",
+          type: "button",
+          "data-testid": "xchip-custom",
+          on: { click: () => openCustomExerciseForm(onCustomCreated) }
+        }, el("span", { class: "xpick-chip-plus", html: icons.plus }), "Custom"));
+      }
       for (const c of cats) {
         chipRow.appendChild(el("button", {
           class: "xpick-chip" + (activeCat === c ? " active" : ""),
@@ -4305,18 +4336,34 @@
       }
     }
 
-    function syncChips() {
+    function renderDots() {
+      clear(dotsRow);
+      for (const c of cats) {
+        dotsRow.appendChild(el("button", {
+          class: "xpick-dot" + (activeCat === c ? " active" : ""),
+          type: "button",
+          "data-cat": c,
+          "aria-label": catLabel(c),
+          on: { click: () => scrollToCat(c) }
+        }));
+      }
+    }
+
+    function syncActive() {
       for (const chip of Array.from(chipRow.children)) {
         const on = chip.getAttribute("data-cat") === activeCat;
         chip.classList.toggle("active", on);
         if (on) chip.scrollIntoView({ block: "nearest", inline: "center" });
+      }
+      for (const dot of Array.from(dotsRow.children)) {
+        dot.classList.toggle("active", dot.getAttribute("data-cat") === activeCat);
       }
     }
 
     function scrollToCat(c) {
       if (!cats.includes(c)) return;
       activeCat = c;
-      syncChips();
+      syncActive();
       if (pager) {
         const idx = cats.indexOf(c);
         pager.scrollTo({ left: idx * pager.clientWidth, behavior: "smooth" });
@@ -4402,19 +4449,21 @@
       for (const c of cats) {
         const items = all.filter(e => e.category === c);
         const panel = el("div", { class: "xpick-panel", "data-cat": c },
-          el("div", { class: "xpick-panel-head" },
-            el("span", { class: "xpick-panel-title" }, catLabel(c)),
-            el("span", { class: "xpick-panel-count" }, `${items.length}`)
-          ),
-          el("div", { class: "xpick-panel-list" }, ...items.map(rowFor))
+          el("div", { class: "xpick-card" },
+            el("div", { class: "xpick-panel-head" },
+              el("span", { class: "xpick-panel-title" }, catLabel(c)),
+              el("span", { class: "xpick-panel-count" }, `${items.length}`)
+            ),
+            el("div", { class: "xpick-panel-list" }, ...items.map(rowFor))
+          )
         );
         p.appendChild(panel);
       }
-      // Update active chip as the user swipes between cards.
+      // Update active chip + dots as the user swipes between cards.
       p.addEventListener("scroll", U.debounce(() => {
         const idx = Math.round(p.scrollLeft / Math.max(1, p.clientWidth));
         const c = cats[Math.max(0, Math.min(cats.length - 1, idx))];
-        if (c && c !== activeCat) { activeCat = c; syncChips(); }
+        if (c && c !== activeCat) { activeCat = c; syncActive(); }
       }, 60));
       return p;
     }
@@ -4424,20 +4473,23 @@
       const q = searchI.value.trim().toLowerCase();
       if (q) {
         chipRow.style.display = "none";
+        dotsRow.style.display = "none";
         pager = null;
         content.appendChild(renderSearch(q));
         return;
       }
       chipRow.style.display = "";
       if (!cats.length) {
+        dotsRow.style.display = "none";
         pager = null;
         content.appendChild(el("div", { class: "text-sm text-faint", style: "padding: 16px 4px" }, "No exercises found."));
         return;
       }
+      dotsRow.style.display = cats.length > 1 ? "" : "none";
       pager = buildPager();
       content.appendChild(pager);
       if (!activeCat || !cats.includes(activeCat)) activeCat = cats[0];
-      syncChips();
+      syncActive();
       // Jump (no animation) to the active card once laid out.
       const idx = Math.max(0, cats.indexOf(activeCat));
       requestAnimationFrame(() => { if (pager) pager.scrollLeft = idx * pager.clientWidth; });
@@ -4461,27 +4513,11 @@
       header.subtitle ? el("div", { class: "xpick-subtitle" }, header.subtitle) : null
     ) : null;
 
-    const addCustomBtn = allowCustom ? el("button", {
-      class: "xpick-add-custom",
-      type: "button",
-      on: { click: () => openCustomExerciseForm((ex) => {
-        if (customImmediate) { onConfirm([{ id: ex.id, name: ex.name }]); return; }
-        all.push({ ...ex, isCustom: true });
-        if (!cats.includes(ex.category) && countFor(ex.category) > 0) cats.push(ex.category);
-        selected.set(ex.id, { id: ex.id, name: ex.name });
-        searchI.value = "";
-        renderChips();
-        renderContent();
-        scrollToCat(ex.category);
-        updateCta();
-      }) }
-    }, el("span", { class: "xpick-add-custom-ic", html: icons.plus }), "Add custom exercise") : null;
-
     const body = el("div", { class: "xpick xpick-multi" },
-      headerEl, searchI, addCustomBtn, chipRow, content, footer
+      headerEl, searchI, chipRow, content, dotsRow, footer
     );
 
-    function refresh() { renderChips(); renderContent(); updateCta(); }
+    function refresh() { renderChips(); renderDots(); renderContent(); updateCta(); }
     return { body, refresh, focus: () => searchI.focus() };
   }
 

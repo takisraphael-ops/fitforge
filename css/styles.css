@@ -257,6 +257,14 @@ h3 { font-size: 16px; }
 .btn svg { width: 16px; height: 16px; }
 .btn-sm { padding: 6px 10px; font-size: 13px; }
 
+/* Kill the mobile tap-highlight box and the stray focus outline on pointer/touch,
+   while keeping a visible focus ring for keyboard users (accessibility). */
+button, a, [role="button"], input, textarea, select, .xpick-chip, .xrow, .xpick-dot {
+  -webkit-tap-highlight-color: transparent;
+}
+:focus:not(:focus-visible) { outline: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 /* ============ Inputs ============ */
 .input, .select, .textarea {
   width: 100%;
@@ -3047,44 +3055,116 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   scroll-behavior: smooth;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
-  margin: 0 -2px;
+  margin: 0 -6px;
 }
 .xpick-pager::-webkit-scrollbar { display: none; }
 .xpick-panel {
   flex: 0 0 100%; width: 100%;
-  scroll-snap-align: start; scroll-snap-stop: always;
-  overflow-y: auto; overscroll-behavior: contain;
-  padding: 0 2px;
-  scrollbar-width: none;
+  scroll-snap-align: center; scroll-snap-stop: always;
+  padding: 2px 6px 4px;
+  display: flex;
+  overflow: hidden;
 }
-.xpick-panel::-webkit-scrollbar { display: none; }
+/* The category card is the hero: an elevated surface holding its list. */
+.xpick-card {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
 .xpick-panel-head {
   position: sticky; top: 0; z-index: 2;
-  display: flex; align-items: baseline; justify-content: space-between;
-  padding: 6px 4px 12px;
-  background: linear-gradient(to bottom, var(--bg) 70%, transparent);
+  display: flex; align-items: center; justify-content: flex-start; gap: 10px;
+  padding: 16px 16px 12px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
 }
-.modal .xpick-panel-head { background: linear-gradient(to bottom, var(--bg-elev) 70%, transparent); }
-.xpick-panel-title { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }
+.xpick-panel-title { font-size: 21px; font-weight: 800; letter-spacing: -0.01em; }
 .xpick-panel-count {
   font-size: 13px; font-weight: 700; color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   padding: 2px 10px; border-radius: 100px;
 }
+.xpick-panel-list {
+  flex: 1; min-height: 0;
+  overflow-y: auto; overscroll-behavior: contain;
+  padding: 4px 14px 12px;
+  scrollbar-width: none;
+}
+.xpick-panel-list::-webkit-scrollbar { display: none; }
+/* Rows inside a card are flat list items (divider-separated), not mini-cards. */
+.xpick-card .xrow {
+  background: transparent; border: none; border-bottom: 1px solid var(--border);
+  border-radius: 0; margin: 0; padding: 12px 2px;
+}
+.xpick-card .xrow:last-child { border-bottom: none; }
+.xpick-card .xrow.is-selected {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 12px; border-bottom-color: transparent;
+  padding-left: 8px; padding-right: 8px; margin: 0 -6px;
+}
+
+/* Swipe position indicator dots */
+.xpick-dots { display: flex; justify-content: center; align-items: center; gap: 7px; flex: none; padding: 12px 0 2px; }
+.xpick-dot {
+  width: 7px; height: 7px; padding: 0; border: none; border-radius: 50%;
+  background: var(--border-strong); cursor: pointer; transition: all 180ms ease;
+}
+.xpick-dot.active { background: var(--accent); width: 22px; border-radius: 100px; }
+
 /* Flat results list while searching */
 .xpick-results { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+
+/* "+ Custom" chip — compact, distinct, on the chip row */
+.xpick-chip-custom {
+  display: inline-flex; align-items: center; gap: 5px;
+  color: var(--accent);
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.xpick-chip-custom:hover { color: var(--accent); border-color: var(--accent); }
+.xpick-chip-plus { display: inline-flex; }
+.xpick-chip-plus svg { width: 15px; height: 15px; stroke-width: 2.6; }
 
 /* Confirm CTA — a normal flex footer at the bottom of the picker column */
 .xpick-cta {
   flex: none;
-  padding: 12px 2px calc(6px + env(safe-area-inset-bottom, 0px));
+  padding: 10px 2px calc(6px + env(safe-area-inset-bottom, 0px));
   background: var(--bg);
 }
 .modal .xpick-cta { background: var(--bg-elev); }
 .xpick-cta-btn { padding: 14px 16px; font-size: 15px; font-weight: 700; }
+
+/* Collapsible section (Templates) */
+.xcollapse { padding: 0; overflow: hidden; }
+.xcollapse-head {
+  width: 100%; display: flex; align-items: center; gap: 10px;
+  padding: 16px; background: transparent; border: none; cursor: pointer;
+  font-size: 15px; font-weight: 700; color: var(--text); text-align: left;
+}
+.xcollapse-count {
+  font-size: 12px; font-weight: 700; color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  padding: 1px 9px; border-radius: 100px;
+}
+.xcollapse-spacer { flex: 1; }
+.xcollapse-chev { display: inline-flex; color: var(--text-faint); transition: transform 200ms ease; }
+.xcollapse-chev svg { width: 20px; height: 20px; }
+.xcollapse.open .xcollapse-chev { transform: rotate(180deg); }
+.xcollapse-body { display: none; padding: 0 16px 16px; }
+.xcollapse.open .xcollapse-body { display: block; }
+
+/* Compact the header + card on small screens so the card is the focus. */
 @media (max-width: 480px) {
-  .xpick-title { font-size: 26px; }
-  .xpick-panel-title { font-size: 20px; }
+  .xpick-screen { height: calc(100dvh - 220px); }
+  .xpick-title { font-size: 21px; margin-bottom: 2px; }
+  .xpick-subtitle { display: none; }
+  .xpick-header { margin: 2px 2px 8px; }
+  .xpick-eyebrow { font-size: 11px; margin-bottom: 3px; }
+  .xpick-panel-title { font-size: 19px; }
 }
 .xcat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .xcat-tile {
