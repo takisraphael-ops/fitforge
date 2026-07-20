@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=65").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=66").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -4081,7 +4081,10 @@
     openModal(ex.name, body, footer);
   }
 
-  function openCustomExerciseForm() {
+  // onCreated(ex): optional. When provided (e.g. from the workout exercise
+  // picker), it fires with the saved exercise so the caller can immediately
+  // select it. Otherwise the library view is just re-rendered.
+  function openCustomExerciseForm(onCreated = null) {
     const nameI = el("input", { class: "input", placeholder: "Exercise name" });
     const catS = el("select", { class: "select" },
       ...Object.entries(EXERCISE_CATEGORIES).map(([k, v]) => el("option", { value: k }, v))
@@ -4170,7 +4173,8 @@
         await Storage.saveCustomExercise(ex);
         closeModal();
         toast("Custom exercise saved");
-        renderMain();
+        if (onCreated) onCreated(ex);
+        else renderMain();
       } } }, "Save exercise")
     );
 
@@ -4287,7 +4291,14 @@
     }
 
     searchI.addEventListener("input", U.debounce(refresh, 120));
-    const body = el("div", { class: "xpick" }, searchI, content);
+    // Create a custom exercise inline and immediately select it for this workout.
+    const addCustomBtn = el("button", {
+      class: "btn btn-ghost btn-sm xpick-add-custom",
+      type: "button",
+      style: "width:100%; justify-content:center; gap:6px; margin:10px 0 2px;",
+      on: { click: () => openCustomExerciseForm((ex) => onPick(ex.id, ex.name)) }
+    }, el("span", { html: icons.plus }), "Add custom exercise");
+    const body = el("div", { class: "xpick" }, searchI, addCustomBtn, content);
     return { body, refresh, focus: () => searchI.focus() };
   }
 
