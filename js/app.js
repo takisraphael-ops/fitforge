@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=77").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=79").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1179,7 +1179,7 @@
         title: it.label,
         "data-testid": "dock-" + it.id,
         html: it.icon,
-        on: { click: () => { state.tab = it.id; renderMain(); window.scrollTo(0, 0); } }
+        on: { click: () => { nutritionScrollKey = null; state.tab = it.id; renderMain(); window.scrollTo(0, 0); } }
       }));
     }
     document.body.appendChild(dock);
@@ -4762,6 +4762,41 @@
     renderMain();
   }
 
+  // Saved meals shortcut — quick sheet to re-log a saved meal (optionally into
+  // a specific section) or jump to create/edit one.
+  async function openSavedMealsSheet(sectionHint = null) {
+    const templates = await Storage.getMealTemplates();
+    const body = el("div", {});
+    if (!templates.length) {
+      body.appendChild(el("p", { class: "text-sm text-faint", style: "margin:4px 0 12px" },
+        "No saved meals yet. Log a meal, then tap the bookmark on it to keep it for next time."));
+    } else {
+      const sorted = templates.slice().sort((a, b) => (b.lastUsedAt || b.updatedAt || 0) - (a.lastUsedAt || a.updatedAt || 0));
+      const list = el("div", { class: "saved-sheet-list" });
+      for (const tpl of sorted) {
+        const macroLine = U.formatMacroLine(tpl);
+        list.appendChild(el("div", { class: "saved-sheet-item" },
+          el("button", {
+            class: "saved-sheet-main", type: "button", title: `Log ${tpl.name}`,
+            on: { click: async () => { closeModal(); await logMealFromTemplate(tpl, sectionHint); } }
+          },
+            el("div", { class: "saved-sheet-name" }, tpl.name),
+            el("div", { class: "saved-sheet-meta" }, `${tpl.kcal || 0} kcal${macroLine ? ` · ${macroLine}` : ""}`)
+          ),
+          el("button", { class: "icon-btn", title: "Edit saved meal", html: icons.edit, on: { click: () => { closeModal(); openMealTemplateEditor(tpl); } } })
+        ));
+      }
+      body.appendChild(list);
+    }
+    const footer = el("div", {},
+      el("button", { class: "btn", on: { click: closeModal } }, "Close"),
+      el("button", { class: "btn btn-primary", on: { click: () => { closeModal(); openMealTemplateEditor(null); } } },
+        el("span", { html: icons.plus }), "New saved meal")
+    );
+    const title = sectionHint ? `Saved → ${U.MEAL_SECTIONS[sectionHint].label}` : "Saved meals";
+    openModal(title, body, footer);
+  }
+
   // ============ Supplements (manual tracker on Nutrition) ============
   const SUPPLEMENT_UNITS = ["capsule", "tablet", "scoop", "g", "mg", "ml", "softgel", "drop", "serving"];
 
@@ -4957,13 +4992,19 @@
     return card;
   }
 
+  // Remembers which nutrition card was active so an action-triggered re-render
+  // returns there instead of snapping back to Overview. Cleared on dock nav.
+  let nutritionScrollKey = null;
+
   // Redesigned nutrition tab: a vertical card pager — Overview, then one card
   // per meal section, then a Trends card. Swipe up/down; dots on the right.
   async function renderNutrition(view) {
     const NCHEV = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
     const NUP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>';
 
-    const meals = await Storage.getMeals();
+    const [meals, supplements, suppLogs] = await Promise.all([
+      Storage.getMeals(), Storage.getSupplements(), Storage.getSupplementLogs()
+    ]);
     const today = U.todayISO();
     const todays = meals.filter(m => m.date === today);
     const energy = await resolveEnergyBudget(today);
@@ -4978,16 +5019,21 @@
     const isPersonal = targetsArePersonal(energy);
     const dateEyebrow = U.formatDate(today, { weekday: "short" }).toUpperCase();
 
-    // Cards: core meals always, extras only when used, supplements always, trends last.
+    // Supplements are a separate daily "taken" checklist (not calorie foods).
+    const todaySuppLogs = suppLogs.filter(l => l.date === today);
+    const takenSuppIds = new Set(todaySuppLogs.map(l => l.supplementId));
+    const suppSorted = supplements.slice().sort((a, b) =>
+      String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" }));
+
+    // Cards: core meals always, extras only when used, then Supplements, then Trends.
     const CORE = ["breakfast", "lunch", "dinner", "snack"];
     const EXTRAS = ["pre_workout", "post_workout", "other"];
-    const sectionCards = [
+    const mealSections = [
       ...CORE,
-      ...EXTRAS.filter(k => (groups[k] || []).length),
-      "supplement"
+      ...EXTRAS.filter(k => (groups[k] || []).length)
     ];
     // Next meal to nudge: first with nothing logged, else the first card.
-    const nextSection = sectionCards.find(k => !(groups[k] || []).length) || sectionCards[0];
+    const nextSection = mealSections.find(k => !(groups[k] || []).length) || mealSections[0];
 
     const screen = el("div", { class: "npager-screen" });
     const pager = el("div", { class: "npager", "data-testid": "npager" });
@@ -4995,14 +5041,20 @@
     screen.appendChild(pager);
     screen.appendChild(dots);
 
-    const panelKeys = ["overview", ...sectionCards, "trends"];
+    const panelKeys = ["overview", ...mealSections, "supplements", "trends"];
     let activeIdx = 0;
 
     function goToPanel(i) {
       const p = pager.children[i];
-      if (p) pager.scrollTo({ top: p.offsetTop, behavior: "smooth" });
+      if (p) { nutritionScrollKey = panelKeys[i]; pager.scrollTo({ top: p.offsetTop, behavior: "smooth" }); }
     }
-    function panelIndexForSection(key) { return 1 + sectionCards.indexOf(key); }
+    const idxOf = (key) => panelKeys.indexOf(key);
+    function panelIndexForSection(key) { return idxOf(key); }
+    function nextLabelFor(nk) {
+      if (nk === "trends") return "See trends";
+      if (nk === "supplements") return "Supplements";
+      return `Log ${U.MEAL_SECTIONS[nk].label}`;
+    }
 
     function renderDots() {
       clear(dots);
@@ -5099,14 +5151,83 @@
       panel.appendChild(card);
 
       const foot = el("div", { class: "npanel-foot" });
-      foot.appendChild(el("button", { class: "btn btn-primary btn-block nadd-btn", on: { click: () => openQuickAdd(key) } },
-        el("span", { html: icons.plus }), "Add food"));
+      foot.appendChild(el("div", { class: "npanel-foot-row" },
+        el("button", { class: "btn btn-primary btn-block nadd-btn", on: { click: () => openQuickAdd(key) } },
+          el("span", { html: icons.plus }), "Add food"),
+        el("button", { class: "btn nsaved-btn", title: "Log a saved meal", on: { click: () => openSavedMealsSheet(key) } },
+          el("span", { html: icons.bookmark }), "Saved")
+      ));
       const ni = panelIndexForSection(key) + 1;
-      if (ni <= sectionCards.length) {
-        const nk = panelKeys[ni];
-        const label = nk === "trends" ? "See trends" : `Log ${U.MEAL_SECTIONS[nk].label}`;
+      if (ni < panelKeys.length) {
         foot.appendChild(el("button", { class: "btn btn-ghost btn-sm nnext-btn", on: { click: () => goToPanel(ni) } },
-          el("span", { html: NUP }), label));
+          el("span", { html: NUP }), nextLabelFor(panelKeys[ni])));
+      }
+      panel.appendChild(foot);
+      return panel;
+    }
+
+    // Supplements card — the original daily "taken" checklist (no calories).
+    function supplementsPanel() {
+      const panel = el("div", { class: "npanel", "data-key": "supplements" });
+      const takenCount = takenSuppIds.size;
+      panel.appendChild(el("div", { class: "npanel-head" },
+        el("div", { style: "min-width:0" },
+          el("div", { class: "npanel-eyebrow" }, dateEyebrow),
+          el("h2", { class: "npanel-title" }, "Supplements")
+        ),
+        el("div", { class: "npanel-head-right" },
+          el("div", { class: "npanel-head-kcal" }, suppSorted.length ? `${takenCount}/${suppSorted.length}` : "0"),
+          el("div", { class: "npanel-head-sub" }, "taken")
+        )
+      ));
+      const card = el("div", { class: "ncard" });
+      card.appendChild(el("div", { class: "ncard-head" },
+        el("span", { class: "ncard-badge" }, "Su"),
+        el("div", { class: "ncard-head-main" },
+          el("div", { class: "ncard-head-name" }, "Supplements"),
+          el("div", { class: "ncard-head-macros" }, suppSorted.length ? `${takenCount} of ${suppSorted.length} taken today` : "Daily checklist · no calories")
+        )
+      ));
+      const list = el("div", { class: "ncard-list" });
+      if (!suppSorted.length) {
+        list.appendChild(el("div", { class: "ncard-empty" },
+          el("div", { class: "ncard-empty-title" }, "No supplements yet"),
+          el("div", { class: "ncard-empty-sub" }, "Add creatine, vitamin D, protein powder — anything you take by hand.")));
+      } else {
+        for (const s of suppSorted) {
+          const taken = takenSuppIds.has(s.id);
+          const log = todaySuppLogs.find(l => l.supplementId === s.id);
+          const doseLine = formatSupplementDose(s) + (log?.time ? ` · ${log.time}` : "") + (s.notes ? ` · ${s.notes}` : "");
+          list.appendChild(el("div", { class: "nfood" },
+            el("button", { class: "nfood-main", type: "button", title: "Edit", on: { click: () => openSupplementForm(s) } },
+              el("div", { class: "nfood-name" }, s.name),
+              el("div", { class: "nfood-meta" }, doseLine)
+            ),
+            el("button", {
+              class: "supp-take" + (taken ? " is-on" : ""), type: "button",
+              on: { click: () => toggleSupplementTaken(s, todaySuppLogs) }
+            }, taken ? "Taken" : "Take"),
+            el("button", {
+              class: "nfood-del", type: "button", "aria-label": `Remove ${s.name}`, html: icons.x,
+              on: { click: async () => {
+                if (!(await confirmDialog(`Remove “${s.name}” from your list?`, { title: "Remove supplement?", okLabel: "Remove", danger: true }))) return;
+                for (const l of todaySuppLogs.filter(x => x.supplementId === s.id)) await Storage.deleteSupplementLog(l.id);
+                await Storage.deleteSupplement(s.id);
+                toast("Supplement removed"); renderMain();
+              } }
+            })
+          ));
+        }
+      }
+      card.appendChild(list);
+      panel.appendChild(card);
+      const foot = el("div", { class: "npanel-foot" });
+      foot.appendChild(el("button", { class: "btn btn-primary btn-block nadd-btn", on: { click: () => openSupplementForm(null) } },
+        el("span", { html: icons.plus }), "Add supplement"));
+      const ni = idxOf("supplements") + 1;
+      if (ni < panelKeys.length) {
+        foot.appendChild(el("button", { class: "btn btn-ghost btn-sm nnext-btn", on: { click: () => goToPanel(ni) } },
+          el("span", { html: NUP }), nextLabelFor(panelKeys[ni])));
       }
       panel.appendChild(foot);
       return panel;
@@ -5151,8 +5272,21 @@
       ));
     }
     const mealsWrap = el("div", { class: "nmeals-today" });
-    mealsWrap.appendChild(el("div", { class: "nsection-label" }, "MEALS TODAY"));
-    for (const key of sectionCards) mealsWrap.appendChild(mealsTodayRow(key));
+    mealsWrap.appendChild(el("div", { class: "nmeals-head" },
+      el("div", { class: "nsection-label" }, "MEALS TODAY"),
+      el("button", { class: "nsaved-chip", type: "button", on: { click: () => openSavedMealsSheet() } },
+        el("span", { html: icons.bookmark }), "Saved")
+    ));
+    for (const key of mealSections) mealsWrap.appendChild(mealsTodayRow(key));
+    // Supplements summary row → jumps to the supplements checklist card.
+    mealsWrap.appendChild(el("button", { class: "nmeal-row", type: "button", on: { click: () => goToPanel(idxOf("supplements")) } },
+      el("span", { class: "nmeal-badge" }, "Su"),
+      el("div", { class: "nmeal-row-main" },
+        el("div", { class: "nmeal-row-name" }, "Supplements"),
+        el("div", { class: "nmeal-row-sub" }, suppSorted.length ? `${takenSuppIds.size} of ${suppSorted.length} taken` : "None added")
+      ),
+      el("span", { class: "nmeal-row-chev", html: NCHEV })
+    ));
     ov.appendChild(mealsWrap);
     const ovFoot = el("div", { class: "npanel-foot" });
     ovFoot.appendChild(el("button", { class: "btn btn-primary btn-block", on: { click: () => goToPanel(panelIndexForSection(nextSection)) } },
@@ -5161,7 +5295,10 @@
     pager.appendChild(ov);
 
     // ---- Meal panels ----
-    for (const key of sectionCards) pager.appendChild(mealPanel(key));
+    for (const key of mealSections) pager.appendChild(mealPanel(key));
+
+    // ---- Supplements panel (daily "taken" checklist) ----
+    pager.appendChild(supplementsPanel());
 
     // ---- Trends panel ----
     const trends = el("div", { class: "npanel npanel-trends" });
@@ -5224,11 +5361,18 @@
           const d = Math.abs(cc - center);
           if (d < bd) { bd = d; best = i; }
         }
-        if (best !== activeIdx) { activeIdx = best; syncDots(); }
+        if (best !== activeIdx) { activeIdx = best; nutritionScrollKey = panelKeys[best]; syncDots(); }
       });
     }, { passive: true });
 
     view.appendChild(screen);
+    // Restore the card the user was on before an action re-rendered the tab.
+    if (nutritionScrollKey && panelKeys.includes(nutritionScrollKey)) {
+      const ri = idxOf(nutritionScrollKey);
+      requestAnimationFrame(() => {
+        if (pager.children[ri]) { pager.scrollTop = pager.children[ri].offsetTop; activeIdx = ri; syncDots(); }
+      });
+    }
     return;
   }
 

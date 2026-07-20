@@ -3353,3 +3353,36 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   .ncard-head-name { font-size: 19px; }
   .ncard-head-kcal { font-size: 26px; }
 }
+
+/* Nutrition: Saved shortcut, supplement toggle, foot layout */
+.npanel-foot-row { display: flex; gap: 8px; align-items: stretch; }
+.npanel-foot-row .nadd-btn { flex: 1; }
+.nsaved-btn {
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  padding: 15px 16px; font-weight: 700;
+}
+.nsaved-btn svg { width: 16px; height: 16px; }
+.nmeals-head { display: flex; align-items: center; justify-content: space-between; padding: 0 2px 2px; }
+.nsaved-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 12px; border-radius: 100px; font-size: 12px; font-weight: 700;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); cursor: pointer;
+}
+.nsaved-chip svg { width: 14px; height: 14px; }
+.supp-take {
+  flex: none; padding: 8px 16px; border-radius: 100px; font-size: 13px; font-weight: 700;
+  color: var(--text-muted); background: var(--bg-sunken); border: 1px solid var(--border);
+  cursor: pointer; transition: all 130ms ease;
+}
+.supp-take.is-on { color: #062a2e; background: var(--accent); border-color: var(--accent); }
+
+/* Saved meals sheet */
+.saved-sheet-list { display: flex; flex-direction: column; gap: 8px; }
+.saved-sheet-item {
+  display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--border); border-radius: var(--radius-md, 12px); padding: 6px 6px 6px 0;
+}
+.saved-sheet-main { flex: 1; min-width: 0; text-align: left; background: transparent; border: none; cursor: pointer; padding: 8px 12px; }
+.saved-sheet-name { font-size: 15px; font-weight: 700; }
+.saved-sheet-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
