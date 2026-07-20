@@ -3215,3 +3215,141 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 @media (prefers-reduced-motion: reduce) {
   .xcat-tile, .xcat-icon { animation: none !important; transition: none !important; }
 }
+
+/* ============ Nutrition — vertical card pager (redesign) ============ */
+.npager-screen {
+  position: relative;
+  height: calc(100dvh - 110px - env(safe-area-inset-bottom, 0px));
+  min-height: 460px;
+}
+.npager {
+  position: relative;
+  height: 100%;
+  overflow-y: auto;
+  scroll-snap-type: y proximity;
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.npager::-webkit-scrollbar { display: none; }
+.npanel {
+  min-height: 100%;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  padding: 6px 18px 2px 4px; /* right gutter reserved for the page dots */
+}
+.npanel-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 4px 4px 14px;
+}
+.npanel-eyebrow {
+  font-size: 12px; font-weight: 700; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--accent); margin-bottom: 4px;
+}
+.npanel-title { font-size: 30px; font-weight: 800; line-height: 1.05; margin: 0; }
+.npanel-head-right { text-align: right; flex: none; }
+.npanel-head-kcal { font-size: 26px; font-weight: 800; line-height: 1; }
+.npanel-head-kcal.accent { color: var(--accent); }
+.npanel-head-sub { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+.npanel-foot { margin-top: auto; padding-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.npanel-foot .btn-block { padding: 15px 16px; font-size: 15px; font-weight: 700; }
+.nnext-btn { align-self: center; color: var(--text-muted); }
+.nnext-btn svg { width: 15px; height: 15px; }
+
+/* Right-side page dots */
+.npager-dots {
+  position: absolute; right: 2px; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 3;
+}
+.npager-dot {
+  width: 7px; height: 7px; padding: 0; border: none; border-radius: 50%;
+  background: var(--border-strong); cursor: pointer; transition: all 180ms ease;
+}
+.npager-dot.active { background: var(--accent); height: 22px; border-radius: 100px; }
+
+/* Overview: ring */
+.nring-block { display: flex; justify-content: center; padding: 8px 0 18px; }
+.nring-detail { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+.energy-ring-center .energy-ring-sub { letter-spacing: 0.12em; }
+
+/* Overview: macro cards */
+.nmacro-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.nmacro-card {
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: var(--radius-md, 14px); padding: 12px;
+}
+.nmacro-label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); }
+.nmacro-val { font-size: 20px; font-weight: 800; margin-top: 4px; }
+.nmacro-goal { font-size: 12px; font-weight: 600; color: var(--text-faint); }
+.nmacro-bar { height: 5px; border-radius: 100px; background: var(--bg-sunken); margin-top: 8px; overflow: hidden; }
+.nmacro-fill { height: 100%; border-radius: 100px; }
+.nmacro-fill.is-protein { background: #5b8def; }
+.nmacro-fill.is-carbs { background: #e0a83d; }
+.nmacro-fill.is-fat { background: var(--accent); }
+
+/* Overview: setup banner + meals-today list */
+.nsetup { margin-top: 16px; }
+.nmeals-today { margin-top: 20px; display: flex; flex-direction: column; gap: 8px; }
+.nsection-label { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: var(--text-faint); padding: 0 2px 2px; }
+.nmeal-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  padding: 12px 14px; background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: var(--radius-md, 14px); cursor: pointer; transition: border-color 130ms ease;
+}
+.nmeal-row:hover { border-color: var(--border-strong); }
+.nmeal-badge {
+  width: 40px; height: 40px; flex: none; border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent); font-weight: 800; font-size: 14px;
+}
+.nmeal-row-main { flex: 1; min-width: 0; }
+.nmeal-row-name { font-size: 16px; font-weight: 700; }
+.nmeal-row-sub { font-size: 13px; color: var(--text-muted); margin-top: 1px; }
+.nmeal-row-kcal { font-size: 18px; font-weight: 800; }
+.nmeal-row-chev { display: inline-flex; color: var(--text-faint); }
+.nmeal-row-chev svg { width: 18px; height: 18px; }
+
+/* Meal card */
+.ncard {
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-md); overflow: hidden;
+}
+.ncard-head { display: flex; align-items: center; gap: 14px; padding: 16px; border-bottom: 1px solid var(--border); }
+.ncard-badge {
+  width: 48px; height: 48px; flex: none; border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent); font-weight: 800; font-size: 18px;
+}
+.ncard-head-main { flex: 1; min-width: 0; }
+.ncard-head-name { font-size: 22px; font-weight: 800; }
+.ncard-head-macros { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+.ncard-head-kcal { text-align: right; flex: none; font-size: 30px; font-weight: 800; line-height: 1; }
+.ncard-head-kcal-unit { display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: var(--text-faint); margin-top: 2px; }
+.ncard-list { padding: 6px 10px 10px; }
+.nfood { display: flex; align-items: center; gap: 12px; padding: 12px 6px; border-bottom: 1px solid var(--border); }
+.nfood:last-child { border-bottom: none; }
+.nfood-main { flex: 1; min-width: 0; background: transparent; border: none; text-align: left; cursor: pointer; padding: 0; }
+.nfood-name { font-size: 16px; font-weight: 700; color: var(--text); }
+.nfood-meta { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+.nfood-kcal { font-size: 18px; font-weight: 800; flex: none; }
+.nfood-del {
+  width: 34px; height: 34px; flex: none; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-sunken); border: 1px solid var(--border); color: var(--text-faint);
+  cursor: pointer; transition: all 130ms ease;
+}
+.nfood-del:hover { color: var(--danger); border-color: var(--danger); }
+.nfood-del svg { width: 16px; height: 16px; }
+.ncard-empty { padding: 26px 12px; text-align: center; }
+.ncard-empty-title { font-size: 15px; font-weight: 700; color: var(--text-muted); }
+.ncard-empty-sub { font-size: 13px; color: var(--text-faint); margin-top: 4px; }
+
+@media (max-width: 480px) {
+  .npanel-title { font-size: 26px; }
+  .ncard-head-name { font-size: 19px; }
+  .ncard-head-kcal { font-size: 26px; }
+}

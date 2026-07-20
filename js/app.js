@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=75").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=77").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -4957,7 +4957,282 @@
     return card;
   }
 
+  // Redesigned nutrition tab: a vertical card pager — Overview, then one card
+  // per meal section, then a Trends card. Swipe up/down; dots on the right.
   async function renderNutrition(view) {
+    const NCHEV = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+    const NUP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>';
+
+    const meals = await Storage.getMeals();
+    const today = U.todayISO();
+    const todays = meals.filter(m => m.date === today);
+    const energy = await resolveEnergyBudget(today);
+    const macroGoals = await resolveMacroGoals(today, energy);
+    const goal = energy.goal || 2200;
+    const eaten = todays.reduce((s, m) => s + (m.kcal || 0), 0);
+    const remaining = goal - eaten;
+    const over = eaten > goal;
+    const pct = goal > 0 ? Math.min(100, (eaten / goal) * 100) : 0;
+    const dayMacros = U.sumMacros(todays);
+    const groups = U.groupMealsBySection(todays);
+    const isPersonal = targetsArePersonal(energy);
+    const dateEyebrow = U.formatDate(today, { weekday: "short" }).toUpperCase();
+
+    // Cards: core meals always, extras only when used, supplements always, trends last.
+    const CORE = ["breakfast", "lunch", "dinner", "snack"];
+    const EXTRAS = ["pre_workout", "post_workout", "other"];
+    const sectionCards = [
+      ...CORE,
+      ...EXTRAS.filter(k => (groups[k] || []).length),
+      "supplement"
+    ];
+    // Next meal to nudge: first with nothing logged, else the first card.
+    const nextSection = sectionCards.find(k => !(groups[k] || []).length) || sectionCards[0];
+
+    const screen = el("div", { class: "npager-screen" });
+    const pager = el("div", { class: "npager", "data-testid": "npager" });
+    const dots = el("div", { class: "npager-dots" });
+    screen.appendChild(pager);
+    screen.appendChild(dots);
+
+    const panelKeys = ["overview", ...sectionCards, "trends"];
+    let activeIdx = 0;
+
+    function goToPanel(i) {
+      const p = pager.children[i];
+      if (p) pager.scrollTo({ top: p.offsetTop, behavior: "smooth" });
+    }
+    function panelIndexForSection(key) { return 1 + sectionCards.indexOf(key); }
+
+    function renderDots() {
+      clear(dots);
+      panelKeys.forEach((k, i) => {
+        dots.appendChild(el("button", {
+          class: "npager-dot" + (i === activeIdx ? " active" : ""),
+          type: "button", "aria-label": k, "data-idx": String(i),
+          on: { click: () => goToPanel(i) }
+        }));
+      });
+    }
+    function syncDots() {
+      for (const d of Array.from(dots.children)) {
+        d.classList.toggle("active", Number(d.getAttribute("data-idx")) === activeIdx);
+      }
+    }
+
+    // ---- reusable bits ----
+    const macroTxt = (p, c, f) => `${Math.round(p || 0)}P · ${Math.round(c || 0)}C · ${Math.round(f || 0)}F`;
+
+    function macroCard(label, val, goalVal, cls) {
+      const p = goalVal > 0 ? Math.min(100, (val / goalVal) * 100) : 0;
+      return el("div", { class: "nmacro-card" },
+        el("div", { class: "nmacro-label" }, label),
+        el("div", { class: "nmacro-val" }, `${Math.round(val || 0)}`,
+          el("span", { class: "nmacro-goal" }, goalVal > 0 ? `/${Math.round(goalVal)}g` : "g")),
+        el("div", { class: "nmacro-bar" }, el("div", { class: "nmacro-fill " + cls, style: `width:${p}%` }))
+      );
+    }
+
+    function mealsTodayRow(key) {
+      const items = groups[key] || [];
+      const kcal = items.reduce((s, m) => s + (m.kcal || 0), 0);
+      const meta = U.MEAL_SECTIONS[key];
+      return el("button", { class: "nmeal-row", type: "button", on: { click: () => goToPanel(panelIndexForSection(key)) } },
+        el("span", { class: "nmeal-badge" }, meta.short),
+        el("div", { class: "nmeal-row-main" },
+          el("div", { class: "nmeal-row-name" }, meta.label),
+          el("div", { class: "nmeal-row-sub" }, items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : "Not logged")
+        ),
+        el("div", { class: "nmeal-row-kcal" }, String(kcal)),
+        el("span", { class: "nmeal-row-chev", html: NCHEV })
+      );
+    }
+
+    function mealPanel(key) {
+      const items = groups[key] || [];
+      const meta = U.MEAL_SECTIONS[key];
+      const kcal = items.reduce((s, m) => s + (m.kcal || 0), 0);
+      const mac = U.sumMacros(items);
+      const panel = el("div", { class: "npanel", "data-key": key });
+      panel.appendChild(el("div", { class: "npanel-head" },
+        el("div", { style: "min-width:0" },
+          el("div", { class: "npanel-eyebrow" }, dateEyebrow),
+          el("h2", { class: "npanel-title" }, meta.label)
+        ),
+        el("div", { class: "npanel-head-right" },
+          el("div", { class: "npanel-head-kcal" }, String(kcal)),
+          el("div", { class: "npanel-head-sub" }, `${items.length} item${items.length === 1 ? "" : "s"}`)
+        )
+      ));
+      const card = el("div", { class: "ncard" });
+      card.appendChild(el("div", { class: "ncard-head" },
+        el("span", { class: "ncard-badge" }, meta.short),
+        el("div", { class: "ncard-head-main" },
+          el("div", { class: "ncard-head-name" }, meta.label),
+          el("div", { class: "ncard-head-macros" }, mac.hasMacros ? macroTxt(mac.protein, mac.carbs, mac.fat) : "No macros yet")
+        ),
+        el("div", { class: "ncard-head-kcal" }, String(kcal), el("span", { class: "ncard-head-kcal-unit" }, "KCAL"))
+      ));
+      const list = el("div", { class: "ncard-list" });
+      if (!items.length) {
+        list.appendChild(el("div", { class: "ncard-empty" },
+          el("div", { class: "ncard-empty-title" }, "Nothing logged yet"),
+          el("div", { class: "ncard-empty-sub" }, `Add your first item for ${meta.label.toLowerCase()}.`)
+        ));
+      } else {
+        for (const m of items) {
+          const hasMac = (m.protein || m.carbs || m.fat);
+          list.appendChild(el("div", { class: "nfood" },
+            el("button", { class: "nfood-main", type: "button", title: "Edit", on: { click: () => openMealForm(m) } },
+              el("div", { class: "nfood-name" }, m.name),
+              hasMac ? el("div", { class: "nfood-meta" }, `${Math.round(m.protein || 0)}P ${Math.round(m.carbs || 0)}C ${Math.round(m.fat || 0)}F`) : null
+            ),
+            el("div", { class: "nfood-kcal" }, String(m.kcal || 0)),
+            el("button", {
+              class: "nfood-del", type: "button", "aria-label": `Remove ${m.name}`, html: icons.x,
+              on: { click: async () => { await Storage.deleteMeal(m.id); toast(`Removed ${m.name}`); renderMain(); } }
+            })
+          ));
+        }
+      }
+      card.appendChild(list);
+      panel.appendChild(card);
+
+      const foot = el("div", { class: "npanel-foot" });
+      foot.appendChild(el("button", { class: "btn btn-primary btn-block nadd-btn", on: { click: () => openQuickAdd(key) } },
+        el("span", { html: icons.plus }), "Add food"));
+      const ni = panelIndexForSection(key) + 1;
+      if (ni <= sectionCards.length) {
+        const nk = panelKeys[ni];
+        const label = nk === "trends" ? "See trends" : `Log ${U.MEAL_SECTIONS[nk].label}`;
+        foot.appendChild(el("button", { class: "btn btn-ghost btn-sm nnext-btn", on: { click: () => goToPanel(ni) } },
+          el("span", { html: NUP }), label));
+      }
+      panel.appendChild(foot);
+      return panel;
+    }
+
+    // ---- Overview panel ----
+    const ov = el("div", { class: "npanel npanel-overview" });
+    ov.appendChild(el("div", { class: "npanel-head" },
+      el("div", { style: "min-width:0" },
+        el("div", { class: "npanel-eyebrow" }, dateEyebrow),
+        el("h2", { class: "npanel-title" }, "Overview")
+      ),
+      el("div", { class: "npanel-head-right" },
+        el("div", { class: "npanel-head-kcal accent" }, (remaining >= 0 ? remaining : Math.abs(remaining)).toLocaleString("en-GB")),
+        el("div", { class: "npanel-head-sub" }, remaining >= 0 ? "kcal left" : "kcal over")
+      )
+    ));
+    const ringWrap = buildEnergyRing(pct, over);
+    ringWrap.appendChild(el("div", { class: "energy-ring-center" },
+      el("div", { class: "energy-ring-main" + (remaining < 0 ? " over" : "") }, (remaining >= 0 ? remaining : Math.abs(remaining)).toLocaleString("en-GB")),
+      el("div", { class: "energy-ring-sub" }, remaining >= 0 ? "LEFT" : "OVER"),
+      el("div", { class: "nring-detail" }, `${eaten.toLocaleString("en-GB")} / ${goal.toLocaleString("en-GB")} kcal`)
+    ));
+    ov.appendChild(el("div", { class: "nring-block" }, ringWrap));
+    const g = macroGoals.goals || {};
+    ov.appendChild(el("div", { class: "nmacro-row" },
+      macroCard("Protein", dayMacros.protein, g.protein, "is-protein"),
+      macroCard("Carbs", dayMacros.carbs, g.carbs, "is-carbs"),
+      macroCard("Fat", dayMacros.fat, g.fat, "is-fat")
+    ));
+    if (!isPersonal) {
+      const needsProfile = !energy.profileReady;
+      ov.appendChild(el("div", { class: "energy-setup-banner nsetup" },
+        el("div", { class: "text-sm text-muted" },
+          needsProfile
+            ? "These numbers are a starter estimate. Set up your profile to personalise them."
+            : "Log your bodyweight so room and macros use your numbers."),
+        el("button", {
+          class: "btn btn-primary btn-sm mt-8",
+          on: { click: () => { if (needsProfile) openSettings(); else { goTab("home"); setTimeout(scrollToBodyweightCard, 60); } } }
+        }, needsProfile ? "Set up" : "Log bodyweight")
+      ));
+    }
+    const mealsWrap = el("div", { class: "nmeals-today" });
+    mealsWrap.appendChild(el("div", { class: "nsection-label" }, "MEALS TODAY"));
+    for (const key of sectionCards) mealsWrap.appendChild(mealsTodayRow(key));
+    ov.appendChild(mealsWrap);
+    const ovFoot = el("div", { class: "npanel-foot" });
+    ovFoot.appendChild(el("button", { class: "btn btn-primary btn-block", on: { click: () => goToPanel(panelIndexForSection(nextSection)) } },
+      el("span", { html: NUP }), `Log ${U.MEAL_SECTIONS[nextSection].label}`));
+    ov.appendChild(ovFoot);
+    pager.appendChild(ov);
+
+    // ---- Meal panels ----
+    for (const key of sectionCards) pager.appendChild(mealPanel(key));
+
+    // ---- Trends panel ----
+    const trends = el("div", { class: "npanel npanel-trends" });
+    trends.appendChild(el("div", { class: "npanel-head" },
+      el("div", { style: "min-width:0" },
+        el("div", { class: "npanel-eyebrow" }, "LAST 14 DAYS"),
+        el("h2", { class: "npanel-title" }, "Trends")
+      )
+    ));
+    const byDate = {};
+    for (const m of meals) { byDate[m.date] = (byDate[m.date] || 0) + (m.kcal || 0); }
+    const tVals = [];
+    for (let i = 13; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); tVals.push(byDate[U.todayISO(d)] ?? null); }
+    const logged = tVals.filter(v => v != null && v > 0);
+    const tcard = el("div", { class: "ncard", style: "padding:16px" });
+    if (logged.length) {
+      const avg = Math.round(logged.reduce((s, v) => s + v, 0) / logged.length);
+      tcard.appendChild(el("div", { class: "row-between", style: "margin-bottom:8px" },
+        el("div", { class: "ncard-head-name" }, "Calorie trend"),
+        el("div", { class: "text-sm text-muted" }, `Avg ${avg} kcal`)));
+      tcard.appendChild(sparkline(tVals, { width: 320, height: 60, goal }));
+      tcard.appendChild(el("div", { class: "text-xs text-faint", style: "margin-top:6px" },
+        `Dashed line = goal (${goal} kcal). Only logged days count toward the average.`));
+    } else {
+      tcard.appendChild(el("div", { class: "ncard-empty" },
+        el("div", { class: "ncard-empty-title" }, "No history yet"),
+        el("div", { class: "ncard-empty-sub" }, "Log meals across a few days to see your calorie trend.")));
+    }
+    trends.appendChild(tcard);
+    // Recent days
+    const past = meals.filter(m => m.date !== today);
+    if (past.length) {
+      const pastBy = {};
+      for (const m of past) { pastBy[m.date] = (pastBy[m.date] || 0) + (m.kcal || 0); }
+      const rows = Object.entries(pastBy).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 14);
+      const rcard = el("div", { class: "ncard", style: "padding:8px 4px; margin-top:12px" });
+      rcard.appendChild(el("div", { class: "nsection-label", style: "padding:8px 12px 4px" }, "RECENT DAYS"));
+      for (const [date, kc] of rows) {
+        rcard.appendChild(el("button", { class: "nfood", type: "button", style: "width:100%; text-align:left", on: { click: () => openNutritionDayDetail(date) } },
+          el("div", { class: "nfood-main" }, el("div", { class: "nfood-name" }, U.formatDate(date, { weekday: "short" }))),
+          el("div", { class: "nfood-kcal" }, `${kc}`),
+          el("span", { class: "nmeal-row-chev", html: NCHEV })
+        ));
+      }
+      trends.appendChild(rcard);
+    }
+    pager.appendChild(trends);
+
+    // ---- Dots + scroll sync ----
+    renderDots();
+    let sRAF = null;
+    pager.addEventListener("scroll", () => {
+      if (sRAF) return;
+      sRAF = requestAnimationFrame(() => {
+        sRAF = null;
+        const center = pager.scrollTop + pager.clientHeight / 2;
+        let best = 0, bd = Infinity;
+        for (let i = 0; i < pager.children.length; i++) {
+          const cc = pager.children[i].offsetTop + pager.children[i].offsetHeight / 2;
+          const d = Math.abs(cc - center);
+          if (d < bd) { bd = d; best = i; }
+        }
+        if (best !== activeIdx) { activeIdx = best; syncDots(); }
+      });
+    }, { passive: true });
+
+    view.appendChild(screen);
+    return;
+  }
+
+  async function renderNutritionLegacy(view) {
     const [meals, mealTemplates] = await Promise.all([
       Storage.getMeals(),
       Storage.getMealTemplates()

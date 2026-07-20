@@ -28,7 +28,7 @@ window.U = {
   // ---- Meal categories & times (24h, en-GB) ----
   MEAL_SECTION_ORDER: [
     "breakfast", "lunch", "dinner", "snack",
-    "pre_workout", "post_workout", "other"
+    "pre_workout", "post_workout", "other", "supplement"
   ],
   MEAL_SECTIONS: {
     breakfast: { key: "breakfast", label: "Breakfast", short: "B", alwaysShow: true, defaultTime: "08:00" },
@@ -37,7 +37,8 @@ window.U = {
     snack: { key: "snack", label: "Snacks", short: "S", alwaysShow: true, defaultTime: "15:30" },
     pre_workout: { key: "pre_workout", label: "Pre-workout", short: "Pre", alwaysShow: false, defaultTime: "16:30" },
     post_workout: { key: "post_workout", label: "Post-workout", short: "Post", alwaysShow: false, defaultTime: "18:00" },
-    other: { key: "other", label: "Other", short: "O", alwaysShow: false, defaultTime: "12:00" }
+    other: { key: "other", label: "Other", short: "O", alwaysShow: false, defaultTime: "12:00" },
+    supplement: { key: "supplement", label: "Supplements", short: "Su", alwaysShow: false, defaultTime: "09:00" }
   },
 
   normalizeMealSection(key) {
@@ -48,6 +49,7 @@ window.U = {
     if (k === "snacks") return "snack";
     if (k === "preworkout" || k === "pre") return "pre_workout";
     if (k === "postworkout" || k === "post") return "post_workout";
+    if (k === "supplements" || k === "supp" || k === "supps") return "supplement";
     return "snack";
   },
 
