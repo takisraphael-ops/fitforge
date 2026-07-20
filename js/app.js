@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=83").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=84").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -414,6 +414,8 @@
       backupSnoozedUntil: await Storage.getPref("backupSnoozedUntil", null),
       // First-run guided setup: once shown/finished/skipped we don't auto-open again.
       onboarded: !!(await Storage.getPref("onboarded", false)),
+      // Weekly split/program: { mon: templateId | "rest", ... } (missing = open day).
+      weeklyPlan: await Storage.getPref("weeklyPlan", {}),
       theme: await Storage.getPref("theme", null)
     };
   }
@@ -1985,6 +1987,155 @@
     return wrap;
   }
 
+  // Today's-workout hero for Home — driven by the weekly plan.
+  function buildTodayWorkoutHero({ plan, tplById, exById }) {
+    const hasPlan = planHasAny(plan);
+    const todayKey = weekdayKeyFor();
+    const assign = plan[todayKey];
+    const arrow = '<svg viewBox="0 0 16 16" width="16" height="16"><path d="M3 8h9M8 3.5L12.5 8 8 12.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const editLink = () => el("button", {
+      class: "today-hero-edit", type: "button", "data-testid": "hero-edit-week",
+      on: { click: openWeeklyPlanEditor }
+    }, "Edit week");
+
+    // No plan configured at all → invitation to set one up.
+    if (!hasPlan) {
+      return el("div", { class: "card today-hero today-hero-plan", "data-testid": "today-hero" },
+        el("div", { class: "today-hero-eyebrow" }, "Your week"),
+        el("div", { class: "today-hero-title" }, "Plan your training week"),
+        el("div", { class: "today-hero-sub" },
+          "Assign a template to each day and Home will show today's session ready to start."),
+        el("div", { class: "today-hero-actions" },
+          el("button", {
+            class: "btn btn-primary btn-block today-hero-start", "data-testid": "hero-plan-week",
+            on: { click: openWeeklyPlanEditor }
+          }, "Plan your week", el("span", { class: "today-hero-arrow", html: arrow })),
+          el("button", {
+            class: "btn today-hero-browse", title: "Start a workout now",
+            on: { click: () => goTab("workout") }
+          }, "Start a workout")
+        )
+      );
+    }
+
+    // Rest day.
+    if (assign === "rest") {
+      return el("div", { class: "card today-hero today-hero-rest", "data-testid": "today-hero" },
+        el("div", { class: "row-between", style: "align-items:flex-start;gap:10px" },
+          el("div", {},
+            el("div", { class: "today-hero-eyebrow" }, "Today · Rest"),
+            el("div", { class: "today-hero-title" }, "Rest day"),
+            el("div", { class: "today-hero-sub" }, "Recovery is where the work pays off. Enjoy it.")
+          ),
+          editLink()
+        ),
+        el("button", {
+          class: "btn btn-sm today-hero-rest-cta mt-8",
+          on: { click: () => goTab("workout") }
+        }, "Train anyway")
+      );
+    }
+
+    const tpl = (assign && assign !== "rest") ? tplById.get(assign) : null;
+
+    // Planned training day with a valid template.
+    if (tpl) {
+      const focus = templateFocus(tpl, exById);
+      const est = templateEstMin(tpl);
+      const exCount = (tpl.exercises || []).length;
+      const meta = `${exCount} exercise${exCount === 1 ? "" : "s"} · ~${est} min`;
+      const names = (tpl.exercises || []).map(e => e.name);
+      const chipRow = el("div", { class: "today-hero-chips" });
+      names.slice(0, 3).forEach(n => chipRow.appendChild(el("span", { class: "today-hero-chip" }, n)));
+      if (names.length > 3) chipRow.appendChild(el("span", { class: "today-hero-chip is-more" }, `+${names.length - 3}`));
+
+      return el("div", { class: "card today-hero today-hero-train", "data-testid": "today-hero" },
+        el("div", { class: "today-hero-glow" }),
+        el("div", { class: "today-hero-body" },
+          el("div", { class: "row-between", style: "align-items:flex-start;gap:10px" },
+            el("div", { class: "today-hero-eyebrow" }, `Today · ${WEEKDAY_LABELS[todayKey]}`),
+            editLink()
+          ),
+          el("div", { class: "row-between", style: "align-items:baseline;gap:12px;margin-top:4px" },
+            el("div", { class: "today-hero-title" }, tpl.name),
+            focus ? el("div", { class: "today-hero-focus" }, focus) : null
+          ),
+          el("div", { class: "today-hero-meta" }, meta),
+          chipRow,
+          el("div", { class: "today-hero-actions" },
+            el("button", {
+              class: "btn btn-primary today-hero-start", "data-testid": "hero-start-workout",
+              on: { click: () => startNewWorkout(tpl) }
+            }, "Start workout", el("span", { class: "today-hero-arrow", html: arrow })),
+            el("button", {
+              class: "today-hero-swap", title: "Start a different workout",
+              "data-testid": "hero-swap", on: { click: () => goTab("workout") },
+              html: '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h11M4 7l3-3M4 7l3 3M20 17H9m11 0l-3-3m3 3l-3 3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+            })
+          )
+        )
+      );
+    }
+
+    // Plan exists but today is open (or its template was deleted).
+    return el("div", { class: "card today-hero today-hero-open", "data-testid": "today-hero" },
+      el("div", { class: "row-between", style: "align-items:flex-start;gap:10px" },
+        el("div", {},
+          el("div", { class: "today-hero-eyebrow" }, `Today · ${WEEKDAY_LABELS[todayKey]}`),
+          el("div", { class: "today-hero-title" }, "Nothing planned today"),
+          el("div", { class: "today-hero-sub" }, "Open day — start whatever you feel like.")
+        ),
+        editLink()
+      ),
+      el("button", {
+        class: "btn btn-primary btn-block today-hero-start mt-8", "data-testid": "hero-start-open",
+        on: { click: () => goTab("workout") }
+      }, "Start a workout", el("span", { class: "today-hero-arrow", html: arrow }))
+    );
+  }
+
+  // Monday-first 7-day cadence strip: done / today / rest / open.
+  function buildWeekStrip(completed, plan) {
+    const doneDates = new Set(completed.map(w => w.date));
+    const today = U.todayISO();
+    const week = weekDatesFor();
+    const goal = state.prefs.weeklyWorkoutGoal || 4;
+    let doneCount = 0;
+
+    const row = el("div", { class: "week-strip-row" });
+    for (const { key, iso } of week) {
+      const isDone = doneDates.has(iso);
+      const isToday = iso === today;
+      const isRest = plan[key] === "rest";
+      if (isDone) doneCount++;
+      let state2 = "open";
+      if (isDone) state2 = "done";
+      else if (isToday) state2 = "today";
+      else if (isRest) state2 = "rest";
+      const tile = el("div", { class: `week-tile is-${state2}` });
+      if (isDone) {
+        tile.appendChild(el("span", { class: "week-tile-check",
+          html: '<svg viewBox="0 0 16 16" width="15" height="15"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' }));
+      } else if (isRest) {
+        tile.appendChild(el("span", { class: "week-tile-dot" }));
+      }
+      row.appendChild(el("div", { class: "week-strip-day" + (isToday ? " is-today" : "") },
+        el("span", { class: "week-strip-letter" }, WEEKDAY_LETTERS[key]),
+        tile
+      ));
+    }
+
+    return el("div", { class: "card week-strip-card", "data-testid": "home-week-strip" },
+      el("div", { class: "row-between" },
+        el("div", { class: "week-strip-heading" }, "Cadence"),
+        el("div", { class: "week-strip-count" },
+          el("span", { class: "week-strip-count-num" }, String(doneCount)),
+          ` / ${goal} workouts`)
+      ),
+      row
+    );
+  }
+
   async function renderHome(view) {
     const [workouts, meals] = await Promise.all([Storage.getWorkouts(), Storage.getMeals()]);
     const completed = workouts.filter(w => w.completedAt);
@@ -2005,12 +2156,32 @@
       return s + (w.exercises || []).reduce((s2, ex) => s2 + U.volume(ex.sets), 0);
     }, 0);
 
-    // 1) Greeting
+    // 1) Greeting — date eyebrow, greeting, streak flame pill
     const profileName = (state.prefs?.profileName || "").trim();
-    view.appendChild(el("h1", { class: "home-greeting" },
-      el("span", { class: "greet-part" }, profileName ? `Good ${greeting()}, ` : `Good ${greeting()}.`),
-      profileName ? el("span", { class: "greet-name" }, profileName) : null
-    ));
+    const dateStr = new Date().toLocaleDateString("en-GB",
+      { weekday: "short", day: "numeric", month: "short" }).toUpperCase();
+    const topbar = el("div", { class: "home-topbar" },
+      el("div", { class: "home-topbar-main" },
+        el("div", { class: "home-date" }, dateStr),
+        el("h1", { class: "home-greeting" },
+          el("span", { class: "greet-part" }, profileName ? `Good ${greeting()}, ` : `Good ${greeting()}.`),
+          profileName ? el("span", { class: "greet-name" }, profileName) : null
+        )
+      )
+    );
+    if (streak >= 1) {
+      topbar.appendChild(el("div", { class: "streak-pill", title: `${streak}-day streak`, "data-testid": "home-streak-pill" },
+        el("span", { class: "streak-flame", html: '<svg viewBox="0 0 15 17" width="15" height="17"><path d="M7.5 1C8 4 11 5 11 8.5A3.5 3.5 0 0 1 4 8.5c0-1 .4-1.6.9-2.2C5.6 7 6.5 7 6.5 5.4 6.5 3.6 6 2.3 7.5 1Z" fill="#f0883e"/><path d="M7.5 16a4 4 0 0 1-4-4c0-2.2 1.7-3.2 2.4-4.6.3 1.4 1.3 1.6 1.3 2.8 0 .9-.5 1.2-.5 1.9A1.8 1.8 0 0 0 10 12c0-1.6-.8-2.3-.8-2.3S11.5 10.5 11.5 12a4 4 0 0 1-4 4Z" fill="#ffb454"/></svg>' }),
+        el("span", { class: "streak-num" }, String(streak))
+      ));
+    }
+    view.appendChild(topbar);
+
+    // Weekly-plan data for the today hero + week strip
+    const [allEx, templates] = await Promise.all([getAllExercises(), Storage.getTemplates()]);
+    const exById = new Map(allEx.map(e => [e.id, e]));
+    const tplById = new Map(templates.map(t => [t.id, t]));
+    const plan = getWeeklyPlan();
 
     // Active workout stays above everything — interrupt context
     if (state.activeWorkout) {
@@ -2037,7 +2208,12 @@
       ));
     }
 
-    // 2) Today — food room hero + macro tiles
+    // 2) Today's training — plan-driven hero (hidden while a workout is active)
+    if (!state.activeWorkout) {
+      view.appendChild(buildTodayWorkoutHero({ plan, tplById, exById }));
+    }
+
+    // 3) Today — food room hero + macro tiles
     const todayBlock = homeSection(
       "Today",
       "home-section-today",
@@ -2091,7 +2267,8 @@
           : el("div", { class: "sparkline-empty", style: "height:58px" }, "No data yet")
       )
     );
-    view.appendChild(homeSection("This week", "home-section-week", weekDuo, weekStats));
+    const weekStrip = buildWeekStrip(completed, plan);
+    view.appendChild(homeSection("This week", "home-section-week", weekStrip, weekStats, weekDuo));
 
     // 5) Trends — longer-range signals, secondary to action + today
     const trends = homeSection(
@@ -2198,6 +2375,71 @@
     return streak;
   }
 
+  // ============ Weekly plan (lightweight split/program) ============
+  // A plan maps weekdays to a template id or the literal "rest". Missing keys
+  // are "open" days (decide at the gym). Weekday-based so "today's plan" needs
+  // no rotation state and the week strip stays calendar-aligned.
+  const WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+  const WEEKDAY_LABELS = { mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday", sun: "Sunday" };
+  const WEEKDAY_LETTERS = { mon: "M", tue: "T", wed: "W", thu: "T", fri: "F", sat: "S", sun: "S" };
+
+  // JS getDay(): 0=Sun..6=Sat → our Monday-first keys.
+  function weekdayKeyFor(date = new Date()) {
+    return WEEKDAY_KEYS[(date.getDay() + 6) % 7];
+  }
+
+  function getWeeklyPlan() {
+    const p = state.prefs.weeklyPlan;
+    return (p && typeof p === "object") ? p : {};
+  }
+
+  function planHasAny(plan) {
+    return WEEKDAY_KEYS.some(k => plan[k] === "rest" || (plan[k] && plan[k] !== ""));
+  }
+
+  // Dates (ISO) for the Monday-first week containing `ref`.
+  function weekDatesFor(ref = new Date()) {
+    const monday = new Date(ref);
+    monday.setDate(ref.getDate() - ((ref.getDay() + 6) % 7));
+    return WEEKDAY_KEYS.map((key, i) => {
+      const d = new Date(monday); d.setDate(monday.getDate() + i);
+      return { key, iso: U.todayISO(d) };
+    });
+  }
+
+  const FOCUS_BUCKETS = [
+    { key: "Chest", match: /pector|chest/i },
+    { key: "Back", match: /lat|rhomboid|trap|erector|\bback\b/i },
+    { key: "Shoulders", match: /deltoid|shoulder/i },
+    { key: "Arms", match: /bicep|tricep|forearm|brachial/i },
+    { key: "Legs", match: /quad|hamstring|glute|calf|calves|adductor|abductor|hip/i },
+    { key: "Core", match: /abdominal|oblique|core|quadratus/i }
+  ];
+
+  // Short "Chest & Triceps"-style label from a template's exercises.
+  function templateFocus(template, byId) {
+    const counts = {};
+    for (const te of (template.exercises || [])) {
+      const def = byId.get(te.exerciseId);
+      const muscles = def?.muscles || [];
+      const hit = new Set();
+      for (const m of muscles) for (const b of FOCUS_BUCKETS) if (b.match.test(m)) hit.add(b.key);
+      for (const k of hit) counts[k] = (counts[k] || 0) + 1;
+    }
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(e => e[0]);
+    return top.length ? top.slice(0, 2).join(" & ") : null;
+  }
+
+  // Rough session length: ~3.5 min per strength set (incl rest) + cardio minutes.
+  function templateEstMin(template) {
+    let min = 0;
+    for (const te of (template.exercises || [])) {
+      if (te.targetDurationMin != null) min += te.targetDurationMin;
+      else min += (te.targetSets || 3) * 3.5;
+    }
+    return Math.max(5, Math.round(min / 5) * 5);
+  }
+
   function renderHeatmap(completed) {
     const card = el("div", { class: "card" });
     card.appendChild(el("div", { class: "card-title" }, "Training frequency (last 24 weeks)"));
@@ -2278,6 +2520,26 @@
           )
         ));
       }
+
+      // Weekly plan entry — summarises the split and opens the editor.
+      const wplan = getWeeklyPlan();
+      const trainingDays = WEEKDAY_KEYS.filter(k => wplan[k] && wplan[k] !== "rest").length;
+      const restDays = WEEKDAY_KEYS.filter(k => wplan[k] === "rest").length;
+      const planSummary = planHasAny(wplan)
+        ? `${trainingDays} training day${trainingDays === 1 ? "" : "s"}` + (restDays ? ` · ${restDays} rest` : "")
+        : "Not set up yet";
+      view.appendChild(el("div", { class: "card wplan-entry", "data-testid": "workout-weekly-plan" },
+        el("div", { class: "row-between", style: "gap:12px;align-items:center" },
+          el("div", { style: "min-width:0" },
+            el("div", { class: "card-title", style: "margin:0 0 4px 0" }, "Weekly plan"),
+            el("div", { class: "text-xs text-muted" }, planSummary)
+          ),
+          el("button", {
+            class: "btn btn-sm", style: "flex:none",
+            on: { click: openWeeklyPlanEditor }
+          }, planHasAny(wplan) ? "Edit" : "Set up")
+        )
+      ));
 
       // Templates section — collapsible, collapsed by default to keep the
       // exercise card the focus on small screens.
@@ -2792,6 +3054,63 @@
 
     openModal(existing ? "Edit template" : "New template", body, footer);
     refresh();
+  }
+
+  // Editor: assign a template (or Rest) to each weekday. Powers the Home hero.
+  async function openWeeklyPlanEditor() {
+    const templates = (await Storage.getTemplates())
+      .slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    const plan = { ...getWeeklyPlan() };
+    const todayKey = weekdayKeyFor();
+    const selects = {};
+    const list = el("div", { class: "wplan-list" });
+
+    for (const key of WEEKDAY_KEYS) {
+      const sel = el("select", { class: "select", "data-testid": `wplan-select-${key}` });
+      sel.appendChild(el("option", { value: "" }, "Open — decide at gym"));
+      sel.appendChild(el("option", { value: "rest" }, "Rest day"));
+      for (const t of templates) sel.appendChild(el("option", { value: t.id }, t.name));
+      const cur = plan[key];
+      sel.value = (cur === "rest" || templates.some(t => t.id === cur)) ? cur : "";
+      selects[key] = sel;
+      list.appendChild(el("div", { class: "wplan-row" + (key === todayKey ? " is-today" : "") },
+        el("div", { class: "wplan-day" },
+          el("span", { class: "wplan-day-name" }, WEEKDAY_LABELS[key]),
+          key === todayKey ? el("span", { class: "wplan-today-tag" }, "Today") : null
+        ),
+        sel
+      ));
+    }
+
+    const body = el("div", {},
+      el("p", { class: "text-sm text-muted mb-8" },
+        "Assign a template to each day. Home shows today's plan with a Start button. Leave a day open to decide at the gym."),
+      templates.length ? null : el("div", { class: "text-sm text-faint mb-8" },
+        "You have no templates yet — create one to assign it to a day."),
+      list,
+      el("button", {
+        class: "btn btn-ghost btn-sm mt-8", "data-testid": "wplan-new-template",
+        on: { click: () => { closeModal(); openTemplateEditor(null); } }
+      }, el("span", { html: icons.plus }), "New template")
+    );
+
+    const footer = el("div", {},
+      el("button", { class: "btn", on: { click: closeModal } }, "Cancel"),
+      el("button", {
+        class: "btn btn-primary", "data-testid": "wplan-save",
+        on: { click: async () => {
+          const next = {};
+          for (const key of WEEKDAY_KEYS) { const v = selects[key].value; if (v) next[key] = v; }
+          state.prefs.weeklyPlan = next;
+          await Storage.setPref("weeklyPlan", next);
+          closeModal();
+          renderMain();
+          toast("Weekly plan saved");
+        } }
+      }, "Save plan")
+    );
+
+    openModal("Weekly plan", body, footer);
   }
 
   async function offerSaveAsTemplate(workout) {
