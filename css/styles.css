@@ -3050,6 +3050,7 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 
 /* ── Horizontal card pager: one category per card, swipe to change ── */
 .xpick-pager {
+  position: relative;
   flex: 1; min-height: 0;
   display: flex;
   overflow-x: auto; overflow-y: hidden;

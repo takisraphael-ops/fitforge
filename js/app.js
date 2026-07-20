@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=73").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=75").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -4351,25 +4351,52 @@
       }
     }
 
+    // Glide the chip row (horizontal only) so the active chip stays centred —
+    // avoids the sudden jump scrollIntoView() causes mid-swipe.
+    function centerChip(chip) {
+      const target = chip.offsetLeft - (chipRow.clientWidth - chip.clientWidth) / 2;
+      const max = chipRow.scrollWidth - chipRow.clientWidth;
+      chipRow.scrollTo({ left: Math.max(0, Math.min(max, target)), behavior: "smooth" });
+    }
+
     function syncActive() {
       for (const chip of Array.from(chipRow.children)) {
         const on = chip.getAttribute("data-cat") === activeCat;
         chip.classList.toggle("active", on);
-        if (on) chip.scrollIntoView({ block: "nearest", inline: "center" });
+        if (on) centerChip(chip);
       }
       for (const dot of Array.from(dotsRow.children)) {
         dot.classList.toggle("active", dot.getAttribute("data-cat") === activeCat);
       }
     }
 
+    function panelForCat(c) {
+      if (!pager) return null;
+      const key = (window.CSS && CSS.escape) ? CSS.escape(c) : c;
+      return pager.querySelector('.xpick-panel[data-cat="' + key + '"]');
+    }
+
+    // Index of the panel nearest the pager's viewport centre — robust to
+    // panel padding/margins (don't assume panel width === pager width).
+    function nearestPanelIndex() {
+      if (!pager || !pager.children.length) return Math.max(0, cats.indexOf(activeCat));
+      const center = pager.scrollLeft + pager.clientWidth / 2;
+      let best = 0, bestDist = Infinity;
+      const panels = pager.children;
+      for (let i = 0; i < panels.length; i++) {
+        const c = panels[i].offsetLeft + panels[i].offsetWidth / 2;
+        const d = Math.abs(c - center);
+        if (d < bestDist) { bestDist = d; best = i; }
+      }
+      return best;
+    }
+
     function scrollToCat(c) {
       if (!cats.includes(c)) return;
       activeCat = c;
       syncActive();
-      if (pager) {
-        const idx = cats.indexOf(c);
-        pager.scrollTo({ left: idx * pager.clientWidth, behavior: "smooth" });
-      }
+      const panel = panelForCat(c);
+      if (pager && panel) pager.scrollTo({ left: panel.offsetLeft, behavior: "smooth" });
     }
 
     function rowFor(ex) {
@@ -4461,12 +4488,20 @@
         );
         p.appendChild(panel);
       }
-      // Update active chip + dots as the user swipes between cards.
-      p.addEventListener("scroll", U.debounce(() => {
-        const idx = Math.round(p.scrollLeft / Math.max(1, p.clientWidth));
-        const c = cats[Math.max(0, Math.min(cats.length - 1, idx))];
-        if (c && c !== activeCat) { activeCat = c; syncActive(); }
-      }, 60));
+      // Track the swipe in real time (rAF-throttled, not debounced) so the
+      // category highlight follows the finger and flips smoothly at the
+      // midpoint instead of snapping after the scroll settles. Uses actual
+      // panel geometry (nearest to viewport centre) rather than assuming each
+      // panel is exactly the pager width.
+      let scrollRAF = null;
+      p.addEventListener("scroll", () => {
+        if (scrollRAF) return;
+        scrollRAF = requestAnimationFrame(() => {
+          scrollRAF = null;
+          const c = cats[nearestPanelIndex()];
+          if (c && c !== activeCat) { activeCat = c; syncActive(); }
+        });
+      }, { passive: true });
       return p;
     }
 
@@ -4493,8 +4528,10 @@
       if (!activeCat || !cats.includes(activeCat)) activeCat = cats[0];
       syncActive();
       // Jump (no animation) to the active card once laid out.
-      const idx = Math.max(0, cats.indexOf(activeCat));
-      requestAnimationFrame(() => { if (pager) pager.scrollLeft = idx * pager.clientWidth; });
+      requestAnimationFrame(() => {
+        const panel = panelForCat(activeCat);
+        if (pager && panel) pager.scrollLeft = panel.offsetLeft;
+      });
     }
 
     function updateCta() {
