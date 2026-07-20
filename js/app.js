@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=82").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=83").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -5321,7 +5321,7 @@
 
       const foot = el("div", { class: "npanel-foot" });
       foot.appendChild(el("div", { class: "npanel-foot-row" },
-        el("button", { class: "btn btn-primary btn-block nadd-btn", on: { click: () => openQuickAdd(key) } },
+        el("button", { class: "btn btn-primary btn-block nadd-btn", on: { click: () => openMealFork(key) } },
           el("span", { html: icons.plus }), "Add food"),
         el("button", { class: "btn nsaved-btn", title: "Log a saved meal", on: { click: () => openSavedMealsSheet(key) } },
           el("span", { html: icons.bookmark }), "Saved")
@@ -5948,7 +5948,7 @@
         compact: true,
         body: "No meals logged on this day.",
         primaryLabel: "Log meal",
-        onPrimary: () => openQuickAdd("breakfast", dayIso),
+        onPrimary: () => openMealFork("breakfast", dayIso),
         primaryTestId: "empty-day-log-meal"
       }));
     } else {
@@ -6001,7 +6001,7 @@
       el("button", { class: "btn", on: { click: closeModal } }, "Close"),
       el("button", { class: "btn btn-primary", on: { click: () => {
         closeModal();
-        openQuickAdd("snack", date);
+        openMealFork("snack", date);
       } } }, el("span", { html: icons.plus }), "Add meal")
     );
 
@@ -6038,6 +6038,47 @@
     await Storage.saveMeal(meal);
     toast(`Logged ${name} · about ${meal.kcal} kcal`);
     renderMain();
+  }
+
+  // Full-screen "fork in the road" for logging a meal — mirrors the + button.
+  // Two paths: Quick Meal (search common meals) or Create meal (custom entry).
+  function openMealFork(sectionHint = null, dateHint = null) {
+    const overlay = el("div", {
+      class: "qa-fork-overlay", "data-testid": "meal-fork",
+      role: "dialog", "aria-label": "Log a meal"
+    });
+    function onKey(e) { if (e.key === "Escape") { e.preventDefault(); close(); } }
+    const close = () => { document.removeEventListener("keydown", onKey, true); overlay.remove(); };
+    document.addEventListener("keydown", onKey, true);
+
+    // Lightning bolt (fast) for Quick; bowl + plus (build your own) for Create.
+    const BOLT_ART = `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><path class="qa2-bolt" d="M28 5 13 27h9l-3 16 16-23H25z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/></svg>`;
+    const CREATE_ART = `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><g class="qa2-plus"><path d="M9 28h30a15 15 0 0 1-30 0z" fill="currentColor" fill-opacity="0.16"/><path d="M9 28h30a15 15 0 0 1-30 0z" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><line x1="7" y1="28" x2="41" y2="28" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></g><g class="qa2-plusmark" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><line x1="24" y1="7" x2="24" y2="19"/><line x1="18" y1="13" x2="30" y2="13"/></g></svg>`;
+    const CLOSE_ART = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>`;
+
+    const quickPanel = el("button", {
+      class: "qa-fork-panel qa2-workout", "data-testid": "meal-fork-quick",
+      on: { click: () => { close(); openQuickAdd(sectionHint, dateHint); } }
+    },
+      el("span", { class: "qa2-art", html: BOLT_ART }),
+      el("span", { class: "qa2-label" }, "Quick Meal"),
+      el("span", { class: "qa2-sub" }, "Search common meals and log fast")
+    );
+    const createPanel = el("button", {
+      class: "qa-fork-panel qa2-meal", "data-testid": "meal-fork-create",
+      on: { click: () => { close(); openMealForm(null, sectionHint || qaSectionForNow(), dateHint); } }
+    },
+      el("span", { class: "qa2-art", html: CREATE_ART }),
+      el("span", { class: "qa2-label" }, "Create meal"),
+      el("span", { class: "qa2-sub" }, "Enter your own calories and macros")
+    );
+    overlay.appendChild(quickPanel);
+    overlay.appendChild(createPanel);
+    overlay.appendChild(el("button", {
+      class: "qa-fork-close", "aria-label": "Close", title: "Close",
+      html: CLOSE_ART, on: { click: close }
+    }));
+    document.body.appendChild(overlay);
   }
 
   function openQuickAdd(sectionHint = null, dateHint = null) {

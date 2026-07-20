@@ -2632,10 +2632,22 @@ input:disabled.input,
 @keyframes qaForkRight { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes qaRep { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-5px) rotate(-8deg); } }
 @keyframes qaSteam { 0% { opacity: 0; transform: translateY(4px); } 45% { opacity: .85; } 100% { opacity: 0; transform: translateY(-7px); } }
+
+/* Meal fork art — bolt flickers, plus pops in */
+.qa2-bolt { transform-origin: 24px 24px; animation: qaBoltPulse 1.1s ease-in-out 1; }
+.qa2-plusmark { transform-origin: 24px 13px; animation: qaPlusPop .7s cubic-bezier(.22,1,.36,1) 1; }
+@keyframes qaBoltPulse { 0%, 100% { opacity: 1; transform: scale(1); } 40% { opacity: .45; } 62% { opacity: 1; transform: scale(1.1); } }
+@keyframes qaPlusPop { 0% { opacity: 0; transform: scale(.4); } 70% { opacity: 1; transform: scale(1.15); } 100% { opacity: 1; transform: scale(1); } }
+@media (hover: hover) {
+  .qa2-workout:hover .qa2-bolt { animation: qaBoltPulse 1.1s ease-in-out infinite; }
+  .qa2-meal:hover .qa2-plusmark { animation: qaPlusPop .7s cubic-bezier(.22,1,.36,1) infinite alternate; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .qa2-workout, .qa2-meal, .qa2-dumbbell, .qa2-steam path { animation: none !important; }
+  .qa2-workout, .qa2-meal, .qa2-dumbbell, .qa2-steam path, .qa2-bolt, .qa2-plusmark { animation: none !important; }
   .qa-fork-panel:hover { flex-grow: 1; }
   .qa2-steam path { opacity: .7; }
+  .qa2-plusmark { opacity: 1; }
 }
 
 /* Segmented control (Stats / History) */
