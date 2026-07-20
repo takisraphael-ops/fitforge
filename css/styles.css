@@ -2933,8 +2933,10 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 /* Paged (card-swipe) picker fills its container so each card scrolls internally. */
 .xpick-multi { flex: 1; min-height: 0; }
 .xpick-multi .xpick-content { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 4px; }
-/* Height plumbing: the pager needs a bounded height in each context. */
-.xpick-screen { height: calc(100dvh - 210px); min-height: 380px; display: flex; }
+/* Height plumbing: the pager needs a bounded height in each context.
+   The build page hides the app header, so the card starts near the top —
+   subtract only the app's top padding + bottom dock clearance. */
+.xpick-screen { height: calc(100dvh - 120px - env(safe-area-inset-bottom, 0px)); min-height: 400px; display: flex; }
 .xpick-screen > .xpick { flex: 1; min-height: 0; width: 100%; }
 .modal .xpick-multi { height: min(72vh, 640px); }
 /* Prominent "create your own" affordance so users don't miss it */
@@ -3159,7 +3161,6 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 
 /* Compact the header + card on small screens so the card is the focus. */
 @media (max-width: 480px) {
-  .xpick-screen { height: calc(100dvh - 220px); }
   .xpick-title { font-size: 21px; margin-bottom: 2px; }
   .xpick-subtitle { display: none; }
   .xpick-header { margin: 2px 2px 8px; }

@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=72").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=73").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1098,7 +1098,6 @@
 
   // ============ Render root ============
   function render() {
-    renderHeader();
     renderMain();
   }
 
@@ -1117,6 +1116,14 @@
   }
 
   function renderMain() {
+    // The app header (logo + theme/settings) only appears on Home; other tabs
+    // hide it to give their content the full screen.
+    const headerEl = document.getElementById("header");
+    if (headerEl) {
+      if (state.tab === "home") { headerEl.style.display = ""; renderHeader(); }
+      else { headerEl.style.display = "none"; }
+    }
+
     const main = $("#main");
     clear(main);
 
@@ -2231,11 +2238,6 @@
       // Primary path — tap to add exercises, then start when ready.
       const all = await getAllExercises();
       const picker = buildExercisePickerUI(all, {
-        header: {
-          eyebrow: "Build a workout",
-          title: "Choose exercises",
-          subtitle: "Tap to add — start when you're ready."
-        },
         confirmLabel: (n) => `Start workout · ${n} exercise${n === 1 ? "" : "s"}`,
         allowCustom: true,
         customImmediate: false,
