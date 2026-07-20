@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=81").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=82").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -99,6 +99,11 @@
     render();
     if (!Storage.isPersistent()) {
       setTimeout(() => toast("Storage is temporary in this browser — export a backup after workouts"), 600);
+    }
+    // First run: greet new users with the guided setup quiz rather than the dense
+    // settings form. Only auto-opens once (until profile is complete or skipped).
+    if (!state.prefs.onboarded && !U.profileComplete(state.prefs) && !state.activeWorkout) {
+      setTimeout(() => openProfileQuiz({ firstRun: true }), 400);
     }
   }
 
@@ -407,6 +412,8 @@
       lastBackupAt: await Storage.getPref("lastBackupAt", null),
       // ISO timestamp: hide Home backup CTA until this time (snooze).
       backupSnoozedUntil: await Storage.getPref("backupSnoozedUntil", null),
+      // First-run guided setup: once shown/finished/skipped we don't auto-open again.
+      onboarded: !!(await Storage.getPref("onboarded", false)),
       theme: await Storage.getPref("theme", null)
     };
   }
@@ -6828,6 +6835,381 @@
   }
 
   // ============ SETTINGS / EXPORT / IMPORT ============
+  // ============ Guided profile setup (quiz) ============
+  // A friendly, one-question-per-screen alternative to the dense settings form.
+  // Auto-opens on first run; also reachable from Settings → "Guided setup".
+  async function openProfileQuiz(opts = {}) {
+    const firstRun = !!opts.firstRun;
+    const startWeight = await getBodyweightKg();
+    const bwLogged = await hasLoggedBodyweight();
+
+    const draft = {
+      profileName: state.prefs.profileName || "",
+      sex: (state.prefs.sex === "male" || state.prefs.sex === "female") ? state.prefs.sex : null,
+      age: Number.isFinite(Number(state.prefs.age)) ? Number(state.prefs.age) : 25,
+      heightCm: Number.isFinite(Number(state.prefs.heightCm)) ? Number(state.prefs.heightCm) : 175,
+      weightKg: startWeight > 0 ? startWeight : U.DEFAULT_BW_KG,
+      activityLevel: U.ACTIVITY_LEVELS[state.prefs.activityLevel] ? state.prefs.activityLevel : "light",
+      goalIntent: U.normalizeGoalIntent(state.prefs.goalIntent)
+    };
+
+    const STEPS = ["name", "sex", "age", "height", "weight", "activity", "goal", "reveal"];
+    const LAST_INPUT = STEPS.indexOf("goal"); // progress bar tops out here; reveal is the payoff
+    let idx = 0;
+
+    const overlay = el("div", { class: "pquiz", id: "profile-quiz", "data-testid": "profile-quiz" });
+
+    const bar = el("div", { class: "pquiz-bar-fill" });
+    const progress = el("div", { class: "pquiz-bar" }, bar);
+    const backBtn = el("button", {
+      type: "button", class: "pquiz-back", "data-testid": "pquiz-back",
+      html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>'
+    });
+    const closeBtn = el("button", {
+      type: "button", class: "pquiz-close", "data-testid": "pquiz-close",
+      html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>'
+    });
+    const topbar = el("div", { class: "pquiz-topbar" }, backBtn, progress, closeBtn);
+    const stage = el("div", { class: "pquiz-stage" });
+    overlay.append(topbar, stage);
+
+    function finishAndClose() {
+      overlay.classList.add("is-closing");
+      setTimeout(() => overlay.remove(), 220);
+    }
+
+    async function markSkipped() {
+      if (!state.prefs.onboarded) {
+        state.prefs.onboarded = true;
+        await Storage.setPref("onboarded", true);
+      }
+    }
+
+    backBtn.addEventListener("click", () => { if (idx > 0) goto(idx - 1, "back"); });
+    closeBtn.addEventListener("click", async () => {
+      if (firstRun) await markSkipped();
+      finishAndClose();
+    });
+
+    // ---- small builders ----
+    function choiceCard({ label, hint, icon, iconHtml, selected, onPick, testid }) {
+      const card = el("button", {
+        type: "button",
+        class: "pquiz-choice" + (selected ? " is-sel" : ""),
+        "data-testid": testid,
+        on: { click: onPick }
+      });
+      if (iconHtml) card.appendChild(el("div", { class: "pquiz-choice-icon", html: iconHtml }));
+      else if (icon) card.appendChild(el("div", { class: "pquiz-choice-icon" }, icon));
+      card.appendChild(el("div", { class: "pquiz-choice-main" },
+        el("div", { class: "pquiz-choice-label" }, label),
+        hint ? el("div", { class: "pquiz-choice-hint" }, hint) : null
+      ));
+      if (selected) card.appendChild(el("div", {
+        class: "pquiz-choice-tick",
+        html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'
+      }));
+      return card;
+    }
+
+    function bigSlider({ min, max, step, value, unit, fmt, sub, onInput }) {
+      const num = el("div", { class: "pquiz-bignum", "data-testid": "pquiz-bignum" });
+      const unitEl = unit ? el("span", { class: "pquiz-bigunit" }, unit) : null;
+      const subEl = el("div", { class: "pquiz-bigsub text-faint" });
+      const range = el("input", {
+        type: "range", class: "pquiz-range", "data-testid": "pquiz-range",
+        min: String(min), max: String(max), step: String(step), value: String(value)
+      });
+      const paint = () => {
+        const v = parseFloat(range.value);
+        num.textContent = fmt ? fmt(v) : String(v);
+        subEl.textContent = sub ? sub(v) : "";
+        const pct = ((v - min) / (max - min)) * 100;
+        range.style.setProperty("--pct", pct + "%");
+      };
+      range.addEventListener("input", () => { paint(); onInput && onInput(parseFloat(range.value)); });
+      paint();
+      return el("div", { class: "pquiz-slider" },
+        el("div", { class: "pquiz-bigwrap" }, num, unitEl),
+        subEl,
+        range
+      );
+    }
+
+    function stepShell({ eyebrow, title, subtitle, content, footer }) {
+      return el("div", { class: "pquiz-panel" },
+        el("div", { class: "pquiz-head" },
+          eyebrow ? el("div", { class: "pquiz-eyebrow" }, eyebrow) : null,
+          el("h2", { class: "pquiz-title" }, title),
+          subtitle ? el("div", { class: "pquiz-sub" }, subtitle) : null
+        ),
+        el("div", { class: "pquiz-content" }, content),
+        footer ? el("div", { class: "pquiz-foot" }, footer) : null
+      );
+    }
+
+    function primaryBtn(label, onClick, testid) {
+      return el("button", {
+        type: "button", class: "btn btn-primary btn-block pquiz-next", "data-testid": testid || "pquiz-next",
+        on: { click: onClick }
+      }, label);
+    }
+
+    // ---- step renderers ----
+    function renderName() {
+      const input = el("input", {
+        class: "input pquiz-text", type: "text", maxlength: "40",
+        placeholder: "Your name", value: draft.profileName,
+        "data-testid": "pquiz-name"
+      });
+      input.addEventListener("input", () => { draft.profileName = input.value; });
+      const go = () => { draft.profileName = input.value.trim(); goto(idx + 1, "next"); };
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+      return stepShell({
+        eyebrow: firstRun ? "Welcome to FitForge" : "Profile",
+        title: "First — what should we call you?",
+        subtitle: "Just for your home greeting. You can skip this.",
+        content: el("div", { class: "pquiz-textwrap" }, input),
+        footer: el("div", { class: "pquiz-footcol" },
+          primaryBtn("Continue", go),
+          el("button", { type: "button", class: "pquiz-skip", on: { click: () => goto(idx + 1, "next") } }, "Skip")
+        )
+      });
+    }
+
+    function renderSex() {
+      const grid = el("div", { class: "pquiz-grid-2" });
+      const opts = [
+        { key: "male", label: "Male", icon: "♂" },
+        { key: "female", label: "Female", icon: "♀" }
+      ];
+      for (const o of opts) {
+        grid.appendChild(choiceCard({
+          label: o.label, icon: o.icon,
+          selected: draft.sex === o.key,
+          testid: "pquiz-sex-" + o.key,
+          onPick: () => { draft.sex = o.key; goto(idx + 1, "next"); }
+        }));
+      }
+      return stepShell({
+        eyebrow: "About you",
+        title: "What's your biological sex?",
+        subtitle: "Used to estimate how many calories your body burns.",
+        content: grid
+      });
+    }
+
+    function cmToFtIn(cm) {
+      const totalIn = cm / 2.54;
+      const ft = Math.floor(totalIn / 12);
+      const inch = Math.round(totalIn - ft * 12);
+      return `${ft}′${inch}″`;
+    }
+
+    function renderAge() {
+      const slider = bigSlider({
+        min: 13, max: 100, step: 1, value: draft.age, unit: "yrs",
+        onInput: (v) => { draft.age = Math.round(v); }
+      });
+      return stepShell({
+        eyebrow: "About you",
+        title: "How old are you?",
+        content: slider,
+        footer: primaryBtn("Continue", () => goto(idx + 1, "next"))
+      });
+    }
+
+    function renderHeight() {
+      const slider = bigSlider({
+        min: 120, max: 220, step: 1, value: Math.round(draft.heightCm), unit: "cm",
+        sub: (v) => cmToFtIn(v),
+        onInput: (v) => { draft.heightCm = Math.round(v); }
+      });
+      return stepShell({
+        eyebrow: "About you",
+        title: "How tall are you?",
+        content: slider,
+        footer: primaryBtn("Continue", () => goto(idx + 1, "next"))
+      });
+    }
+
+    function renderWeight() {
+      const slider = bigSlider({
+        min: 35, max: 200, step: 0.5, value: draft.weightKg, unit: "kg",
+        fmt: (v) => (Math.round(v * 10) / 10).toString(),
+        onInput: (v) => { draft.weightKg = Math.round(v * 10) / 10; }
+      });
+      return stepShell({
+        eyebrow: "About you",
+        title: "What's your current weight?",
+        subtitle: "You can update this any time from Home.",
+        content: slider,
+        footer: primaryBtn("Continue", () => goto(idx + 1, "next"))
+      });
+    }
+
+    function renderActivity() {
+      const list = el("div", { class: "pquiz-list" });
+      for (const [key, meta] of Object.entries(U.ACTIVITY_LEVELS)) {
+        list.appendChild(choiceCard({
+          label: meta.label, hint: meta.hint,
+          selected: draft.activityLevel === key,
+          testid: "pquiz-activity-" + key,
+          onPick: () => { draft.activityLevel = key; goto(idx + 1, "next"); }
+        }));
+      }
+      return stepShell({
+        eyebrow: "Your day",
+        title: "How active is a normal day?",
+        subtitle: "Outside the gym — gym sessions are tracked separately.",
+        content: list
+      });
+    }
+
+    function renderGoal() {
+      const list = el("div", { class: "pquiz-list" });
+      const goalIcon = { maintain: "⚖️", cut: "📉", cut_hard: "🔥", bulk: "📈", bulk_hard: "💪" };
+      for (const [key, meta] of Object.entries(U.GOAL_INTENTS)) {
+        list.appendChild(choiceCard({
+          label: meta.label, hint: meta.hint, icon: goalIcon[key] || "🎯",
+          selected: draft.goalIntent === key,
+          testid: "pquiz-goal-" + key,
+          onPick: () => { draft.goalIntent = key; goto(idx + 1, "next"); }
+        }));
+      }
+      return stepShell({
+        eyebrow: "Your goal",
+        title: "What are you aiming for?",
+        content: list
+      });
+    }
+
+    function computeTargets() {
+      const calc = U.computeEnergyBudget({
+        sex: draft.sex, age: draft.age, heightCm: draft.heightCm,
+        activityLevel: draft.activityLevel, weightKg: draft.weightKg,
+        workoutKcal: 0, goalIntent: draft.goalIntent,
+        kcalOffset: state.prefs.kcalOffset || 0
+      });
+      const manualKcal = state.prefs.kcalGoalMode === "manual";
+      const budget = manualKcal
+        ? (state.prefs.kcalGoal || calc.budget || 2200)
+        : (calc.complete ? calc.budget : (state.prefs.kcalGoal || 2200));
+      const macros = U.computeMacroGoals({
+        weightKg: draft.weightKg,
+        kcalBudget: budget,
+        proteinPerKg: state.prefs.proteinPerKg || U.DEFAULT_PROTEIN_PER_KG,
+        fatPercent: state.prefs.fatPercent || U.DEFAULT_FAT_PERCENT
+      });
+      return { calc, budget, macros, manualKcal };
+    }
+
+    function renderReveal() {
+      const { budget, macros } = computeTargets();
+      const name = (draft.profileName || "").trim();
+      const macroRow = el("div", { class: "pquiz-macros" },
+        el("div", { class: "pquiz-macro" },
+          el("div", { class: "pquiz-macro-v", "data-testid": "pquiz-protein" }, `${macros.protein}g`),
+          el("div", { class: "pquiz-macro-k" }, "Protein")),
+        el("div", { class: "pquiz-macro" },
+          el("div", { class: "pquiz-macro-v" }, `${macros.carbs}g`),
+          el("div", { class: "pquiz-macro-k" }, "Carbs")),
+        el("div", { class: "pquiz-macro" },
+          el("div", { class: "pquiz-macro-v" }, `${macros.fat}g`),
+          el("div", { class: "pquiz-macro-k" }, "Fat"))
+      );
+      const content = el("div", { class: "pquiz-reveal" },
+        el("div", { class: "pquiz-reveal-badge" }, "Your daily target"),
+        el("div", { class: "pquiz-reveal-kcal", "data-testid": "pquiz-reveal-kcal" },
+          el("span", { class: "pquiz-reveal-num" }, String(budget).replace(/\B(?=(\d{3})+(?!\d))/g, ",")),
+          el("span", { class: "pquiz-reveal-unit" }, "kcal")
+        ),
+        macroRow,
+        el("div", { class: "pquiz-reveal-note text-faint" },
+          "Suggested from your profile — you can fine-tune everything in Settings.")
+      );
+      return stepShell({
+        eyebrow: name ? `You're all set, ${name}` : "You're all set",
+        title: "Here's your starting plan",
+        content,
+        footer: primaryBtn(firstRun ? "Start training" : "Save my profile", saveQuiz, "pquiz-finish")
+      });
+    }
+
+    const RENDERERS = {
+      name: renderName, sex: renderSex, age: renderAge, height: renderHeight,
+      weight: renderWeight, activity: renderActivity, goal: renderGoal, reveal: renderReveal
+    };
+
+    async function saveQuiz() {
+      const { budget, macros, manualKcal } = computeTargets();
+      const manualMacros = state.prefs.macroGoalMode === "manual";
+
+      // Persist profile basics
+      state.prefs.profileName = (draft.profileName || "").trim();
+      state.prefs.sex = draft.sex;
+      state.prefs.age = draft.age;
+      state.prefs.heightCm = draft.heightCm;
+      state.prefs.activityLevel = draft.activityLevel;
+      state.prefs.goalIntent = draft.goalIntent;
+      state.prefs.onboarded = true;
+
+      await Storage.setPref("profileName", state.prefs.profileName);
+      await Storage.setPref("sex", draft.sex);
+      await Storage.setPref("age", draft.age);
+      await Storage.setPref("heightCm", draft.heightCm);
+      await Storage.setPref("activityLevel", draft.activityLevel);
+      await Storage.setPref("goalIntent", draft.goalIntent);
+      await Storage.setPref("onboarded", true);
+
+      // Log today's bodyweight if new or changed (never clobber an identical entry silently)
+      if (!bwLogged || Math.abs(draft.weightKg - startWeight) > 0.01) {
+        try {
+          await Storage.saveBodyweight({ date: U.todayISO(), kg: draft.weightKg });
+        } catch (_) { /* non-fatal */ }
+      }
+
+      // Auto modes: let the quiz set sensible calorie + macro targets. Manual
+      // overrides set in Settings are left untouched.
+      if (!manualKcal) {
+        state.prefs.kcalGoalMode = "auto";
+        state.prefs.kcalGoal = budget;
+        await Storage.setPref("kcalGoalMode", "auto");
+        await Storage.setPref("kcalGoal", budget);
+      }
+      if (!manualMacros) {
+        state.prefs.macroGoalMode = "auto";
+        state.prefs.proteinGoal = macros.protein;
+        state.prefs.carbsGoal = macros.carbs;
+        state.prefs.fatGoal = macros.fat;
+        await Storage.setPref("macroGoalMode", "auto");
+        await Storage.setPref("proteinGoal", macros.protein);
+        await Storage.setPref("carbsGoal", macros.carbs);
+        await Storage.setPref("fatGoal", macros.fat);
+      }
+
+      finishAndClose();
+      renderMain();
+      toast(`You're set — ${budget} kcal a day`);
+    }
+
+    function goto(next, dir) {
+      idx = Math.max(0, Math.min(STEPS.length - 1, next));
+      const stepId = STEPS[idx];
+      const node = RENDERERS[stepId]();
+      node.classList.add(dir === "back" ? "slide-in-back" : "slide-in-next");
+      clear(stage);
+      stage.appendChild(node);
+
+      backBtn.style.visibility = idx > 0 ? "visible" : "hidden";
+      const pct = Math.min(100, Math.round((Math.min(idx, LAST_INPUT) / LAST_INPUT) * 100));
+      bar.style.width = pct + "%";
+    }
+
+    document.body.appendChild(overlay);
+    goto(0, "next");
+  }
+
   async function openSettings(opts = {}) {
     const weightKg = await getBodyweightKg();
     const restI = el("input", { class: "input input-num", type: "number", value: state.prefs.defaultRestSec });
@@ -7227,6 +7609,19 @@
     const body = el("div", { class: "settings-body" },
       // Hero — always first so setup feels outcome-led
       settingsHero,
+
+      // Friendly path: relaunch the guided quiz instead of editing the dense form.
+      el("button", {
+        class: "btn pquiz-launch", type: "button",
+        "data-testid": "open-guided-setup",
+        on: { click: () => { closeModal(); openProfileQuiz({ firstRun: false }); } }
+      },
+        el("span", { class: "pquiz-launch-emoji" }, "✨"),
+        el("span", {},
+          el("span", { class: "pquiz-launch-title" }, "Guided setup"),
+          el("span", { class: "pquiz-launch-sub" }, "Redo your profile as a quick quiz")
+        )
+      ),
 
       el("div", { class: "settings-section-title mt-16", "data-step": "1" }, "1 · Body"),
       el("div", { class: "text-xs text-faint", style: "margin: -4px 0 10px" },
