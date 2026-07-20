@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=69").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=70").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -4275,7 +4275,6 @@
     } = opts;
     const existing = opts.existingIds instanceof Set ? opts.existingIds : new Set(opts.existingIds || []);
     const selected = new Map(); // id -> { id, name }
-    let activeCat = "all";
 
     const searchI = el("input", { class: "input", placeholder: "Search exercises…" });
     const chipRow = el("div", { class: "xpick-chips", "data-testid": "xpick-chips" });
@@ -4283,20 +4282,44 @@
     const cta = el("button", { class: "btn btn-primary btn-block xpick-cta-btn", type: "button", "data-testid": "xpick-cta" });
     const footer = el("div", { class: "xpick-cta", style: "display:none" }, cta);
 
-    const cats = ["all", ...Object.keys(EXERCISE_CATEGORIES)];
-    const catLabel = (c) => c === "all" ? "All" : EXERCISE_CATEGORIES[c];
-    const countFor = (c) => c === "all" ? all.length : all.filter(e => e.category === c).length;
+    const catLabel = (c) => EXERCISE_CATEGORIES[c] || c;
+    const countFor = (c) => all.filter(e => e.category === c).length;
+    // One card per category that actually has exercises (custom ones included).
+    const known = Object.keys(EXERCISE_CATEGORIES).filter(c => countFor(c) > 0);
+    const extra = [...new Set(all.map(e => e.category).filter(c => c && !EXERCISE_CATEGORIES[c]))]
+      .filter(c => countFor(c) > 0);
+    const cats = [...known, ...extra];
+    let activeCat = cats[0] || null;
+    let pager = null; // the horizontal scroll-snap container (null while searching)
 
     function renderChips() {
       clear(chipRow);
       for (const c of cats) {
-        if (c !== "all" && countFor(c) === 0) continue;
         chipRow.appendChild(el("button", {
           class: "xpick-chip" + (activeCat === c ? " active" : ""),
           type: "button",
+          "data-cat": c,
           "data-testid": `xchip-${c}`,
-          on: { click: () => { activeCat = c; searchI.value = ""; renderChips(); renderList(); } }
+          on: { click: () => scrollToCat(c) }
         }, catLabel(c)));
+      }
+    }
+
+    function syncChips() {
+      for (const chip of Array.from(chipRow.children)) {
+        const on = chip.getAttribute("data-cat") === activeCat;
+        chip.classList.toggle("active", on);
+        if (on) chip.scrollIntoView({ block: "nearest", inline: "center" });
+      }
+    }
+
+    function scrollToCat(c) {
+      if (!cats.includes(c)) return;
+      activeCat = c;
+      syncChips();
+      if (pager) {
+        const idx = cats.indexOf(c);
+        pager.scrollTo({ left: idx * pager.clientWidth, behavior: "smooth" });
       }
     }
 
@@ -4343,43 +4366,81 @@
       return row;
     }
 
-    function renderList() {
-      clear(content);
-      const q = searchI.value.trim().toLowerCase();
-      let list = all;
-      if (q) {
-        list = all.filter(ex =>
-          ex.name.toLowerCase().includes(q) ||
-          (ex.muscles || []).some(m => m.toLowerCase().includes(q)) ||
-          (ex.equipment || "").toLowerCase().includes(q));
-      } else if (activeCat !== "all") {
-        list = all.filter(e => e.category === activeCat);
+    // Flat, grouped results while searching (spans every category).
+    function renderSearch(q) {
+      const results = el("div", { class: "xpick-results" });
+      const matches = all.filter(ex =>
+        ex.name.toLowerCase().includes(q) ||
+        (ex.muscles || []).some(m => m.toLowerCase().includes(q)) ||
+        (ex.equipment || "").toLowerCase().includes(q));
+      if (!matches.length) {
+        results.appendChild(el("div", { class: "text-sm text-faint", style: "padding: 16px 4px" }, "No exercises found."));
+        return results;
       }
-      if (!list.length) {
-        content.appendChild(el("div", { class: "text-sm text-faint", style: "padding: 16px 4px" }, "No exercises found."));
-        return;
-      }
-      const order = Object.keys(EXERCISE_CATEGORIES);
       const groups = new Map();
-      for (const ex of list) {
+      for (const ex of matches) {
         const c = ex.category || "other";
         if (!groups.has(c)) groups.set(c, []);
         groups.get(c).push(ex);
       }
-      const orderedCats = [
-        ...order.filter(c => groups.has(c)),
-        ...[...groups.keys()].filter(c => !order.includes(c))
-      ];
-      for (const c of orderedCats) {
-        const items = groups.get(c);
+      const ordered = [...cats.filter(c => groups.has(c)), ...[...groups.keys()].filter(c => !cats.includes(c))];
+      for (const c of ordered) {
         const sec = el("div", { class: "xpick-section" });
         sec.appendChild(el("div", { class: "xpick-section-head" },
-          el("span", {}, (EXERCISE_CATEGORIES[c] || c).toUpperCase()),
-          el("span", { class: "xpick-section-count" }, String(items.length))
+          el("span", {}, catLabel(c).toUpperCase()),
+          el("span", { class: "xpick-section-count" }, String(groups.get(c).length))
         ));
-        for (const ex of items) sec.appendChild(rowFor(ex));
-        content.appendChild(sec);
+        for (const ex of groups.get(c)) sec.appendChild(rowFor(ex));
+        results.appendChild(sec);
       }
+      return results;
+    }
+
+    // One swipeable card per category, laid out in a horizontal snap pager.
+    function buildPager() {
+      const p = el("div", { class: "xpick-pager", "data-testid": "xpick-pager" });
+      for (const c of cats) {
+        const items = all.filter(e => e.category === c);
+        const panel = el("div", { class: "xpick-panel", "data-cat": c },
+          el("div", { class: "xpick-panel-head" },
+            el("span", { class: "xpick-panel-title" }, catLabel(c)),
+            el("span", { class: "xpick-panel-count" }, `${items.length}`)
+          ),
+          el("div", { class: "xpick-panel-list" }, ...items.map(rowFor))
+        );
+        p.appendChild(panel);
+      }
+      // Update active chip as the user swipes between cards.
+      p.addEventListener("scroll", U.debounce(() => {
+        const idx = Math.round(p.scrollLeft / Math.max(1, p.clientWidth));
+        const c = cats[Math.max(0, Math.min(cats.length - 1, idx))];
+        if (c && c !== activeCat) { activeCat = c; syncChips(); }
+      }, 60));
+      return p;
+    }
+
+    function renderContent() {
+      clear(content);
+      const q = searchI.value.trim().toLowerCase();
+      if (q) {
+        chipRow.style.display = "none";
+        pager = null;
+        content.appendChild(renderSearch(q));
+        return;
+      }
+      chipRow.style.display = "";
+      if (!cats.length) {
+        pager = null;
+        content.appendChild(el("div", { class: "text-sm text-faint", style: "padding: 16px 4px" }, "No exercises found."));
+        return;
+      }
+      pager = buildPager();
+      content.appendChild(pager);
+      if (!activeCat || !cats.includes(activeCat)) activeCat = cats[0];
+      syncChips();
+      // Jump (no animation) to the active card once laid out.
+      const idx = Math.max(0, cats.indexOf(activeCat));
+      requestAnimationFrame(() => { if (pager) pager.scrollLeft = idx * pager.clientWidth; });
     }
 
     function updateCta() {
@@ -4392,7 +4453,7 @@
       if (!selected.size) return;
       await onConfirm([...selected.values()]);
     });
-    searchI.addEventListener("input", U.debounce(renderList, 120));
+    searchI.addEventListener("input", U.debounce(renderContent, 120));
 
     const headerEl = header ? el("div", { class: "xpick-header" },
       header.eyebrow ? el("div", { class: "xpick-eyebrow" }, header.eyebrow) : null,
@@ -4405,10 +4466,13 @@
       type: "button",
       on: { click: () => openCustomExerciseForm((ex) => {
         if (customImmediate) { onConfirm([{ id: ex.id, name: ex.name }]); return; }
-        all.unshift({ ...ex, isCustom: true });
+        all.push({ ...ex, isCustom: true });
+        if (!cats.includes(ex.category) && countFor(ex.category) > 0) cats.push(ex.category);
         selected.set(ex.id, { id: ex.id, name: ex.name });
+        searchI.value = "";
         renderChips();
-        renderList();
+        renderContent();
+        scrollToCat(ex.category);
         updateCta();
       }) }
     }, el("span", { class: "xpick-add-custom-ic", html: icons.plus }), "Add custom exercise") : null;
@@ -4417,7 +4481,7 @@
       headerEl, searchI, addCustomBtn, chipRow, content, footer
     );
 
-    function refresh() { renderChips(); renderList(); updateCta(); }
+    function refresh() { renderChips(); renderContent(); updateCta(); }
     return { body, refresh, focus: () => searchI.focus() };
   }
 

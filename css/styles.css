@@ -2920,8 +2920,15 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 }
 
 /* ============ Category-first exercise picker ============ */
-.xpick { display: flex; flex-direction: column; }
+.xpick { display: flex; flex-direction: column; min-height: 0; }
 .xpick-content { margin-top: 10px; }
+/* Paged (card-swipe) picker fills its container so each card scrolls internally. */
+.xpick-multi { flex: 1; min-height: 0; }
+.xpick-multi .xpick-content { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 4px; }
+/* Height plumbing: the pager needs a bounded height in each context. */
+.xpick-screen { height: calc(100dvh - 210px); min-height: 380px; display: flex; }
+.xpick-screen > .xpick { flex: 1; min-height: 0; width: 100%; }
+.modal .xpick-multi { height: min(72vh, 640px); }
 /* Prominent "create your own" affordance so users don't miss it */
 .xpick-add-custom {
   display: flex;
@@ -3031,23 +3038,53 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 }
 .xrow-added-label { font-size: 12px; font-weight: 600; color: var(--text-faint); flex: none; }
 
-/* Sticky confirm CTA */
+/* ── Horizontal card pager: one category per card, swipe to change ── */
+.xpick-pager {
+  flex: 1; min-height: 0;
+  display: flex;
+  overflow-x: auto; overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -2px;
+}
+.xpick-pager::-webkit-scrollbar { display: none; }
+.xpick-panel {
+  flex: 0 0 100%; width: 100%;
+  scroll-snap-align: start; scroll-snap-stop: always;
+  overflow-y: auto; overscroll-behavior: contain;
+  padding: 0 2px;
+  scrollbar-width: none;
+}
+.xpick-panel::-webkit-scrollbar { display: none; }
+.xpick-panel-head {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 6px 4px 12px;
+  background: linear-gradient(to bottom, var(--bg) 70%, transparent);
+}
+.modal .xpick-panel-head { background: linear-gradient(to bottom, var(--bg-elev) 70%, transparent); }
+.xpick-panel-title { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }
+.xpick-panel-count {
+  font-size: 13px; font-weight: 700; color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  padding: 2px 10px; border-radius: 100px;
+}
+/* Flat results list while searching */
+.xpick-results { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+
+/* Confirm CTA — a normal flex footer at the bottom of the picker column */
 .xpick-cta {
-  position: sticky; bottom: 0; z-index: 5;
-  padding: 12px 2px calc(12px + env(safe-area-inset-bottom, 0px));
-  margin-top: 4px;
-  background: linear-gradient(to top, var(--bg) 60%, transparent);
+  flex: none;
+  padding: 12px 2px calc(6px + env(safe-area-inset-bottom, 0px));
+  background: var(--bg);
 }
+.modal .xpick-cta { background: var(--bg-elev); }
 .xpick-cta-btn { padding: 14px 16px; font-size: 15px; font-weight: 700; }
-/* On the inline start screen the fixed dock sits at the bottom, so float the
-   CTA above it. In modals (z-index 2000, above the dock) bottom:0 is correct. */
-.xpick-screen .xpick-cta {
-  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
-  z-index: 61;
-  padding-bottom: 8px;
-}
 @media (max-width: 480px) {
   .xpick-title { font-size: 26px; }
+  .xpick-panel-title { font-size: 20px; }
 }
 .xcat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .xcat-tile {
