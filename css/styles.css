@@ -2158,6 +2158,10 @@ input:disabled.input,
 .set-row-header.type-cardio.no-dist {
   grid-template-columns: 40px 1fr 0.8fr auto !important;
 }
+.set-row.type-custom,
+.set-row-header.type-custom {
+  grid-template-columns: 40px 1fr auto !important;
+}
 .set-row.type-cardio select.input-sm {
   font-size: 12px;
   padding: 4px 6px;

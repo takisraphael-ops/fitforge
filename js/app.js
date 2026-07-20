@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=64").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=65").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -151,9 +151,18 @@
     const history = await getHistoryFor(exerciseId);
     let maxWeight = 0, maxE1RM = 0, maxReps = 0, maxVolume = 0;
     let maxDuration = 0, maxDistance = 0, maxKcal = 0;
+    let maxValue = 0, minValue = 0;
     let maxWeightDate = null, maxE1RMDate = null;
     for (const h of history) {
       for (const s of h.sets) {
+        if (s.value != null && s.value !== "") {
+          const v = Number(s.value);
+          if (Number.isFinite(v)) {
+            if (v > maxValue) maxValue = v;
+            if (v > 0 && (minValue === 0 || v < minValue)) minValue = v;
+          }
+          continue;
+        }
         if (s.durationMin) {
           if (s.durationMin > maxDuration) maxDuration = s.durationMin;
           if ((s.distanceKm || 0) > maxDistance) maxDistance = s.distanceKm || 0;
@@ -179,6 +188,7 @@
     return {
       maxWeight, maxE1RM, maxReps, maxVolume,
       maxDuration, maxDistance, maxKcal,
+      maxValue, minValue,
       maxWeightDate, maxE1RMDate
     };
   }
@@ -216,9 +226,13 @@
           maxDuration: 0,
           maxDistance: 0,
           maxKcal: 0,
+          maxValue: 0,
+          minValue: 0,
+          metric: null,
           sessionCount: 0,
           lastTrained: null,
-          isCardio: type === "cardio"
+          isCardio: type === "cardio",
+          isCustom: type === "custom"
         };
         map.set(id, r);
       }
@@ -229,8 +243,10 @@
     for (const w of completed) {
       for (const ex of (w.exercises || [])) {
         const isCardio = ex.type === "cardio";
+        const isCustom = ex.type === "custom";
         const doneSets = (ex.sets || []).filter(s => {
           if (!s.done) return false;
+          if (isCustom || s.value != null) return s.value != null && s.value !== "";
           if (isCardio || s.durationMin != null) return !!s.durationMin;
           return s.reps != null && s.reps > 0;
         });
@@ -240,6 +256,18 @@
         r.sessionCount += 1;
         if (!r.lastTrained || w.date > r.lastTrained) r.lastTrained = w.date;
         if (exerciseById.get(ex.exerciseId)?.name) r.name = exerciseById.get(ex.exerciseId).name;
+
+        if (isCustom) {
+          r.isCustom = true;
+          r.metric = normalizeMetric(ex.metric || exerciseById.get(ex.exerciseId)?.metric);
+          for (const s of doneSets) {
+            const v = Number(s.value);
+            if (!Number.isFinite(v)) continue;
+            if (v > r.maxValue) r.maxValue = v;
+            if (v > 0 && (r.minValue === 0 || v < r.minValue)) r.minValue = v;
+          }
+          continue;
+        }
 
         if (isCardio) {
           r.isCardio = true;
@@ -548,19 +576,36 @@
         done: false
       };
     }
+    if (type === "custom") {
+      return { value: null, done: false };
+    }
     return { weight: null, reps: null, done: false };
+  }
+
+  /** Normalise a custom-exercise metric descriptor to a safe shape. */
+  function normalizeMetric(metric) {
+    const m = metric || {};
+    return {
+      label: (m.label && String(m.label).trim()) || "Value",
+      unit: m.unit != null ? String(m.unit).trim() : "",
+      higherIsBetter: m.higherIsBetter !== false // default: more is better
+    };
   }
 
   /** Clone logged (or planned) sets into a fresh session — values filled, none marked done. */
   function cloneSetsForReplay(sets, type) {
     const src = (sets || []).filter(s => {
       if (!s) return false;
+      if (type === "custom" || s.value != null) return s.done || s.value != null;
       if (type === "cardio" || s.durationMin != null) {
         return s.done || s.durationMin != null || s.distanceKm != null;
       }
       return s.done || s.weight != null || s.reps != null;
     });
     if (!src.length) return [emptySetForType(type)];
+    if (type === "custom") {
+      return src.map(s => ({ value: s.value ?? null, done: false }));
+    }
     if (type === "cardio") {
       return src.map(s => ({
         durationMin: s.durationMin ?? null,
@@ -646,7 +691,7 @@
     const def = all.find(x => x.id === exerciseId);
     // Prefer definition classification; fall back to name when the id is missing.
     let type = def ? inferExerciseType(def) : "weighted";
-    if (type !== "cardio" && looksLikeCardio({ id: exerciseId, name: name || def?.name })) {
+    if (type !== "cardio" && type !== "custom" && looksLikeCardio({ id: exerciseId, name: name || def?.name })) {
       type = "cardio";
     }
     // Start with a single empty set. Matching last session's sets is
@@ -658,6 +703,7 @@
       type,
       category: def?.category,
       met: def?.met,
+      ...(def?.metric ? { metric: def.metric } : {}),
       sets
     };
   }
@@ -884,6 +930,8 @@
   }
 
   function inferExerciseType(ex) {
+    // An explicit custom-metric exercise always logs with its own metric.
+    if (ex && ex.type === "custom") return "custom";
     // Cardio classification always wins over a stale stored type so Running never
     // falls back to kg/reps just because an older session saved type: "weighted".
     if (looksLikeCardio(ex)) return "cardio";
@@ -954,6 +1002,8 @@
       barbell/dumbbell/machine lifts only log kg; calisthenics get BW and BW +kg. */
   function allowedTypesFor(def, ex = null) {
     const source = def || ex || {};
+    // Custom-metric exercises are logged only with their own metric.
+    if (source.type === "custom" || ex?.type === "custom") return ["custom"];
     if (looksLikeCardio(source) || looksLikeCardio(ex)) return ["cardio"];
     const equipment = String(source.equipment || ex?.equipment || "").toLowerCase();
     const name = String(source.name || ex?.name || "").toLowerCase();
@@ -990,6 +1040,17 @@
   function normalizeWorkoutExercise(ex, def) {
     if (!ex) return ex;
     const source = def || ex;
+    // Custom-metric exercises: lock the type, carry the metric onto the entry,
+    // and ensure the set shape holds a single numeric value.
+    if (source.type === "custom" || ex.type === "custom") {
+      ex.type = "custom";
+      if (def?.metric && !ex.metric) ex.metric = def.metric;
+      const onlyEmpty = !(ex.sets || []).length ||
+        (ex.sets || []).every(s => !s.done && s.value == null);
+      if (onlyEmpty) ex.sets = [emptySetForType("custom")];
+      if (def?.met != null && ex.met == null) ex.met = def.met;
+      return ex;
+    }
     const shouldBeCardio = looksLikeCardio(source) || looksLikeCardio(ex);
     const hasCardioData = (ex.sets || []).some(s => s.done || s.durationMin != null || s.distanceKm != null);
     const hasStrengthData = (ex.sets || []).some(s => s.done || (s.weight != null && s.weight !== "") || (s.reps != null && s.reps !== ""));
@@ -2626,10 +2687,17 @@
     let autoCommitted = 0;
     for (const ex of (workout.exercises || [])) {
       const isCardio = ex.type === "cardio";
+      const isCustom = ex.type === "custom";
       for (const s of (ex.sets || [])) {
         if (s.done) continue;
         if (!s.touched) continue;
-        if (isCardio) {
+        if (isCustom) {
+          const v = s.value == null || s.value === "" ? NaN : Number(s.value);
+          if (Number.isFinite(v)) {
+            s.done = true;
+            autoCommitted += 1;
+          }
+        } else if (isCardio) {
           const dur = s.durationMin != null ? Number(s.durationMin) : NaN;
           if (dur > 0) {
             s.done = true;
@@ -2758,9 +2826,12 @@
     // Always normalise type from the exercise definition so cardio never shows kg/reps.
     normalizeWorkoutExercise(ex, def);
     if (def?.met != null && ex.met == null) ex.met = def.met;
-    const isCardio = looksLikeCardio(def) || looksLikeCardio(ex) || ex.type === "cardio";
+    const isCustom = (def?.type === "custom") || ex.type === "custom";
+    const isCardio = !isCustom && (looksLikeCardio(def) || looksLikeCardio(ex) || ex.type === "cardio");
     if (isCardio) ex.type = "cardio";
-    const exType = isCardio ? "cardio" : (ex.type || (def ? inferExerciseType(def) : "weighted") || "weighted");
+    const exType = isCustom ? "custom" : (isCardio ? "cardio" : (ex.type || (def ? inferExerciseType(def) : "weighted") || "weighted"));
+    const metric = isCustom ? normalizeMetric(def?.metric || ex.metric) : null;
+    if (isCustom && def?.metric && !ex.metric) ex.metric = def.metric;
     const bwKg = await getBodyweightKg();
     const defForMet = def || { category: isCardio ? "cardio" : "full_body", met: ex.met };
     const exKcal = exerciseKcalTotal(ex);
@@ -2777,7 +2848,8 @@
       weighted: "Weighted",
       bodyweight: "Bodyweight",
       weighted_bodyweight: "BW +kg",
-      cardio: "Cardio"
+      cardio: "Cardio",
+      custom: metric ? metric.label : "Custom"
     };
     const allowedTypes = allowedTypesFor(def, ex);
     if (!allowedTypes.includes(exType)) allowedTypes.unshift(exType);
@@ -2924,6 +2996,27 @@
           await Storage.saveWorkout(state.activeWorkout);
           renderMainKeepScroll();
         } } }, el("span", { html: icons.plus }), "Add interval"),
+        ex.sets.length > 1 ? el("span", { class: "text-xs text-faint" }, "Double-tap the number to delete") : null
+      );
+      body.appendChild(controls);
+    } else if (isCustom) {
+      const unitLabel = metric.unit ? `${metric.label} (${metric.unit})` : metric.label;
+      const header = el("div", { class: "set-row set-row-header type-custom" },
+        el("div", { class: "set-index" }, "#"),
+        el("div", {}, unitLabel),
+        el("div", { style: "text-align:right" }, "Log")
+      );
+      body.appendChild(header);
+      for (const [si, s] of ex.sets.entries()) {
+        body.appendChild(await renderCustomRow(ex, si, s, prs, prev, metric));
+      }
+      const controls = el("div", { class: "row", style: "gap:12px; align-items:center; margin-top:8px; flex-wrap:wrap;" },
+        el("button", { class: "btn btn-ghost btn-sm", on: { click: async () => {
+          const last = [...ex.sets].reverse().find(x => x.done) || ex.sets[ex.sets.length - 1];
+          ex.sets.push({ value: last?.value ?? null, done: false });
+          await Storage.saveWorkout(state.activeWorkout);
+          renderMainKeepScroll();
+        } } }, el("span", { html: icons.plus }), "Add set"),
         ex.sets.length > 1 ? el("span", { class: "text-xs text-faint" }, "Double-tap the number to delete") : null
       );
       body.appendChild(controls);
@@ -3196,6 +3289,117 @@
     });
     indexCell.style.cursor = "pointer";
     indexCell.title = "Double-tap to delete interval";
+    return row;
+  }
+
+  // Row for a custom-metric exercise — a single numeric value per set.
+  async function renderCustomRow(ex, si, s, prs, prev, metric) {
+    metric = normalizeMetric(metric);
+    const prevSet = prev?.sets[si];
+
+    const valInput = el("input", {
+      type: "number", step: "any", inputmode: "decimal", min: "0",
+      class: "input input-sm input-num",
+      "data-custom-field": "value",
+      placeholder: prevSet?.value != null ? String(prevSet.value) : (metric.unit || metric.label),
+      value: s.value ?? "",
+      title: metric.label + (metric.unit ? ` (${metric.unit})` : "")
+    });
+
+    const mirror = () => {
+      s.touched = true;
+      s.value = valInput.value === "" ? null : parseFloat(valInput.value);
+    };
+    const debouncedSave = U.debounce(async () => {
+      mirror();
+      try { await Storage.saveWorkout(state.activeWorkout); } catch (err) { console.error(err); }
+    }, 250);
+    valInput.addEventListener("input", () => { mirror(); debouncedSave(); });
+    attachNumPad(valInput, { label: `${ex.name} · set ${si + 1} · ${metric.label}`, unit: metric.unit || "", step: 1, decimals: true });
+    selectOnFocus(valInput);
+
+    const isPR = s.done && s.isPR;
+    const doneBtn = el("button", {
+      type: "button",
+      class: "set-done" + (s.done ? " checked" : "") + (isPR ? " pr" : ""),
+      title: s.done ? "Undo set" : "Mark set complete",
+      "aria-label": s.done ? "Undo set" : "Mark set complete",
+      on: { click: async () => {
+        if (!s.done) {
+          s.value = valInput.value === "" ? null : parseFloat(valInput.value);
+          if (s.value == null || !Number.isFinite(s.value)) { toast(`Enter ${metric.label.toLowerCase()} first`); return; }
+          s.done = true;
+          const before = await getPRsFor(ex.exerciseId);
+          const prevMax = before.maxValue || 0;
+          const prevMin = before.minValue || 0;
+          s.isPR = metric.higherIsBetter
+            ? (s.value > prevMax)
+            : (s.value > 0 && (prevMin === 0 || s.value < prevMin));
+          s.prTypes = s.isPR ? ["value"] : [];
+          await Storage.saveWorkout(state.activeWorkout);
+          if (s.isPR) toast(`🏆 New PR on ${ex.name}`);
+        } else {
+          s.done = false;
+          s.isPR = false;
+          s.prTypes = [];
+          await Storage.saveWorkout(state.activeWorkout);
+        }
+        renderMainKeepScroll();
+      } }
+    },
+      s.done ? el("span", { html: icons.check }) : null,
+      el("span", { class: "set-done-label" }, s.done ? "Logged" : "Done")
+    );
+
+    const noteBtn = el("button", {
+      class: "note-btn" + (s.note ? " has-note" : ""),
+      title: s.note ? "Edit note" : "Add note",
+      html: icons.note || "✎",
+      on: { click: async () => {
+        const ta = el("textarea", { class: "input", rows: "3", placeholder: "Notes for this set…" });
+        ta.value = s.note || "";
+        const body = el("div", {}, el("label", { class: "label" }, `Set ${si + 1} note`), ta);
+        const footer = el("div", {},
+          el("button", { class: "btn", on: { click: closeModal } }, "Cancel"),
+          el("button", { class: "btn btn-primary", on: { click: async () => {
+            s.note = ta.value.trim() || undefined;
+            await Storage.saveWorkout(state.activeWorkout);
+            closeModal();
+            renderMainKeepScroll();
+          } } }, "Save")
+        );
+        openModal("Set note", body, footer);
+        setTimeout(() => ta.focus(), 40);
+      } }
+    });
+
+    const row = el("div", { class: "set-row type-custom" + (isPR ? " is-pr" : "") },
+      el("div", { class: "set-index" }, String(si + 1)),
+      valInput,
+      el("div", { class: "set-row-actions" }, noteBtn, doneBtn)
+    );
+    if (isPR) {
+      row.appendChild(el("span", { class: "pr-badge", style: "position:absolute; margin-left: -60px; margin-top: -18px" }, "PR"));
+    }
+
+    const tryDelete = async () => {
+      if (ex.sets.length <= 1) return;
+      if (await confirmDialog("Delete this set?", { title: "Delete set?", okLabel: "Delete", danger: true })) {
+        ex.sets.splice(si, 1);
+        await Storage.saveWorkout(state.activeWorkout);
+        renderMainKeepScroll();
+      }
+    };
+    row.addEventListener("dblclick", (e) => { e.preventDefault(); tryDelete(); });
+    const indexCell = row.firstChild;
+    let lastTap = 0;
+    indexCell.addEventListener("touchend", (e) => {
+      const now = Date.now();
+      if (now - lastTap < 350) { e.preventDefault(); tryDelete(); lastTap = 0; }
+      else { lastTap = now; }
+    });
+    indexCell.style.cursor = "pointer";
+    indexCell.title = "Double-tap to delete set";
     return row;
   }
 
@@ -3887,12 +4091,44 @@
     const metI = el("input", { class: "input input-num", type: "number", step: "0.1", placeholder: "Auto from category" });
     const notesI = el("textarea", { class: "textarea", rows: "3", placeholder: "Notes / technique (optional)" });
 
+    // How is it logged?
+    const logS = el("select", { class: "select" },
+      el("option", { value: "auto" }, "Auto-detect"),
+      el("option", { value: "weighted" }, "Weight × reps"),
+      el("option", { value: "bodyweight" }, "Reps only (bodyweight)"),
+      el("option", { value: "weighted_bodyweight" }, "Bodyweight + added weight"),
+      el("option", { value: "cardio" }, "Time / distance (cardio)"),
+      el("option", { value: "custom" }, "Custom metric…")
+    );
+
+    // Custom-metric fields (shown only when logType = custom)
+    const metricLabelI = el("input", { class: "input", placeholder: "e.g. Skips, Metres, Hold" });
+    const metricUnitI = el("input", { class: "input", placeholder: "e.g. reps, m, sec (optional)" });
+    const betterS = el("select", { class: "select" },
+      el("option", { value: "higher" }, "Higher is better (more = PR)"),
+      el("option", { value: "lower" }, "Lower is better (less = PR, e.g. time)")
+    );
+    const metricWrap = el("div", { style: "display:none" },
+      el("div", { class: "form-row" },
+        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Metric name"), metricLabelI),
+        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Unit"), metricUnitI)
+      ),
+      el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "Personal best"), betterS)),
+      el("div", { class: "text-xs text-faint", style: "margin-top:-4px;margin-bottom:8px" },
+        "Log one number per set for this metric (e.g. skips, metres, seconds held, watts).")
+    );
+    logS.addEventListener("change", () => {
+      metricWrap.style.display = logS.value === "custom" ? "" : "none";
+    });
+
     const body = el("div", {},
       el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "Name"), nameI)),
       el("div", { class: "form-row" },
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Category"), catS),
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Equipment"), equipI)
       ),
+      el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "How it's logged"), logS)),
+      metricWrap,
       el("div", { class: "form-row" },
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Muscles"), musclesI),
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "MET (optional)"), metI)
@@ -3906,6 +4142,10 @@
       el("button", { class: "btn", on: { click: closeModal } }, "Cancel"),
       el("button", { class: "btn btn-primary", on: { click: async () => {
         if (!nameI.value.trim()) return toast("Please give the exercise a name");
+        const logType = logS.value;
+        if (logType === "custom" && !metricLabelI.value.trim()) {
+          return toast("Name the metric (e.g. Skips, Metres)");
+        }
         const metVal = parseFloat(metI.value);
         const ex = {
           id: "custom-" + U.uid(),
@@ -3917,6 +4157,16 @@
           mistakes: [], variations: [], alternatives: [],
           met: (!isNaN(metVal) && metVal > 0) ? metVal : (U.MET_BY_CATEGORY[catS.value] || 5)
         };
+        if (logType === "custom") {
+          ex.type = "custom";
+          ex.metric = normalizeMetric({
+            label: metricLabelI.value,
+            unit: metricUnitI.value,
+            higherIsBetter: betterS.value !== "lower"
+          });
+        } else if (logType !== "auto") {
+          ex.type = logType;
+        }
         await Storage.saveCustomExercise(ex);
         closeModal();
         toast("Custom exercise saved");
@@ -5307,7 +5557,7 @@
         for (const s of (ex.sets || [])) {
           sessionSetsTotal += 1;
           if (s.done) sessionSetsDone += 1;
-          if (ex.type !== "cardio" && s.durationMin == null) {
+          if (ex.type !== "cardio" && ex.type !== "custom" && s.durationMin == null && s.value == null) {
             const target = Number(s.reps) || 0;
             // Target from planned reps field; done sets count actual reps
             sessionRepsTarget += target || 0;
@@ -5455,9 +5705,11 @@
         filter === "strength" ? strengthRecords :
         filter === "cardio" ? cardioRecords :
         records.filter(r =>
-          r.isCardio
-            ? (r.maxDuration > 0 || r.maxDistance > 0)
-            : (r.maxWeight > 0 || r.maxE1RM > 0 || r.maxReps > 0)
+          r.isCustom
+            ? (r.maxValue > 0)
+            : r.isCardio
+              ? (r.maxDuration > 0 || r.maxDistance > 0)
+              : (r.maxWeight > 0 || r.maxE1RM > 0 || r.maxReps > 0)
         );
 
       const card = el("div", { class: "card" });
@@ -5489,7 +5741,29 @@
       }
 
       for (const rec of list) {
-        if (rec.isCardio) {
+        if (rec.isCustom) {
+          const m = normalizeMetric(rec.metric);
+          const best = m.higherIsBetter ? rec.maxValue : (rec.minValue || rec.maxValue);
+          card.appendChild(el("button", {
+            type: "button",
+            class: "stats-record-row",
+            on: { click: () => openExerciseDetail(rec.exerciseId, rec) }
+          },
+            el("div", { class: "stats-record-main" },
+              el("div", { class: "stats-record-name" }, shortLabel(rec.name)),
+              el("div", { class: "stats-record-meta" },
+                [
+                  m.label + (m.higherIsBetter ? " · best" : " · fastest"),
+                  rec.sessionCount ? `${rec.sessionCount} session${rec.sessionCount === 1 ? "" : "s"}` : null
+                ].filter(Boolean).join(" · ")
+              )
+            ),
+            el("div", { class: "stats-record-value" },
+              best != null ? String(best) : "—",
+              m.unit ? el("span", { class: "stats-record-unit" }, m.unit) : null
+            )
+          ));
+        } else if (rec.isCardio) {
           card.appendChild(el("button", {
             type: "button",
             class: "stats-record-row",
@@ -5638,6 +5912,17 @@
             exerciseKcalTotal(ex) > 0 ? el("span", { class: "chip chip-sm", style: "margin-left:8px" }, `≈ ${exerciseKcalTotal(ex)} kcal`) : null)),
           el("div", { class: "exercise-block-body" },
             ...ex.sets.map((s, i) => {
+              if (ex.type === "custom" || s.value != null) {
+                const m = normalizeMetric(ex.metric);
+                const valTxt = s.value != null ? `${s.value}${m.unit ? " " + m.unit : ""}` : "—";
+                return el("div", { class: "set-row type-custom", style: "grid-template-columns: 40px 1fr 1fr" },
+                  el("div", { class: "set-index" }, String(i + 1)),
+                  el("div", { class: "mono", style: "text-align:center" }, valTxt),
+                  el("div", { class: "mono text-muted", style: "text-align:center" },
+                    s.isPR ? el("span", { class: "pr-badge" }, "PR") : "—",
+                    s.note ? el("span", { class: "text-xs text-faint", style: "display:block" }, s.note) : null)
+                );
+              }
               if (ex.type === "cardio" || s.durationMin != null) {
                 const showDist = cardioTracksDistance(ex) && s.distanceKm != null;
                 const cols = showDist ? "40px 1fr 1fr 1fr" : "40px 1fr 1fr";
