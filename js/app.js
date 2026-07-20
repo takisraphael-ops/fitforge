@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=66").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=67").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -4293,11 +4293,10 @@
     searchI.addEventListener("input", U.debounce(refresh, 120));
     // Create a custom exercise inline and immediately select it for this workout.
     const addCustomBtn = el("button", {
-      class: "btn btn-ghost btn-sm xpick-add-custom",
+      class: "xpick-add-custom",
       type: "button",
-      style: "width:100%; justify-content:center; gap:6px; margin:10px 0 2px;",
       on: { click: () => openCustomExerciseForm((ex) => onPick(ex.id, ex.name)) }
-    }, el("span", { html: icons.plus }), "Add custom exercise");
+    }, el("span", { class: "xpick-add-custom-ic", html: icons.plus }), "Add custom exercise");
     const body = el("div", { class: "xpick" }, searchI, addCustomBtn, content);
     return { body, refresh, focus: () => searchI.focus() };
   }

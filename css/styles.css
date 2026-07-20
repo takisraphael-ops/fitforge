@@ -2922,6 +2922,32 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 /* ============ Category-first exercise picker ============ */
 .xpick { display: flex; flex-direction: column; }
 .xpick-content { margin-top: 10px; }
+/* Prominent "create your own" affordance so users don't miss it */
+.xpick-add-custom {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin: 12px 0 2px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: var(--radius-sm);
+  transition: all 140ms ease;
+}
+.xpick-add-custom:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border-color: var(--accent);
+  border-style: solid;
+}
+.xpick-add-custom:active { transform: scale(0.99); }
+.xpick-add-custom-ic { display: inline-flex; }
+.xpick-add-custom-ic svg { width: 18px; height: 18px; stroke-width: 2.4; }
 .xcat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .xcat-tile {
   aspect-ratio: 1 / 1;
