@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=79").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=80").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -5001,6 +5001,20 @@
   async function renderNutrition(view) {
     const NCHEV = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
     const NUP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>';
+    const S = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
+    const NICONS = {
+      overview: `<svg ${S}><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>`,
+      breakfast: `<svg ${S}><path d="M17 18a5 5 0 0 0-10 0"/><line x1="12" y1="2" x2="12" y2="9"/><line x1="4.22" y1="10.22" x2="5.64" y2="11.64"/><line x1="1" y1="18" x2="3" y2="18"/><line x1="21" y1="18" x2="23" y2="18"/><line x1="18.36" y1="11.64" x2="19.78" y2="10.22"/><line x1="23" y1="22" x2="1" y2="22"/><polyline points="8 6 12 2 16 6"/></svg>`,
+      lunch: `<svg ${S}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>`,
+      dinner: `<svg ${S}><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
+      snack: `<svg ${S}><path d="M12 8c-1.6-2.6-4.6-3-6.6-1S3.4 12 5 15c1.2 2.4 2.7 4 4 4 1 0 1.5-.6 3-.6s2 .6 3 .6c1.3 0 2.8-1.6 4-4 .8-1.6 1.1-3.3.5-4.9"/><path d="M12 8c.3-2.3 1.9-3.9 3.9-3.9"/></svg>`,
+      pre_workout: `<svg ${S}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+      post_workout: `<svg ${S}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+      other: `<svg ${S}><path d="M3 2v7a2 2 0 0 0 2 2 2 2 0 0 0 2-2V2"/><path d="M6 2v20"/><path d="M17 2c-1.7 0-3 2-3 5 0 2.5 1 4 2 4v11"/></svg>`,
+      supplements: `<svg ${S}><path d="M10.5 20.5 3.5 13.5a5 5 0 0 1 7-7l7 7a5 5 0 0 1-7 7z"/><line x1="8.5" y1="8.5" x2="15.5" y2="15.5"/></svg>`,
+      trends: `<svg ${S}><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>`
+    };
+    const panelIcon = (key) => el("span", { class: "npanel-icon", html: NICONS[key] || NICONS.other });
 
     const [meals, supplements, suppLogs] = await Promise.all([
       Storage.getMeals(), Storage.getSupplements(), Storage.getSupplementLogs()
@@ -5107,7 +5121,8 @@
       const mac = U.sumMacros(items);
       const panel = el("div", { class: "npanel", "data-key": key });
       panel.appendChild(el("div", { class: "npanel-head" },
-        el("div", { style: "min-width:0" },
+        panelIcon(key),
+        el("div", { class: "npanel-head-text" },
           el("div", { class: "npanel-eyebrow" }, dateEyebrow),
           el("h2", { class: "npanel-title" }, meta.label)
         ),
@@ -5171,7 +5186,8 @@
       const panel = el("div", { class: "npanel", "data-key": "supplements" });
       const takenCount = takenSuppIds.size;
       panel.appendChild(el("div", { class: "npanel-head" },
-        el("div", { style: "min-width:0" },
+        panelIcon("supplements"),
+        el("div", { class: "npanel-head-text" },
           el("div", { class: "npanel-eyebrow" }, dateEyebrow),
           el("h2", { class: "npanel-title" }, "Supplements")
         ),
@@ -5236,7 +5252,8 @@
     // ---- Overview panel ----
     const ov = el("div", { class: "npanel npanel-overview" });
     ov.appendChild(el("div", { class: "npanel-head" },
-      el("div", { style: "min-width:0" },
+      panelIcon("overview"),
+      el("div", { class: "npanel-head-text" },
         el("div", { class: "npanel-eyebrow" }, dateEyebrow),
         el("h2", { class: "npanel-title" }, "Overview")
       ),
@@ -5303,7 +5320,8 @@
     // ---- Trends panel ----
     const trends = el("div", { class: "npanel npanel-trends" });
     trends.appendChild(el("div", { class: "npanel-head" },
-      el("div", { style: "min-width:0" },
+      panelIcon("trends"),
+      el("div", { class: "npanel-head-text" },
         el("div", { class: "npanel-eyebrow" }, "LAST 14 DAYS"),
         el("h2", { class: "npanel-title" }, "Trends")
       )

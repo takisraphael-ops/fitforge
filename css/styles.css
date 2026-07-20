@@ -3226,7 +3226,7 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   position: relative;
   height: 100%;
   overflow-y: auto;
-  scroll-snap-type: y proximity;
+  scroll-snap-type: y mandatory;
   scroll-behavior: smooth;
   overscroll-behavior: contain;
   scrollbar-width: none;
@@ -3236,14 +3236,23 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .npanel {
   min-height: 100%;
   scroll-snap-align: start;
+  scroll-snap-stop: always;
   display: flex;
   flex-direction: column;
   padding: 6px 18px 2px 4px; /* right gutter reserved for the page dots */
 }
 .npanel-head {
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 4px 4px 14px;
 }
+.npanel-icon {
+  width: 44px; height: 44px; flex: none; border-radius: 12px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.npanel-icon svg { width: 24px; height: 24px; }
+.npanel-head-text { min-width: 0; flex: 1; }
 .npanel-eyebrow {
   font-size: 12px; font-weight: 700; letter-spacing: 0.12em;
   text-transform: uppercase; color: var(--accent); margin-bottom: 4px;
