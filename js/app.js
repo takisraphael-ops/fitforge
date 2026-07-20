@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=67").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=69").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -2228,22 +2228,24 @@
   // ============ WORKOUT ============
   async function renderWorkout(view) {
     if (!state.activeWorkout) {
-      // Primary path — pick an exercise and the session starts immediately.
+      // Primary path — tap to add exercises, then start when ready.
       const all = await getAllExercises();
-      const startCard = el("div", { class: "card" },
-        el("h2", { style: "margin-bottom: 6px;" }, "Start a workout"),
-        el("p", { class: "text-muted text-sm mb-8" },
-          "Pick an exercise to begin — your session starts the moment you choose one. Add more as you go.")
-      );
-      const picker = buildExercisePickerUI(all, async (id, name) => {
-        await beginWorkoutSession({
-          name: suggestedName(),
-          exercises: [await buildExerciseEntry(id, name)],
-          source: "empty"
-        });
+      const picker = buildExercisePickerUI(all, {
+        header: {
+          eyebrow: "Build a workout",
+          title: "Choose exercises",
+          subtitle: "Tap to add — start when you're ready."
+        },
+        confirmLabel: (n) => `Start workout · ${n} exercise${n === 1 ? "" : "s"}`,
+        allowCustom: true,
+        customImmediate: false,
+        onConfirm: async (items) => {
+          const exercises = [];
+          for (const it of items) exercises.push(await buildExerciseEntry(it.id, it.name));
+          await beginWorkoutSession({ name: suggestedName(), exercises, source: "empty" });
+        }
       });
-      startCard.appendChild(picker.body);
-      view.appendChild(startCard);
+      view.appendChild(el("div", { class: "xpick-screen" }, picker.body));
       picker.refresh();
 
       // Repeat last completed session — compact fast path.
@@ -2351,11 +2353,12 @@
     }
 
     // Add exercise
-    view.appendChild(el("button", { class: "btn btn-block mt-16", on: { click: () => openExercisePicker(async (exerciseId, name) => {
-      w.exercises.push(await buildExerciseEntry(exerciseId, name));
+    view.appendChild(el("button", { class: "btn btn-block mt-16", on: { click: () => openExercisePicker(async (items) => {
+      for (const it of items) w.exercises.push(await buildExerciseEntry(it.id, it.name));
       await Storage.saveWorkout(w);
       renderMain();
-    }) } },
+      toast(`Added ${items.length} exercise${items.length === 1 ? "" : "s"}`);
+    }, { existingIds: new Set((w.exercises || []).map(e => e.exerciseId)), title: "Add exercises" }) } },
       el("span", { html: icons.plus }), "Add exercise"
     ));
 
@@ -2589,15 +2592,17 @@
       });
     }
 
-    const addBtn = el("button", { class: "btn btn-block mt-8", on: { click: () => openExercisePicker((exerciseId, name) => {
-      const def = all.find(x => x.id === exerciseId);
-      const isCardio = def ? inferExerciseType(def) === "cardio" : looksLikeCardio({ id: exerciseId, name });
-      template.exercises.push(isCardio
-        ? { exerciseId, name, targetDurationMin: 20, targetIntensity: "moderate" }
-        : { exerciseId, name, targetSets: 3, targetReps: 8 });
+    const addBtn = el("button", { class: "btn btn-block mt-8", on: { click: () => openExercisePicker((items) => {
+      for (const it of items) {
+        const def = all.find(x => x.id === it.id);
+        const isCardio = def ? inferExerciseType(def) === "cardio" : looksLikeCardio({ id: it.id, name: it.name });
+        template.exercises.push(isCardio
+          ? { exerciseId: it.id, name: it.name, targetDurationMin: 20, targetIntensity: "moderate" }
+          : { exerciseId: it.id, name: it.name, targetSets: 3, targetReps: 8 });
+      }
       // openExercisePicker closes its own modal; re-open editor
       openTemplateEditor(template);
-    }) } }, el("span", { html: icons.plus }), "Add exercise");
+    }, { existingIds: new Set((template.exercises || []).map(e => e.exerciseId)), title: "Add to template" }) } }, el("span", { html: icons.plus }), "Add exercise");
 
     const body = el("div", {},
       el("label", { class: "label" }, "Template name"),
@@ -4220,91 +4225,215 @@
     }
   }
 
-  // Category-first exercise picker: choose a muscle group (animated tiles) → browse
-  // its exercises. A search box on top jumps straight to any exercise by name.
-  // Reused by both the start-a-workout screen and the in-workout "Add exercise" modal.
-  function buildExercisePickerUI(all, onPick) {
-    const BACK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>`;
-    let mode = "categories"; // "categories" | "exercises"
-    let activeCat = null;
-    const searchI = el("input", { class: "input", placeholder: "Search exercises…" });
-    const content = el("div", { class: "xpick-content" });
+  // Small per-category figure icon for exercise rows: a simple body silhouette
+  // with the worked region highlighted in accent. Lightweight (inline SVG) so
+  // it scales to long lists.
+  function exerciseFigureIcon(category) {
+    const accent = ({
+      chest: ["torsoU"],
+      back: ["torsoU"],
+      shoulders: ["sh"],
+      arms: ["armL", "armR"],
+      legs: ["legL", "legR"],
+      core: ["torsoL"],
+      full_body: ["torsoU", "torsoL", "armL", "armR", "legL", "legR"],
+      cardio: ["torsoU", "torsoL", "legL", "legR"]
+    })[category] || ["torsoU"];
+    const on = (id) => accent.includes(id) ? " xfig-on" : "";
+    const svg =
+      '<svg viewBox="0 0 44 44" class="xfig-svg" aria-hidden="true">' +
+      '<circle class="xfig-base" cx="22" cy="9" r="4"/>' +
+      '<rect class="xfig-base' + on("sh") + '" x="13" y="14" width="18" height="4" rx="2"/>' +
+      '<rect class="xfig-base' + on("armL") + '" x="9" y="15.5" width="3.5" height="13" rx="1.75"/>' +
+      '<rect class="xfig-base' + on("armR") + '" x="31.5" y="15.5" width="3.5" height="13" rx="1.75"/>' +
+      '<rect class="xfig-base' + on("torsoU") + '" x="15" y="16" width="14" height="8" rx="2"/>' +
+      '<rect class="xfig-base' + on("torsoL") + '" x="15" y="23" width="14" height="7" rx="2"/>' +
+      '<rect class="xfig-base' + on("legL") + '" x="16" y="30" width="4" height="10" rx="2"/>' +
+      '<rect class="xfig-base' + on("legR") + '" x="24" y="30" width="4" height="10" rx="2"/>' +
+      '</svg>';
+    return el("span", { class: "xrow-fig", html: svg });
+  }
 
+  // Multi-select exercise picker: chip filters + a grouped, scrollable list of
+  // exercise cards. Tap cards to add/remove; a sticky CTA confirms the batch.
+  // Reused by the start-a-workout screen, the in-workout "Add exercise" modal,
+  // and the template builder.
+  //   opts.onConfirm(items)   items: [{id, name}] — the batch the user chose
+  //   opts.confirmLabel(n)    CTA label for n selected
+  //   opts.header             { eyebrow, title, subtitle } optional big header
+  //   opts.allowCustom        show the "Add custom exercise" affordance (default true)
+  //   opts.customImmediate    if true, creating a custom exercise confirms it at
+  //                           once (modal contexts); otherwise it joins selection
+  //   opts.existingIds        Set of ids already in the workout/template (shown "Added")
+  function buildExercisePickerUI(all, opts = {}) {
+    const {
+      onConfirm = () => {},
+      confirmLabel = (n) => `Add ${n}`,
+      header = null,
+      allowCustom = true,
+      customImmediate = false
+    } = opts;
+    const existing = opts.existingIds instanceof Set ? opts.existingIds : new Set(opts.existingIds || []);
+    const selected = new Map(); // id -> { id, name }
+    let activeCat = "all";
+
+    const searchI = el("input", { class: "input", placeholder: "Search exercises…" });
+    const chipRow = el("div", { class: "xpick-chips", "data-testid": "xpick-chips" });
+    const content = el("div", { class: "xpick-content" });
+    const cta = el("button", { class: "btn btn-primary btn-block xpick-cta-btn", type: "button", "data-testid": "xpick-cta" });
+    const footer = el("div", { class: "xpick-cta", style: "display:none" }, cta);
+
+    const cats = ["all", ...Object.keys(EXERCISE_CATEGORIES)];
     const catLabel = (c) => c === "all" ? "All" : EXERCISE_CATEGORIES[c];
     const countFor = (c) => c === "all" ? all.length : all.filter(e => e.category === c).length;
 
-    function exerciseGrid(list) {
-      const grid = el("div", { class: "exercise-grid" });
-      if (!list.length) {
-        grid.appendChild(el("div", { class: "text-sm text-faint", style: "padding: 16px 4px" }, "No exercises found."));
+    function renderChips() {
+      clear(chipRow);
+      for (const c of cats) {
+        if (c !== "all" && countFor(c) === 0) continue;
+        chipRow.appendChild(el("button", {
+          class: "xpick-chip" + (activeCat === c ? " active" : ""),
+          type: "button",
+          "data-testid": `xchip-${c}`,
+          on: { click: () => { activeCat = c; searchI.value = ""; renderChips(); renderList(); } }
+        }, catLabel(c)));
       }
-      for (const ex of list.slice(0, 150)) {
-        grid.appendChild(el("div", { class: "exercise-card", on: { click: () => onPick(ex.id, ex.name) } },
-          el("div", { class: "exercise-card-name" }, ex.name),
-          el("div", { class: "exercise-card-meta" }, `${EXERCISE_CATEGORIES[ex.category]} · ${ex.equipment || "—"}`)
-        ));
+    }
+
+    function rowFor(ex) {
+      const isSel = selected.has(ex.id);
+      const isExisting = existing.has(ex.id);
+      const metaBits = [];
+      if (ex.equipment) metaBits.push(el("span", { class: "xrow-equip" }, ex.equipment));
+      const muscles = (ex.muscles || []).slice(0, 2).join(", ");
+      if (muscles) {
+        if (metaBits.length) metaBits.push(el("span", { class: "xrow-sep" }, " · "));
+        metaBits.push(el("span", { class: "xrow-muscles" }, muscles));
       }
-      return grid;
-    }
-
-    function showCategories() {
-      clear(content);
-      const grid = el("div", { class: "xcat-grid" });
-      for (const c of ["all", ...Object.keys(EXERCISE_CATEGORIES)]) {
-        grid.appendChild(el("button", {
-          class: `xcat-tile xcat-${c}`, "data-testid": `xcat-${c}`,
-          on: { click: () => { activeCat = c; mode = "exercises"; showExercises(); } }
-        },
-          categoryIconNode(c),
-          el("span", { class: "xcat-name" }, catLabel(c)),
-          el("span", { class: "xcat-count" }, `${countFor(c)}`)
-        ));
+      const addBtn = el("button", {
+        class: "xrow-add" + (isSel ? " added" : ""),
+        type: "button",
+        tabindex: "-1",
+        "aria-hidden": "true",
+        html: isSel ? icons.check : icons.plus
+      });
+      const row = el("div", {
+        class: "xrow" + (isSel ? " is-selected" : "") + (isExisting ? " is-existing" : ""),
+        "data-testid": `xrow-${ex.id}`
+      },
+        exerciseFigureIcon(ex.category),
+        el("div", { class: "xrow-main" },
+          el("div", { class: "xrow-name" }, ex.name,
+            ex.isCustom ? el("span", { class: "chip chip-accent xrow-custom" }, "Custom") : null),
+          el("div", { class: "xrow-meta" }, ...metaBits)
+        ),
+        isExisting ? el("span", { class: "xrow-added-label" }, "Added") : addBtn
+      );
+      if (!isExisting) {
+        row.addEventListener("click", () => {
+          if (selected.has(ex.id)) selected.delete(ex.id);
+          else selected.set(ex.id, { id: ex.id, name: ex.name });
+          const nowSel = selected.has(ex.id);
+          row.classList.toggle("is-selected", nowSel);
+          addBtn.classList.toggle("added", nowSel);
+          addBtn.innerHTML = nowSel ? icons.check : icons.plus;
+          updateCta();
+        });
       }
-      content.appendChild(grid);
+      return row;
     }
 
-    function showExercises() {
+    function renderList() {
       clear(content);
-      content.appendChild(el("button", {
-        class: "xpick-back", "data-testid": "xpick-back",
-        on: { click: () => { mode = "categories"; activeCat = null; showCategories(); } }
-      }, el("span", { class: "xpick-back-ic", html: BACK }), catLabel(activeCat)));
-      const list = all.filter(e => activeCat === "all" || e.category === activeCat);
-      content.appendChild(exerciseGrid(list));
-    }
-
-    function showSearch(q) {
-      clear(content);
-      const matches = all.filter(ex =>
-        ex.name.toLowerCase().includes(q) ||
-        (ex.muscles || []).some(m => m.toLowerCase().includes(q)) ||
-        (ex.equipment || "").toLowerCase().includes(q));
-      content.appendChild(el("div", { class: "xpick-search-head" }, `${matches.length} result${matches.length === 1 ? "" : "s"}`));
-      content.appendChild(exerciseGrid(matches));
-    }
-
-    function refresh() {
       const q = searchI.value.trim().toLowerCase();
-      if (q) showSearch(q);
-      else if (mode === "exercises" && activeCat) showExercises();
-      else showCategories();
+      let list = all;
+      if (q) {
+        list = all.filter(ex =>
+          ex.name.toLowerCase().includes(q) ||
+          (ex.muscles || []).some(m => m.toLowerCase().includes(q)) ||
+          (ex.equipment || "").toLowerCase().includes(q));
+      } else if (activeCat !== "all") {
+        list = all.filter(e => e.category === activeCat);
+      }
+      if (!list.length) {
+        content.appendChild(el("div", { class: "text-sm text-faint", style: "padding: 16px 4px" }, "No exercises found."));
+        return;
+      }
+      const order = Object.keys(EXERCISE_CATEGORIES);
+      const groups = new Map();
+      for (const ex of list) {
+        const c = ex.category || "other";
+        if (!groups.has(c)) groups.set(c, []);
+        groups.get(c).push(ex);
+      }
+      const orderedCats = [
+        ...order.filter(c => groups.has(c)),
+        ...[...groups.keys()].filter(c => !order.includes(c))
+      ];
+      for (const c of orderedCats) {
+        const items = groups.get(c);
+        const sec = el("div", { class: "xpick-section" });
+        sec.appendChild(el("div", { class: "xpick-section-head" },
+          el("span", {}, (EXERCISE_CATEGORIES[c] || c).toUpperCase()),
+          el("span", { class: "xpick-section-count" }, String(items.length))
+        ));
+        for (const ex of items) sec.appendChild(rowFor(ex));
+        content.appendChild(sec);
+      }
     }
 
-    searchI.addEventListener("input", U.debounce(refresh, 120));
-    // Create a custom exercise inline and immediately select it for this workout.
-    const addCustomBtn = el("button", {
+    function updateCta() {
+      const n = selected.size;
+      footer.style.display = n > 0 ? "" : "none";
+      if (n > 0) cta.textContent = confirmLabel(n);
+    }
+
+    cta.addEventListener("click", async () => {
+      if (!selected.size) return;
+      await onConfirm([...selected.values()]);
+    });
+    searchI.addEventListener("input", U.debounce(renderList, 120));
+
+    const headerEl = header ? el("div", { class: "xpick-header" },
+      header.eyebrow ? el("div", { class: "xpick-eyebrow" }, header.eyebrow) : null,
+      header.title ? el("h2", { class: "xpick-title" }, header.title) : null,
+      header.subtitle ? el("div", { class: "xpick-subtitle" }, header.subtitle) : null
+    ) : null;
+
+    const addCustomBtn = allowCustom ? el("button", {
       class: "xpick-add-custom",
       type: "button",
-      on: { click: () => openCustomExerciseForm((ex) => onPick(ex.id, ex.name)) }
-    }, el("span", { class: "xpick-add-custom-ic", html: icons.plus }), "Add custom exercise");
-    const body = el("div", { class: "xpick" }, searchI, addCustomBtn, content);
+      on: { click: () => openCustomExerciseForm((ex) => {
+        if (customImmediate) { onConfirm([{ id: ex.id, name: ex.name }]); return; }
+        all.unshift({ ...ex, isCustom: true });
+        selected.set(ex.id, { id: ex.id, name: ex.name });
+        renderChips();
+        renderList();
+        updateCta();
+      }) }
+    }, el("span", { class: "xpick-add-custom-ic", html: icons.plus }), "Add custom exercise") : null;
+
+    const body = el("div", { class: "xpick xpick-multi" },
+      headerEl, searchI, addCustomBtn, chipRow, content, footer
+    );
+
+    function refresh() { renderChips(); renderList(); updateCta(); }
     return { body, refresh, focus: () => searchI.focus() };
   }
 
-  function openExercisePicker(onPick) {
+  // Modal wrapper for the multi-select picker (in-workout add / template builder).
+  //   onConfirm(items)  items: [{id, name}]
+  //   opts.existingIds, opts.title
+  function openExercisePicker(onConfirm, opts = {}) {
     getAllExercises().then(all => {
-      const picker = buildExercisePickerUI(all, (id, name) => { closeModal(); onPick(id, name); });
-      openModal("Add exercise", picker.body, null);
+      const picker = buildExercisePickerUI(all, {
+        existingIds: opts.existingIds,
+        confirmLabel: (n) => `Add ${n} exercise${n === 1 ? "" : "s"}`,
+        allowCustom: true,
+        customImmediate: true,
+        onConfirm: async (items) => { closeModal(); await onConfirm(items); }
+      });
+      openModal(opts.title || "Add exercises", picker.body, null);
       picker.refresh();
       setTimeout(picker.focus, 50);
     });
