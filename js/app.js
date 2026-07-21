@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=85").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=86").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -4243,6 +4243,9 @@
     document.title = BASE_DOC_TITLE;
     renderRestTimer();
   }
+  // Circumference of the countdown ring (r = 100).
+  const REST_RING_C = 2 * Math.PI * 100;
+
   function renderRestTimer() {
     let el_ = document.getElementById("rest-timer");
     if (!state.restTimer) {
@@ -4250,18 +4253,48 @@
       document.title = BASE_DOC_TITLE;
       return;
     }
+    // Full-screen overlay so the rest window can't be missed mid-session.
     if (!el_) {
-      el_ = el("div", { class: "rest-timer", id: "rest-timer" });
-      el_.appendChild(el("div", {},
-        el("div", { class: "rest-timer-label" }, "Rest"),
-        el("div", { class: "rest-timer-value", id: "rest-value" }, "—")
-      ));
-      el_.appendChild(el("button", { class: "rest-timer-btn", on: { click: () => {
-        if (!state.restTimer) return;
-        state.restTimer.endsAt += 15000;
-        updateRestTimerUI(Math.max(0, Math.round((state.restTimer.endsAt - Date.now()) / 1000)));
-      } } }, "+15"));
-      el_.appendChild(el("button", { class: "rest-timer-btn", on: { click: stopRestTimer } }, "Skip"));
+      let nextName = "";
+      if (state.activeWorkout && state.restTimer.exerciseId) {
+        const ex = state.activeWorkout.exercises.find(e => e.exerciseId === state.restTimer.exerciseId);
+        if (ex) nextName = ex.name;
+      }
+      el_ = el("div", { class: "rest-overlay", id: "rest-timer", role: "dialog", "aria-label": "Rest timer" },
+        el("div", { class: "rest-overlay-inner" },
+          el("div", { class: "rest-eyebrow" }, "Rest"),
+          el("div", { class: "rest-ring-wrap" },
+            (() => {
+              const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+              svg.setAttribute("class", "rest-ring");
+              svg.setAttribute("viewBox", "0 0 220 220");
+              const track = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+              track.setAttribute("class", "rest-ring-track");
+              track.setAttribute("cx", "110"); track.setAttribute("cy", "110"); track.setAttribute("r", "100");
+              const fill = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+              fill.setAttribute("class", "rest-ring-fill"); fill.setAttribute("id", "rest-ring-fill");
+              fill.setAttribute("cx", "110"); fill.setAttribute("cy", "110"); fill.setAttribute("r", "100");
+              fill.setAttribute("stroke-dasharray", String(REST_RING_C));
+              fill.setAttribute("stroke-dashoffset", "0");
+              svg.appendChild(track); svg.appendChild(fill);
+              return svg;
+            })(),
+            el("div", { class: "rest-ring-center" },
+              el("div", { class: "rest-value", id: "rest-value" }, "—"),
+              nextName ? el("div", { class: "rest-next" }, nextName) : null
+            )
+          ),
+          el("div", { class: "rest-actions" },
+            el("button", { class: "rest-btn", type: "button", "data-testid": "rest-add15", on: { click: () => {
+              if (!state.restTimer) return;
+              state.restTimer.endsAt += 15000;
+              state.restTimer.totalSec = (state.restTimer.totalSec || 90) + 15;
+              updateRestTimerUI(Math.max(0, Math.round((state.restTimer.endsAt - Date.now()) / 1000)));
+            } } }, "+15s"),
+            el("button", { class: "rest-btn rest-btn-primary", type: "button", "data-testid": "rest-skip", on: { click: stopRestTimer } }, "Skip rest")
+          )
+        )
+      );
       document.body.appendChild(el_);
     }
     const remaining = Math.max(0, Math.round((state.restTimer.endsAt - Date.now()) / 1000));
@@ -4270,6 +4303,14 @@
   function updateRestTimerUI(remaining) {
     const v = document.getElementById("rest-value");
     if (v) v.textContent = U.formatTime(remaining);
+    const fill = document.getElementById("rest-ring-fill");
+    if (fill && state.restTimer) {
+      const total = Math.max(1, state.restTimer.totalSec || 90);
+      const frac = Math.max(0, Math.min(1, remaining / total));
+      fill.setAttribute("stroke-dashoffset", String(REST_RING_C * (1 - frac)));
+      const overlay = document.getElementById("rest-timer");
+      if (overlay) overlay.classList.toggle("is-ending", remaining <= 10);
+    }
     // Lock-screen / tab switch: remaining rest visible in the browser title.
     if (state.restTimer) {
       document.title = `${U.formatTime(remaining)} rest · FitForge`;

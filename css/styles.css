@@ -1498,31 +1498,62 @@ input:disabled.input,
 .history-item-summary { font-size: 12px; color: var(--text-faint); margin-top: 4px; }
 
 /* ============ Rest timer overlay ============ */
-.rest-timer {
-  position: fixed;
-  bottom: 20px; left: 50%;
-  transform: translateX(-50%);
-  background: var(--text);
-  color: var(--bg);
-  padding: 14px 22px;
-  border-radius: 100px;
-  display: flex; align-items: center; gap: 14px;
-  box-shadow: var(--shadow-md);
-  z-index: 90;
-  font-family: var(--font-mono);
-  animation: slide-up 220ms cubic-bezier(0.16, 1, 0.3, 1);
+/* Full-screen rest timer — covers the session so the rest window can't be ignored */
+.rest-overlay {
+  position: fixed; inset: 0; z-index: 250;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+  animation: rest-in 260ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-@keyframes slide-up { from { transform: translate(-50%, 20px); opacity: 0; } to { transform: translateX(-50%); opacity: 1; } }
-.rest-timer-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.6; }
-.rest-timer-value { font-size: 22px; font-weight: 600; }
-.rest-timer-btn {
-  background: color-mix(in srgb, var(--bg) 20%, transparent);
-  color: var(--bg);
-  border-radius: 100px;
-  padding: 4px 10px;
-  font-size: 12px;
+@keyframes rest-in { from { opacity: 0; } to { opacity: 1; } }
+.rest-overlay-inner {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 22px; width: 100%; max-width: 340px;
+  animation: rest-pop 320ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
-.rest-timer-btn:hover { background: color-mix(in srgb, var(--bg) 30%, transparent); }
+@keyframes rest-pop { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: none; } }
+.rest-eyebrow {
+  font-size: 13px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--accent);
+}
+.rest-ring-wrap { position: relative; width: 240px; height: 240px; max-width: 74vw; max-height: 74vw; }
+.rest-ring { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
+.rest-ring-track { fill: none; stroke: var(--bg-sunken); stroke-width: 12; }
+.rest-ring-fill {
+  fill: none; stroke: var(--accent); stroke-width: 12; stroke-linecap: round;
+  transition: stroke-dashoffset 250ms linear, stroke 300ms ease;
+}
+.rest-overlay.is-ending .rest-ring-fill { stroke: var(--danger, #e5484d); }
+.rest-overlay.is-ending .rest-value { color: var(--danger, #e5484d); }
+.rest-ring-center {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+}
+.rest-value {
+  font-family: var(--font-mono, var(--font-numeric));
+  font-size: 58px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.rest-next {
+  font-size: 14px; font-weight: 600; color: var(--text-muted);
+  max-width: 180px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rest-actions { display: flex; gap: 12px; width: 100%; }
+.rest-btn {
+  flex: 1; padding: 15px 16px; border-radius: 14px;
+  font-size: 15px; font-weight: 700; cursor: pointer;
+  background: var(--bg-elev); border: 1px solid var(--border); color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+}
+.rest-btn:active { transform: scale(0.98); }
+.rest-btn-primary { background: var(--accent); border-color: var(--accent); color: #04232a; }
+@media (prefers-reduced-motion: reduce) {
+  .rest-overlay, .rest-overlay-inner { animation: none; }
+  .rest-ring-fill { transition: none; }
+}
 
 /* ============ Empty states ============ */
 .empty {
