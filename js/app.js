@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=87").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=88").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -2050,6 +2050,36 @@
       );
     }
 
+    // Focus day (Push / Pull / Legs / Cardio / …) — no template, just a target.
+    const focusDay = focusFromValue(assign);
+    if (focusDay) {
+      return el("div", { class: "card today-hero today-hero-train", "data-testid": "today-hero" },
+        el("div", { class: "today-hero-glow" }),
+        el("div", { class: "today-hero-body" },
+          el("div", { class: "row-between", style: "align-items:flex-start;gap:10px" },
+            el("div", { class: "today-hero-eyebrow" }, `Today · ${WEEKDAY_LABELS[todayKey]}`),
+            editLink()
+          ),
+          el("div", { class: "row-between", style: "align-items:baseline;gap:12px;margin-top:4px" },
+            el("div", { class: "today-hero-title" }, `${focusDay.emoji} ${focusDay.label}`),
+            el("div", { class: "today-hero-focus" }, "Focus")
+          ),
+          el("div", { class: "today-hero-sub" }, focusDay.desc),
+          el("div", { class: "today-hero-actions" },
+            el("button", {
+              class: "btn btn-primary today-hero-start", "data-testid": "hero-start-focus",
+              on: { click: () => { pendingPickerCat = focusDay.cat; goTab("workout"); } }
+            }, "Start workout", el("span", { class: "today-hero-arrow", html: arrow })),
+            el("button", {
+              class: "today-hero-swap", title: "Start a different workout",
+              "data-testid": "hero-swap", on: { click: () => { pendingPickerCat = null; goTab("workout"); } },
+              html: '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h11M4 7l3-3M4 7l3 3M20 17H9m11 0l-3-3m3 3l-3 3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+            })
+          )
+        )
+      );
+    }
+
     const tpl = (assign && assign !== "rest") ? tplById.get(assign) : null;
 
     // Planned training day with a valid template.
@@ -2397,6 +2427,31 @@
   const WEEKDAY_LABELS = { mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday", sun: "Sunday" };
   const WEEKDAY_LETTERS = { mon: "M", tue: "T", wed: "W", thu: "T", fri: "F", sat: "S", sun: "S" };
 
+  // Preset day focuses — assignable without a full template. `cat` pre-scopes
+  // the exercise picker to that category when the session is started (null =
+  // no scope). Stored on a day as "focus:<key>".
+  const DAY_FOCUSES = [
+    { key: "push", label: "Push", emoji: "🤜", cat: "chest", desc: "Chest, shoulders & triceps" },
+    { key: "pull", label: "Pull", emoji: "🤛", cat: "back", desc: "Back & biceps" },
+    { key: "legs", label: "Legs", emoji: "🦵", cat: "legs", desc: "Quads, hamstrings & glutes" },
+    { key: "upper", label: "Upper body", emoji: "⬆️", cat: "chest", desc: "Chest, back, shoulders & arms" },
+    { key: "lower", label: "Lower body", emoji: "⬇️", cat: "legs", desc: "Legs & glutes" },
+    { key: "full", label: "Full body", emoji: "🧍", cat: null, desc: "A bit of everything" },
+    { key: "arms", label: "Arms", emoji: "💪", cat: "arms", desc: "Biceps & triceps" },
+    { key: "chest", label: "Chest", emoji: "🎽", cat: "chest", desc: "Chest focus" },
+    { key: "back", label: "Back", emoji: "🧗", cat: "back", desc: "Back focus" },
+    { key: "shoulders", label: "Shoulders", emoji: "🤸", cat: "shoulders", desc: "Delts" },
+    { key: "core", label: "Core", emoji: "🧘", cat: "core", desc: "Abs & core" },
+    { key: "cardio", label: "Cardio", emoji: "🏃", cat: "cardio", desc: "Conditioning" }
+  ];
+  const DAY_FOCUS_BY_KEY = Object.fromEntries(DAY_FOCUSES.map(f => [f.key, f]));
+  // Resolve a stored day value to a focus preset (or null).
+  function focusFromValue(v) {
+    return (typeof v === "string" && v.startsWith("focus:")) ? (DAY_FOCUS_BY_KEY[v.slice(6)] || null) : null;
+  }
+  // Category to pre-open the picker with after a focus-day "Start".
+  let pendingPickerCat = null;
+
   // JS getDay(): 0=Sun..6=Sat → our Monday-first keys.
   function weekdayKeyFor(date = new Date()) {
     return WEEKDAY_KEYS[(date.getDay() + 6) % 7];
@@ -2500,10 +2555,14 @@
     if (!state.activeWorkout) {
       // Primary path — tap to add exercises, then start when ready.
       const all = await getAllExercises();
+      // A focus day's "Start" pre-opens the picker on that category (once).
+      const initialCat = pendingPickerCat;
+      pendingPickerCat = null;
       const picker = buildExercisePickerUI(all, {
         confirmLabel: (n) => `Start workout · ${n} exercise${n === 1 ? "" : "s"}`,
         allowCustom: true,
         customImmediate: false,
+        initialCat,
         onConfirm: async (items) => {
           const exercises = [];
           for (const it of items) exercises.push(await buildExerciseEntry(it.id, it.name));
@@ -3102,6 +3161,8 @@
 
     function assignLabel(v) {
       if (v === "rest") return "Rest day";
+      const f = focusFromValue(v);
+      if (f) return f.label;
       if (v && tplById.get(v)) return tplById.get(v).name;
       return "Open";
     }
@@ -3123,12 +3184,25 @@
 
     function renderDay(key) {
       const list = el("div", { class: "pquiz-list" });
+      // Your saved templates first (most specific).
       for (const t of templates) {
         const n = (t.exercises || []).length;
         list.appendChild(choiceCard({
-          label: t.name, hint: `${n} exercise${n === 1 ? "" : "s"}`, icon: "🏋️",
+          label: t.name, hint: `${n} exercise${n === 1 ? "" : "s"} · template`, icon: "🏋️",
           selected: draft[key] === t.id, testid: `wplan-pick-${t.id}`,
           onPick: () => { draft[key] = t.id; goto(idx + 1, "next"); }
+        }));
+      }
+      if (templates.length) {
+        list.appendChild(el("div", { class: "pquiz-list-label" }, "Or a focus"));
+      }
+      // Preset focuses (Push / Pull / Legs / Cardio / …).
+      for (const f of DAY_FOCUSES) {
+        const val = "focus:" + f.key;
+        list.appendChild(choiceCard({
+          label: f.label, hint: f.desc, icon: f.emoji,
+          selected: draft[key] === val, testid: `wplan-pick-focus-${f.key}`,
+          onPick: () => { draft[key] = val; goto(idx + 1, "next"); }
         }));
       }
       list.appendChild(choiceCard({
@@ -5162,7 +5236,15 @@
       headerEl, searchI, chipRow, content, dotsRow, footer
     );
 
-    function refresh() { renderChips(); renderDots(); renderContent(); updateCta(); }
+    let didInitialScroll = false;
+    function refresh() {
+      renderChips(); renderDots(); renderContent(); updateCta();
+      // Optionally open on a specific category (e.g. a focus day's "Start").
+      if (!didInitialScroll && opts.initialCat && cats.includes(opts.initialCat)) {
+        didInitialScroll = true;
+        requestAnimationFrame(() => requestAnimationFrame(() => scrollToCat(opts.initialCat)));
+      }
+    }
     return { body, refresh, focus: () => searchI.focus() };
   }
 
