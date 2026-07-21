@@ -3803,3 +3803,15 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 @media (prefers-reduced-motion: reduce) {
   .today-hero, .week-tile-check { animation: none !important; }
 }
+
+/* Weekly plan quiz — review step rows */
+.wplan-review-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; padding: 15px 16px; cursor: pointer; text-align: left;
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text); -webkit-tap-highlight-color: transparent;
+}
+.wplan-review-row:active { transform: scale(0.99); }
+.wplan-review-day { font-size: 15px; font-weight: 600; }
+.wplan-review-val { font-size: 14px; color: var(--text-faint); }
+.wplan-review-val.has { color: var(--accent); font-weight: 600; }

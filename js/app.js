@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=86").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=87").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -2009,7 +2009,7 @@
     const arrow = '<svg viewBox="0 0 16 16" width="16" height="16"><path d="M3 8h9M8 3.5L12.5 8 8 12.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     const editLink = () => el("button", {
       class: "today-hero-edit", type: "button", "data-testid": "hero-edit-week",
-      on: { click: openWeeklyPlanEditor }
+      on: { click: openWeeklyPlanQuiz }
     }, "Edit week");
 
     // No plan configured at all → invitation to set one up.
@@ -2022,7 +2022,7 @@
         el("div", { class: "today-hero-actions" },
           el("button", {
             class: "btn btn-primary btn-block today-hero-start", "data-testid": "hero-plan-week",
-            on: { click: openWeeklyPlanEditor }
+            on: { click: openWeeklyPlanQuiz }
           }, "Plan your week", el("span", { class: "today-hero-arrow", html: arrow })),
           el("button", {
             class: "btn today-hero-browse", title: "Start a workout now",
@@ -2550,7 +2550,7 @@
           ),
           el("button", {
             class: "btn btn-sm", style: "flex:none",
-            on: { click: openWeeklyPlanEditor }
+            on: { click: openWeeklyPlanQuiz }
           }, planHasAny(wplan) ? "Edit" : "Set up")
         )
       ));
@@ -3070,61 +3070,141 @@
     refresh();
   }
 
-  // Editor: assign a template (or Rest) to each weekday. Powers the Home hero.
-  async function openWeeklyPlanEditor() {
+  // Guided, one-day-per-screen weekly plan builder — same stepped feel as the
+  // profile quiz. Assigns a template / Rest / Open to each weekday.
+  async function openWeeklyPlanQuiz() {
     const templates = (await Storage.getTemplates())
       .slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-    const plan = { ...getWeeklyPlan() };
+    const tplById = new Map(templates.map(t => [t.id, t]));
+    const draft = { ...getWeeklyPlan() };
     const todayKey = weekdayKeyFor();
-    const selects = {};
-    const list = el("div", { class: "wplan-list" });
 
-    for (const key of WEEKDAY_KEYS) {
-      const sel = el("select", { class: "select", "data-testid": `wplan-select-${key}` });
-      sel.appendChild(el("option", { value: "" }, "Open — decide at gym"));
-      sel.appendChild(el("option", { value: "rest" }, "Rest day"));
-      for (const t of templates) sel.appendChild(el("option", { value: t.id }, t.name));
-      const cur = plan[key];
-      sel.value = (cur === "rest" || templates.some(t => t.id === cur)) ? cur : "";
-      selects[key] = sel;
-      list.appendChild(el("div", { class: "wplan-row" + (key === todayKey ? " is-today" : "") },
-        el("div", { class: "wplan-day" },
-          el("span", { class: "wplan-day-name" }, WEEKDAY_LABELS[key]),
-          key === todayKey ? el("span", { class: "wplan-today-tag" }, "Today") : null
-        ),
-        sel
-      ));
+    const STEPS = [...WEEKDAY_KEYS, "review"];
+    const LAST_DAY = WEEKDAY_KEYS.length - 1;
+    let idx = 0;
+
+    const overlay = el("div", { class: "pquiz", id: "weekly-plan-quiz", "data-testid": "weekly-plan-quiz" });
+    const bar = el("div", { class: "pquiz-bar-fill" });
+    const backBtn = el("button", {
+      type: "button", class: "pquiz-back", "data-testid": "wplan-back",
+      html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>'
+    });
+    const closeBtn = el("button", {
+      type: "button", class: "pquiz-close", "data-testid": "wplan-close",
+      html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>'
+    });
+    const stage = el("div", { class: "pquiz-stage" });
+    overlay.append(el("div", { class: "pquiz-topbar" }, backBtn, el("div", { class: "pquiz-bar" }, bar), closeBtn), stage);
+
+    const close = () => { overlay.classList.add("is-closing"); setTimeout(() => overlay.remove(), 220); };
+    backBtn.addEventListener("click", () => { if (idx > 0) goto(idx - 1, "back"); });
+    closeBtn.addEventListener("click", close);
+
+    function assignLabel(v) {
+      if (v === "rest") return "Rest day";
+      if (v && tplById.get(v)) return tplById.get(v).name;
+      return "Open";
     }
 
-    const body = el("div", {},
-      el("p", { class: "text-sm text-muted mb-8" },
-        "Assign a template to each day. Home shows today's plan with a Start button. Leave a day open to decide at the gym."),
-      templates.length ? null : el("div", { class: "text-sm text-faint mb-8" },
-        "You have no templates yet — create one to assign it to a day."),
-      list,
-      el("button", {
-        class: "btn btn-ghost btn-sm mt-8", "data-testid": "wplan-new-template",
-        on: { click: () => { closeModal(); openTemplateEditor(null); } }
-      }, el("span", { html: icons.plus }), "New template")
-    );
+    function choiceCard({ label, hint, icon, selected, onPick, testid }) {
+      const card = el("button", {
+        type: "button", class: "pquiz-choice" + (selected ? " is-sel" : ""),
+        "data-testid": testid, on: { click: onPick }
+      });
+      if (icon) card.appendChild(el("div", { class: "pquiz-choice-icon" }, icon));
+      card.appendChild(el("div", { class: "pquiz-choice-main" },
+        el("div", { class: "pquiz-choice-label" }, label),
+        hint ? el("div", { class: "pquiz-choice-hint" }, hint) : null
+      ));
+      if (selected) card.appendChild(el("div", { class: "pquiz-choice-tick",
+        html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>' }));
+      return card;
+    }
 
-    const footer = el("div", {},
-      el("button", { class: "btn", on: { click: closeModal } }, "Cancel"),
-      el("button", {
-        class: "btn btn-primary", "data-testid": "wplan-save",
-        on: { click: async () => {
-          const next = {};
-          for (const key of WEEKDAY_KEYS) { const v = selects[key].value; if (v) next[key] = v; }
-          state.prefs.weeklyPlan = next;
-          await Storage.setPref("weeklyPlan", next);
-          closeModal();
-          renderMain();
-          toast("Weekly plan saved");
-        } }
-      }, "Save plan")
-    );
+    function renderDay(key) {
+      const list = el("div", { class: "pquiz-list" });
+      for (const t of templates) {
+        const n = (t.exercises || []).length;
+        list.appendChild(choiceCard({
+          label: t.name, hint: `${n} exercise${n === 1 ? "" : "s"}`, icon: "🏋️",
+          selected: draft[key] === t.id, testid: `wplan-pick-${t.id}`,
+          onPick: () => { draft[key] = t.id; goto(idx + 1, "next"); }
+        }));
+      }
+      list.appendChild(choiceCard({
+        label: "Rest day", hint: "Recovery — no session", icon: "🛌",
+        selected: draft[key] === "rest", testid: "wplan-pick-rest",
+        onPick: () => { draft[key] = "rest"; goto(idx + 1, "next"); }
+      }));
+      list.appendChild(choiceCard({
+        label: "Open", hint: "Decide at the gym", icon: "🎲",
+        selected: !draft[key], testid: "wplan-pick-open",
+        onPick: () => { delete draft[key]; goto(idx + 1, "next"); }
+      }));
+      const foot = templates.length ? null : el("button", {
+        type: "button", class: "pquiz-skip", "data-testid": "wplan-new-template",
+        on: { click: () => { close(); openTemplateEditor(null); } }
+      }, "＋ Create a template first");
+      return el("div", { class: "pquiz-panel" },
+        el("div", { class: "pquiz-head" },
+          el("div", { class: "pquiz-eyebrow" }, key === todayKey ? "Today" : "Your week"),
+          el("h2", { class: "pquiz-title" }, WEEKDAY_LABELS[key]),
+          el("div", { class: "pquiz-sub" }, "What's the plan for this day?")
+        ),
+        el("div", { class: "pquiz-content" }, list),
+        foot ? el("div", { class: "pquiz-foot" }, foot) : null
+      );
+    }
 
-    openModal("Weekly plan", body, footer);
+    function renderReview() {
+      const list = el("div", { class: "pquiz-list" });
+      for (const key of WEEKDAY_KEYS) {
+        const v = draft[key];
+        list.appendChild(el("button", {
+          type: "button", class: "wplan-review-row", "data-testid": `wplan-review-${key}`,
+          on: { click: () => goto(WEEKDAY_KEYS.indexOf(key), "back") }
+        },
+          el("span", { class: "wplan-review-day" }, WEEKDAY_LABELS[key]),
+          el("span", { class: "wplan-review-val" + (v ? " has" : "") }, assignLabel(v))
+        ));
+      }
+      return el("div", { class: "pquiz-panel" },
+        el("div", { class: "pquiz-head" },
+          el("div", { class: "pquiz-eyebrow" }, "Almost done"),
+          el("h2", { class: "pquiz-title" }, "Your week"),
+          el("div", { class: "pquiz-sub" }, "Tap any day to change it.")
+        ),
+        el("div", { class: "pquiz-content" }, list),
+        el("div", { class: "pquiz-foot" },
+          el("button", {
+            type: "button", class: "btn btn-primary btn-block pquiz-next", "data-testid": "wplan-save",
+            on: { click: async () => {
+              const next = {};
+              for (const key of WEEKDAY_KEYS) { if (draft[key]) next[key] = draft[key]; }
+              state.prefs.weeklyPlan = next;
+              await Storage.setPref("weeklyPlan", next);
+              close();
+              renderMain();
+              toast("Weekly plan saved");
+            } }
+          }, "Save plan")
+        )
+      );
+    }
+
+    function goto(next, dir) {
+      idx = Math.max(0, Math.min(STEPS.length - 1, next));
+      const key = STEPS[idx];
+      const node = key === "review" ? renderReview() : renderDay(key);
+      node.classList.add(dir === "back" ? "slide-in-back" : "slide-in-next");
+      clear(stage);
+      stage.appendChild(node);
+      backBtn.style.visibility = idx > 0 ? "visible" : "hidden";
+      bar.style.width = Math.round((Math.min(idx, LAST_DAY + 1) / (LAST_DAY + 1)) * 100) + "%";
+    }
+
+    document.body.appendChild(overlay);
+    goto(0, "next");
   }
 
   async function offerSaveAsTemplate(workout) {
@@ -7261,8 +7341,8 @@
     const draft = {
       profileName: state.prefs.profileName || "",
       sex: (state.prefs.sex === "male" || state.prefs.sex === "female") ? state.prefs.sex : null,
-      age: Number.isFinite(Number(state.prefs.age)) ? Number(state.prefs.age) : 25,
-      heightCm: Number.isFinite(Number(state.prefs.heightCm)) ? Number(state.prefs.heightCm) : 175,
+      age: (state.prefs.age != null && Number(state.prefs.age) >= 13) ? Number(state.prefs.age) : 25,
+      heightCm: (state.prefs.heightCm != null && Number(state.prefs.heightCm) >= 100) ? Number(state.prefs.heightCm) : 175,
       weightKg: startWeight > 0 ? startWeight : U.DEFAULT_BW_KG,
       activityLevel: U.ACTIVITY_LEVELS[state.prefs.activityLevel] ? state.prefs.activityLevel : "light",
       goalIntent: U.normalizeGoalIntent(state.prefs.goalIntent)
@@ -7332,9 +7412,12 @@
       const unitEl = unit ? el("span", { class: "pquiz-bigunit" }, unit) : null;
       const subEl = el("div", { class: "pquiz-bigsub text-faint" });
       const range = el("input", {
-        type: "range", class: "pquiz-range", "data-testid": "pquiz-range",
-        min: String(min), max: String(max), step: String(step), value: String(value)
+        type: "range", class: "pquiz-range", "data-testid": "pquiz-range"
       });
+      // Set min/max/step first, THEN value — otherwise the browser clamps the
+      // value attribute to the default 0–100 range (age showed 13, height 120).
+      range.min = String(min); range.max = String(max); range.step = String(step);
+      range.value = String(value);
       const paint = () => {
         const v = parseFloat(range.value);
         num.textContent = fmt ? fmt(v) : String(v);
