@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=89").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=90").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -3203,51 +3203,97 @@
       return card;
     }
 
+    // Choice list for a day, as a scroll picker "wheel" — the centred option
+    // grows and brightens; spin to it and tap (or Continue) to pick.
+    const WHEEL_ITEM_H = 60;
+    const WHEEL_H = 300;
     function renderDay(key) {
-      const list = el("div", { class: "pquiz-list" });
-      // Your saved templates first (most specific).
+      const items = [];
       for (const t of templates) {
         const n = (t.exercises || []).length;
-        list.appendChild(choiceCard({
-          label: t.name, hint: `${n} exercise${n === 1 ? "" : "s"} · template`, iconHtml: TEMPLATE_ICON,
-          selected: draft[key] === t.id, testid: `wplan-pick-${t.id}`,
-          onPick: () => { draft[key] = t.id; goto(idx + 1, "next"); }
-        }));
+        items.push({ value: t.id, label: t.name, hint: `${n} exercise${n === 1 ? "" : "s"} · template`, icon: TEMPLATE_ICON, testid: `wplan-pick-${t.id}` });
       }
-      if (templates.length) {
-        list.appendChild(el("div", { class: "pquiz-list-label" }, "Or a focus"));
-      }
-      // Preset focuses (Push / Pull / Legs / Cardio / …).
       for (const f of DAY_FOCUSES) {
-        const val = "focus:" + f.key;
-        list.appendChild(choiceCard({
-          label: f.label, hint: f.desc, iconHtml: f.icon,
-          selected: draft[key] === val, testid: `wplan-pick-focus-${f.key}`,
-          onPick: () => { draft[key] = val; goto(idx + 1, "next"); }
-        }));
+        items.push({ value: "focus:" + f.key, label: f.label, hint: f.desc, icon: f.icon, testid: `wplan-pick-focus-${f.key}` });
       }
-      list.appendChild(choiceCard({
-        label: "Rest day", hint: "Recovery — no session", iconHtml: REST_ICON,
-        selected: draft[key] === "rest", testid: "wplan-pick-rest",
-        onPick: () => { draft[key] = "rest"; goto(idx + 1, "next"); }
-      }));
-      list.appendChild(choiceCard({
-        label: "Open", hint: "Decide at the gym", iconHtml: OPEN_ICON,
-        selected: !draft[key], testid: "wplan-pick-open",
-        onPick: () => { delete draft[key]; goto(idx + 1, "next"); }
-      }));
-      const foot = templates.length ? null : el("button", {
-        type: "button", class: "pquiz-skip", "data-testid": "wplan-new-template",
-        on: { click: () => { close(); openTemplateEditor(null); } }
-      }, "＋ Create a template first");
+      items.push({ value: "rest", label: "Rest day", hint: "Recovery — no session", icon: REST_ICON, testid: "wplan-pick-rest" });
+      items.push({ value: null, label: "Open", hint: "Decide at the gym", icon: OPEN_ICON, testid: "wplan-pick-open" });
+
+      const curVal = draft[key] != null ? draft[key] : null;
+      let activeIdx = items.findIndex(it => it.value === curVal);
+      if (activeIdx < 0) activeIdx = items.length - 1; // default to "Open"
+
+      const wheel = el("div", { class: "wheel", "data-testid": "wplan-wheel" });
+      const itemEls = items.map((it, i) => el("button", {
+        type: "button", class: "wheel-item", "data-i": String(i), "data-testid": it.testid,
+        on: { click: () => onTap(i) }
+      },
+        el("span", { class: "wheel-item-icon", html: it.icon }),
+        el("span", { class: "wheel-item-label" }, it.label)
+      ));
+      itemEls.forEach(e => wheel.appendChild(e));
+      const wrap = el("div", { class: "wheel-wrap" }, el("div", { class: "wheel-selection" }), wheel);
+      const caption = el("div", { class: "wheel-caption text-muted" }, items[activeIdx].hint || "");
+
+      function paint() {
+        const center = wheel.scrollTop + WHEEL_H / 2;
+        let best = 0, bd = Infinity;
+        for (let i = 0; i < itemEls.length; i++) {
+          const c = itemEls[i].offsetTop + itemEls[i].offsetHeight / 2;
+          const d = Math.abs(c - center);
+          if (d < bd) { bd = d; best = i; }
+          const dist = Math.min(3, d / WHEEL_ITEM_H);
+          itemEls[i].style.transform = `scale(${(1 - dist * 0.16).toFixed(3)})`;
+          itemEls[i].style.opacity = String(Math.max(0.2, 1 - dist * 0.34).toFixed(3));
+          itemEls[i].classList.toggle("is-active", false);
+        }
+        itemEls[best].classList.add("is-active");
+        activeIdx = best;
+        caption.textContent = items[best].hint || "";
+      }
+      let raf = null;
+      wheel.addEventListener("scroll", () => {
+        if (raf) return;
+        raf = requestAnimationFrame(() => { raf = null; paint(); });
+      }, { passive: true });
+
+      function centerOn(i, smooth) {
+        wheel.scrollTo({ top: i * WHEEL_ITEM_H, behavior: smooth ? "smooth" : "auto" });
+      }
+      function confirm(i) {
+        const v = items[i].value;
+        if (v == null) delete draft[key]; else draft[key] = v;
+        goto(idx + 1, "next");
+      }
+      function onTap(i) {
+        // Tap the centred item to pick it; tap another to spin it to centre.
+        if (i === activeIdx) confirm(i);
+        else { centerOn(i, true); }
+      }
+
+      // Position on the current selection once laid out.
+      requestAnimationFrame(() => {
+        wheel.scrollTop = activeIdx * WHEEL_ITEM_H;
+        paint();
+      });
+
       return el("div", { class: "pquiz-panel" },
         el("div", { class: "pquiz-head" },
           el("div", { class: "pquiz-eyebrow" }, key === todayKey ? "Today" : "Your week"),
           el("h2", { class: "pquiz-title" }, WEEKDAY_LABELS[key]),
-          el("div", { class: "pquiz-sub" }, "What's the plan for this day?")
+          el("div", { class: "pquiz-sub" }, "Spin to a focus, then tap it or Continue.")
         ),
-        el("div", { class: "pquiz-content" }, list),
-        foot ? el("div", { class: "pquiz-foot" }, foot) : null
+        el("div", { class: "pquiz-content pquiz-content-wheel" }, wrap, caption),
+        el("div", { class: "pquiz-foot" },
+          el("button", {
+            type: "button", class: "btn btn-primary btn-block pquiz-next", "data-testid": "wplan-continue",
+            on: { click: () => confirm(activeIdx) }
+          }, "Continue"),
+          templates.length ? null : el("button", {
+            type: "button", class: "pquiz-skip", "data-testid": "wplan-new-template",
+            on: { click: () => { close(); openTemplateEditor(null); } }
+          }, "＋ Create a template first")
+        )
       );
     }
 
