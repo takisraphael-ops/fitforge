@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=91").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=92").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1262,6 +1262,8 @@
       return String(r);
     };
 
+    const haptic = (ms = 8) => { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (_) {} };
+
     const display = el("div", { class: "numpad-value", "data-testid": "numpad-value" });
     const updateDisplay = () => {
       clear(display);
@@ -1282,6 +1284,8 @@
       commit(); updateDisplay();
     };
 
+    const setRaw = (v) => { raw = fmt(Number(v)); fresh = true; commit(); updateDisplay(); };
+
     const press = (key) => {
       if (key === "back") {
         raw = fresh ? "" : raw.slice(0, -1);
@@ -1300,6 +1304,7 @@
         else if (raw.replace(/[-.]/g, "").length < 6) raw += key;
         fresh = false;
       }
+      haptic(6);
       commit(); updateDisplay();
     };
 
@@ -1336,8 +1341,29 @@
       on: { click: () => press("back") }
     }));
 
-    const minus = el("button", { type: "button", class: "numpad-step", "data-testid": "numpad-minus", "aria-label": `Decrease by ${step}`, on: { click: () => nudge(-1) } }, `−${step}`);
-    const plus = el("button", { type: "button", class: "numpad-step", "data-testid": "numpad-plus", "aria-label": `Increase by ${step}`, on: { click: () => nudge(1) } }, `+${step}`);
+    const minus = el("button", { type: "button", class: "numpad-step", "data-testid": "numpad-minus", "aria-label": `Decrease by ${step}` }, `−${step}`);
+    const plus = el("button", { type: "button", class: "numpad-step", "data-testid": "numpad-plus", "aria-label": `Increase by ${step}` }, `+${step}`);
+    // Press-and-hold to repeat (spin reps/weight quickly). One buzz on press.
+    const holdRepeat = (btn, dir) => {
+      let to = null, iv = null;
+      const stop = () => { if (to) clearTimeout(to); if (iv) clearInterval(iv); to = iv = null; };
+      btn.addEventListener("pointerdown", (e) => {
+        e.preventDefault(); nudge(dir); haptic(10);
+        to = setTimeout(() => { iv = setInterval(() => nudge(dir), 90); }, 380);
+      });
+      for (const ev of ["pointerup", "pointerleave", "pointercancel"]) btn.addEventListener(ev, stop);
+    };
+    holdRepeat(minus, -1); holdRepeat(plus, 1);
+
+    // Quick-fill chips (previous set / last session) — one tap fills the value.
+    const chipList = Array.isArray(opts.chips) ? opts.chips.filter(c => c && c.value != null) : [];
+    const chipsRow = chipList.length ? el("div", { class: "numpad-chips" },
+      ...chipList.map(c => el("button", {
+        type: "button", class: "numpad-chip", "data-testid": `numpad-chip-${c.value}`,
+        on: { click: () => { setRaw(c.value); haptic(12); } }
+      }, c.label))
+    ) : null;
+    const hintEl = opts.hint ? el("div", { class: "numpad-hint text-xs text-faint" }, opts.hint) : null;
 
     const doneBtn = el("button", {
       type: "button", class: "btn numpad-done", "data-testid": "numpad-done",
@@ -1347,12 +1373,20 @@
       type: "button", class: "btn btn-primary numpad-next", "data-testid": "numpad-next",
       on: { click: () => { closeNumPad(); openNumPad(nextInput); } }
     }, "Next \u2192") : null;
+    // On the reps field, log the whole set in one tap (preferred over Next).
+    const logSet = () => { commit(); haptic(25); closeNumPad(); opts.onLogSet(); };
+    const logBtn = (typeof opts.onLogSet === "function") ? el("button", {
+      type: "button", class: "btn btn-primary numpad-log", "data-testid": "numpad-logset",
+      on: { click: logSet }
+    }, "Log set \u2713") : null;
 
     const sheet = el("div", { class: "numpad-sheet", "data-testid": "numpad" },
       el("div", { class: "numpad-label" }, opts.label || "Enter value"),
+      hintEl,
+      chipsRow,
       el("div", { class: "numpad-display-row" }, minus, display, plus),
       grid,
-      el("div", { class: "numpad-actions" }, doneBtn, nextBtn)
+      el("div", { class: "numpad-actions" }, doneBtn, logBtn || nextBtn)
     );
     overlay.appendChild(sheet);
     document.body.appendChild(overlay);
@@ -1365,7 +1399,7 @@
       else if (e.key === "Backspace") { press("back"); }
       else if (e.key === "ArrowUp") { nudge(1); }
       else if (e.key === "ArrowDown") { nudge(-1); }
-      else if (e.key === "Enter") { if (nextInput) { closeNumPad(); openNumPad(nextInput); } else closeNumPad(); }
+      else if (e.key === "Enter") { if (logBtn) { logSet(); } else if (nextInput) { closeNumPad(); openNumPad(nextInput); } else closeNumPad(); }
       else if (e.key === "Escape") { closeNumPad(); }
       else if (e.key === "Tab") { return; }
       else return;
@@ -4195,12 +4229,58 @@
     }, 250);
     if (!isBodyweight) weightInput.addEventListener("input", () => { mirrorStrengthInputs(); debouncedSave(); });
     repsInput.addEventListener("input", () => { mirrorStrengthInputs(); debouncedSave(); });
+    // Quick-fill chips + a last-session hint for faster logging.
+    const prevInSession = si > 0 ? ex.sets[si - 1] : null;
+    const dedupeChips = (arr) => { const seen = new Set(); return arr.filter(c => { const k = String(c.value); if (seen.has(k)) return false; seen.add(k); return true; }); };
+    const weightChips = dedupeChips([
+      prevInSession && prevInSession.weight != null ? { label: `Prev ${prevInSession.weight}`, value: prevInSession.weight } : null,
+      prevSet && prevSet.weight != null ? { label: `Last ${prevSet.weight}`, value: prevSet.weight } : null
+    ].filter(Boolean));
+    const repsChips = dedupeChips([
+      prevInSession && prevInSession.reps != null ? { label: `Prev ${prevInSession.reps}`, value: prevInSession.reps } : null,
+      prevSet && prevSet.reps != null ? { label: `Last ${prevSet.reps}`, value: prevSet.reps } : null
+    ].filter(Boolean));
+    const setHint = prevSet
+      ? (isBodyweight ? `Last: ${prevSet.reps ?? "\u2014"} reps` : `Last: ${prevSet.weight ?? 0} kg \u00d7 ${prevSet.reps ?? "\u2014"}`)
+      : "";
+
+    // Mark this set complete (validate, PR check, save, start rest). Shared by
+    // the row's Done button and the numpad's "Log set" action.
+    async function markSetDone() {
+      if (isBodyweight) s.weight = 0;
+      else s.weight = weightInput.value === "" ? null : parseFloat(weightInput.value);
+      s.reps = repsInput.value === "" ? null : parseInt(repsInput.value, 10);
+      if (!s.reps || (!isBodyweight && !s.weight && exType !== "weighted_bodyweight")) { toast("Enter weight and reps first"); return false; }
+      if (!isBodyweight && !s.weight) s.weight = 0;
+      s.done = true;
+      s.kcal = calcStrengthKcal();
+      const beforePRs = await getPRsFor(ex.exerciseId);
+      const e = U.epley(s.weight, s.reps);
+      const isWeightPR = s.weight > beforePRs.maxWeight;
+      const isE1RMPR = e > beforePRs.maxE1RM;
+      const isRepsPR = s.reps > beforePRs.maxReps;
+      s.isPR = isWeightPR || isE1RMPR;
+      s.prTypes = [];
+      if (isWeightPR) s.prTypes.push("weight");
+      if (isE1RMPR) s.prTypes.push("e1rm");
+      if (isRepsPR) s.prTypes.push("reps");
+      await Storage.saveWorkout(state.activeWorkout);
+      if (s.isPR) toast(`\ud83c\udfc6 New PR on ${ex.name}`);
+      startRestTimer(ex.exerciseId);
+      return true;
+    }
+
     attachNumPad(weightInput, {
       label: `${ex.name} \u00b7 set ${si + 1} \u00b7 ${exType === "weighted_bodyweight" ? "added weight" : "weight"}`,
       unit: "kg", step: 2.5, decimals: exType !== "weighted_bodyweight",
-      allowMinus: exType === "weighted_bodyweight"
+      allowMinus: exType === "weighted_bodyweight",
+      chips: weightChips, hint: setHint
     });
-    attachNumPad(repsInput, { label: `${ex.name} \u00b7 set ${si + 1} \u00b7 reps`, unit: "reps", step: 1 });
+    attachNumPad(repsInput, {
+      label: `${ex.name} \u00b7 set ${si + 1} \u00b7 reps`, unit: "reps", step: 1,
+      chips: repsChips, hint: setHint,
+      onLogSet: async () => { if (await markSetDone()) refreshExerciseBlock(ex); }
+    });
 
     const openPlates = () => openPlateCalculator(parseFloat(weightInput.value) || (prevSet?.weight ?? 60));
     const makePlatesBtn = (extraClass) => {
@@ -4230,32 +4310,7 @@
       "data-testid": `set-done-${si}`,
       on: { click: async () => {
         if (!s.done) {
-          if (isBodyweight) {
-            s.weight = 0;
-          } else {
-            s.weight = weightInput.value === "" ? null : parseFloat(weightInput.value);
-          }
-          s.reps = repsInput.value === "" ? null : parseInt(repsInput.value, 10);
-          if (!s.reps || (!isBodyweight && !s.weight && exType !== "weighted_bodyweight")) {
-            toast("Enter weight and reps first");
-            return;
-          }
-          if (!isBodyweight && !s.weight) s.weight = 0;
-          s.done = true;
-          s.kcal = calcStrengthKcal();
-          const beforePRs = await getPRsFor(ex.exerciseId);
-          const e = U.epley(s.weight, s.reps);
-          const isWeightPR = s.weight > beforePRs.maxWeight;
-          const isE1RMPR = e > beforePRs.maxE1RM;
-          const isRepsPR = s.reps > beforePRs.maxReps;
-          s.isPR = isWeightPR || isE1RMPR;
-          s.prTypes = [];
-          if (isWeightPR) s.prTypes.push("weight");
-          if (isE1RMPR) s.prTypes.push("e1rm");
-          if (isRepsPR) s.prTypes.push("reps");
-          await Storage.saveWorkout(state.activeWorkout);
-          if (s.isPR) toast(`🏆 New PR on ${ex.name}`);
-          startRestTimer(ex.exerciseId);
+          if (!(await markSetDone())) return;
         } else {
           s.done = false;
           s.isPR = false;
