@@ -3908,3 +3908,15 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 }
 .numpad-chip:active { transform: scale(0.96); }
 .numpad-log { flex: 1.4; }
+
+/* Numpad wheel mode (kg / reps) */
+.numpad-wheel-caption {
+  text-align: center; font-size: 15px; font-weight: 700; color: var(--accent);
+  font-variant-numeric: tabular-nums; min-height: 20px; margin-bottom: 4px;
+}
+.numpad-wheel-single { display: flex; justify-content: center; }
+.numpad-wheel-cols { display: flex; align-items: center; justify-content: center; gap: 4px; }
+.numpad-wheel-whole { width: 120px; }
+.numpad-wheel-fracw { width: 76px; }
+.numpad-wheel-unit { font-size: 16px; font-weight: 700; color: var(--text-muted); margin-left: 4px; }
+.numpad-sheet-wheel .wheel { margin: 0 auto; }

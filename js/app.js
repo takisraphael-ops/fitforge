@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=92").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=93").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1241,6 +1241,7 @@
     const decimals = !!opts.decimals;
     const allowMinus = !!opts.allowMinus;
     const unit = opts.unit || "";
+    const wheelMode = opts.wheel || null; // "weight" | "reps" | null (digit keypad)
     let raw = input.value || "";
     let fresh = true; // first digit replaces the current value
 
@@ -1355,12 +1356,49 @@
     };
     holdRepeat(minus, -1); holdRepeat(plus, 1);
 
+    // ---- Wheel mode: spin kg/reps instead of typing ----
+    // Weight uses two wheels (whole kg + .00/.25/.50/.75) so any 0.25 step is
+    // reachable; reps uses a single 1–60 wheel. Seeds from the current value or
+    // the previous-session placeholder, and commits it so it's the default.
+    let applyValueToWheels = null;
+    const caption = el("div", { class: "numpad-wheel-caption" });
+    function buildWheelArea() {
+      const iv = raw !== "" ? parseFloat(raw) : seed;
+      if (wheelMode === "weight") {
+        let whole = Math.max(0, Math.floor(iv || 0));
+        let frac = Math.round(((iv || 0) - whole) * 4) / 4;
+        if (frac >= 1) { whole += 1; frac = 0; }
+        const fracItems = [{ value: 0, label: ".00" }, { value: 0.25, label: ".25" }, { value: 0.5, label: ".50" }, { value: 0.75, label: ".75" }];
+        const syncW = () => { const w = whole + frac; raw = fmt(w); fresh = true; commit(); caption.textContent = `${fmt(w)} ${unit}`.trim(); };
+        const wholeWheel = buildWheel({ items: wheelRange(0, 300, 1), value: whole, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-whole", onChange: (v) => { whole = v; syncW(); } });
+        const fracWheel = buildWheel({ items: fracItems, value: frac, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-frac", onChange: (v) => { frac = v; syncW(); } });
+        applyValueToWheels = (val) => {
+          let wl = Math.max(0, Math.floor(val)); let fr = Math.round((val - wl) * 4) / 4;
+          if (fr >= 1) { wl += 1; fr = 0; }
+          whole = wl; frac = fr; wholeWheel.setValue(wl); fracWheel.setValue(fr); syncW();
+        };
+        syncW();
+        return el("div", { class: "numpad-wheel-cols" },
+          el("div", { class: "numpad-wheel-col numpad-wheel-whole" }, wholeWheel.el),
+          el("div", { class: "numpad-wheel-col numpad-wheel-fracw" }, fracWheel.el),
+          el("div", { class: "numpad-wheel-unit" }, unit)
+        );
+      }
+      // reps (single integer wheel)
+      let cur = Math.max(1, Math.round(iv || 1));
+      const w = buildWheel({ items: wheelRange(1, 60, 1), value: cur, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-reps", onChange: (v) => { raw = String(v); fresh = true; commit(); caption.textContent = `${v} ${unit}`.trim(); } });
+      applyValueToWheels = (val) => { const rv = Math.max(1, Math.round(val)); w.setValue(rv); raw = String(rv); fresh = true; commit(); caption.textContent = `${rv} ${unit}`.trim(); };
+      raw = String(cur); fresh = true; commit(); caption.textContent = `${cur} ${unit}`.trim();
+      return el("div", { class: "numpad-wheel-single" }, w.el);
+    }
+    const applyValue = (v) => { if (wheelMode && applyValueToWheels) applyValueToWheels(v); else setRaw(v); haptic(12); };
+
     // Quick-fill chips (previous set / last session) — one tap fills the value.
     const chipList = Array.isArray(opts.chips) ? opts.chips.filter(c => c && c.value != null) : [];
     const chipsRow = chipList.length ? el("div", { class: "numpad-chips" },
       ...chipList.map(c => el("button", {
         type: "button", class: "numpad-chip", "data-testid": `numpad-chip-${c.value}`,
-        on: { click: () => { setRaw(c.value); haptic(12); } }
+        on: { click: () => applyValue(c.value) }
       }, c.label))
     ) : null;
     const hintEl = opts.hint ? el("div", { class: "numpad-hint text-xs text-faint" }, opts.hint) : null;
@@ -1380,12 +1418,14 @@
       on: { click: logSet }
     }, "Log set \u2713") : null;
 
-    const sheet = el("div", { class: "numpad-sheet", "data-testid": "numpad" },
+    const middle = wheelMode
+      ? [caption, buildWheelArea()]
+      : [el("div", { class: "numpad-display-row" }, minus, display, plus), grid];
+    const sheet = el("div", { class: "numpad-sheet" + (wheelMode ? " numpad-sheet-wheel" : ""), "data-testid": "numpad" },
       el("div", { class: "numpad-label" }, opts.label || "Enter value"),
       hintEl,
       chipsRow,
-      el("div", { class: "numpad-display-row" }, minus, display, plus),
-      grid,
+      ...middle,
       el("div", { class: "numpad-actions" }, doneBtn, logBtn || nextBtn)
     );
     overlay.appendChild(sheet);
@@ -1393,12 +1433,12 @@
     updateDisplay();
 
     const keyHandler = (e) => {
-      if (e.key >= "0" && e.key <= "9") { press(e.key); }
-      else if (e.key === ".") { press("."); }
-      else if (e.key === "-") { if (allowMinus) press("sign"); }
-      else if (e.key === "Backspace") { press("back"); }
-      else if (e.key === "ArrowUp") { nudge(1); }
-      else if (e.key === "ArrowDown") { nudge(-1); }
+      if (!wheelMode && e.key >= "0" && e.key <= "9") { press(e.key); }
+      else if (!wheelMode && e.key === ".") { press("."); }
+      else if (!wheelMode && e.key === "-") { if (allowMinus) press("sign"); }
+      else if (!wheelMode && e.key === "Backspace") { press("back"); }
+      else if (!wheelMode && e.key === "ArrowUp") { nudge(1); }
+      else if (!wheelMode && e.key === "ArrowDown") { nudge(-1); }
       else if (e.key === "Enter") { if (logBtn) { logSet(); } else if (nextInput) { closeNumPad(); openNumPad(nextInput); } else closeNumPad(); }
       else if (e.key === "Escape") { closeNumPad(); }
       else if (e.key === "Tab") { return; }
@@ -4274,10 +4314,12 @@
       label: `${ex.name} \u00b7 set ${si + 1} \u00b7 ${exType === "weighted_bodyweight" ? "added weight" : "weight"}`,
       unit: "kg", step: 2.5, decimals: exType !== "weighted_bodyweight",
       allowMinus: exType === "weighted_bodyweight",
+      // Assisted (negative) added-weight stays on the keypad; plain weight spins.
+      wheel: exType === "weighted_bodyweight" ? null : "weight",
       chips: weightChips, hint: setHint
     });
     attachNumPad(repsInput, {
-      label: `${ex.name} \u00b7 set ${si + 1} \u00b7 reps`, unit: "reps", step: 1,
+      label: `${ex.name} \u00b7 set ${si + 1} \u00b7 reps`, unit: "reps", step: 1, wheel: "reps",
       chips: repsChips, hint: setHint,
       onLogSet: async () => { if (await markSetDone()) refreshExerciseBlock(ex); }
     });
