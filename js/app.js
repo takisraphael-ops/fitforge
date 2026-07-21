@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=84").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=85").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -693,6 +693,20 @@
         window.scrollTo(0, y);
       });
     });
+  }
+
+  // Swap just one exercise card in place after a set change, instead of
+  // rebuilding the whole screen. Keeps logging a set feeling instant — no
+  // full-page flash, scroll jump, or card re-mount. Falls back to a full
+  // re-render if the block isn't on screen (e.g. outside the active workout).
+  async function refreshExerciseBlock(ex) {
+    const w = state.activeWorkout;
+    const idx = w && Array.isArray(w.exercises) ? w.exercises.indexOf(ex) : -1;
+    if (idx < 0) { renderMainKeepScroll(); return; }
+    const old = document.querySelector(`.exercise-block[data-ex-idx="${idx}"]`);
+    if (!old) { renderMainKeepScroll(); return; }
+    const fresh = await renderExerciseBlock(ex, idx);
+    old.replaceWith(fresh);
   }
 
   async function buildExerciseEntry(exerciseId, name) {
@@ -3326,7 +3340,7 @@
     // Determine if next exercise exists (for superset link)
     const nextEx = state.activeWorkout.exercises[idx + 1];
 
-    const block = el("div", { class: "exercise-block" });
+    const block = el("div", { class: "exercise-block", "data-ex-idx": String(idx) });
     if (ex.supersetGroup) block.classList.add("in-superset");
 
     // Type menu — only modes that make sense for this exercise. Single-mode
@@ -3440,7 +3454,7 @@
           ex.sets = cloneSetsForReplay(prev.sets, exType);
           await Storage.saveWorkout(state.activeWorkout);
           toast(`Filled ${ex.name} from last time`);
-          renderMainKeepScroll();
+          refreshExerciseBlock(ex);
         } }
       }, "Use last");
       body.appendChild(el("div", { class: "prev-hint-row" },
@@ -3481,7 +3495,7 @@
             done: false
           });
           await Storage.saveWorkout(state.activeWorkout);
-          renderMainKeepScroll();
+          refreshExerciseBlock(ex);
         } } }, el("span", { html: icons.plus }), "Add interval"),
         ex.sets.length > 1 ? el("span", { class: "text-xs text-faint" }, "Double-tap the number to delete") : null
       );
@@ -3502,7 +3516,7 @@
           const last = [...ex.sets].reverse().find(x => x.done) || ex.sets[ex.sets.length - 1];
           ex.sets.push({ value: last?.value ?? null, done: false });
           await Storage.saveWorkout(state.activeWorkout);
-          renderMainKeepScroll();
+          refreshExerciseBlock(ex);
         } } }, el("span", { html: icons.plus }), "Add set"),
         ex.sets.length > 1 ? el("span", { class: "text-xs text-faint" }, "Double-tap the number to delete") : null
       );
@@ -3536,7 +3550,7 @@
             done: false
           });
           await Storage.saveWorkout(state.activeWorkout);
-          renderMainKeepScroll();
+          refreshExerciseBlock(ex);
         } } }, el("span", { html: icons.plus }), "Add set"),
         ex.sets.length > 1 ? el("span", { class: "text-xs text-faint" }, "Double-tap the set number to delete") : null
       );
@@ -3717,7 +3731,7 @@
           if (!s.kcalManual) s.kcal = null;
           await Storage.saveWorkout(state.activeWorkout);
         }
-        renderMainKeepScroll();
+        refreshExerciseBlock(ex);
       } }
     },
       s.done ? el("span", { html: icons.check }) : null,
@@ -3738,7 +3752,7 @@
             s.note = ta.value.trim() || undefined;
             await Storage.saveWorkout(state.activeWorkout);
             closeModal();
-            renderMainKeepScroll();
+            refreshExerciseBlock(ex);
           } } }, "Save")
         );
         openModal("Interval note", body, footer);
@@ -3763,7 +3777,7 @@
       if (await confirmDialog("Delete this interval?", { title: "Delete interval?", okLabel: "Delete", danger: true })) {
         ex.sets.splice(si, 1);
         await Storage.saveWorkout(state.activeWorkout);
-        renderMainKeepScroll();
+        refreshExerciseBlock(ex);
       }
     };
     row.addEventListener("dblclick", (e) => { e.preventDefault(); tryDelete(); });
@@ -3831,7 +3845,7 @@
           s.prTypes = [];
           await Storage.saveWorkout(state.activeWorkout);
         }
-        renderMainKeepScroll();
+        refreshExerciseBlock(ex);
       } }
     },
       s.done ? el("span", { html: icons.check }) : null,
@@ -3852,7 +3866,7 @@
             s.note = ta.value.trim() || undefined;
             await Storage.saveWorkout(state.activeWorkout);
             closeModal();
-            renderMainKeepScroll();
+            refreshExerciseBlock(ex);
           } } }, "Save")
         );
         openModal("Set note", body, footer);
@@ -3874,7 +3888,7 @@
       if (await confirmDialog("Delete this set?", { title: "Delete set?", okLabel: "Delete", danger: true })) {
         ex.sets.splice(si, 1);
         await Storage.saveWorkout(state.activeWorkout);
-        renderMainKeepScroll();
+        refreshExerciseBlock(ex);
       }
     };
     row.addEventListener("dblclick", (e) => { e.preventDefault(); tryDelete(); });
@@ -4031,7 +4045,7 @@
           await Storage.saveWorkout(state.activeWorkout);
           stopRestTimer();
         }
-        renderMainKeepScroll();
+        refreshExerciseBlock(ex);
       } }
     },
       s.done ? el("span", { html: icons.check }) : null,
@@ -4050,7 +4064,7 @@
           expandedSetTools.delete(closedKey);
         }
         await Storage.saveWorkout(state.activeWorkout);
-        renderMainKeepScroll();
+        refreshExerciseBlock(ex);
       } }
     }, "D");
 
@@ -4097,7 +4111,7 @@
           expandedSetTools.delete(closedKey);
           expandedSetTools.add(toolsKey);
         }
-        renderMainKeepScroll();
+        refreshExerciseBlock(ex);
       } }
     }, "···");
 
@@ -4147,7 +4161,7 @@
       if (await confirmDialog("Delete this set?", { title: "Delete set?", okLabel: "Delete", danger: true })) {
         ex.sets.splice(si, 1);
         await Storage.saveWorkout(state.activeWorkout);
-        renderMainKeepScroll();
+        refreshExerciseBlock(ex);
       }
     };
     row.addEventListener("dblclick", (e) => {
