@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=96").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=97").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1131,11 +1131,7 @@
       el("span", { class: "logo-mark", html: `<svg viewBox="0 0 32 32" aria-label="FitForge logo"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-opacity=".2" stroke-width="2"/><circle cx="16" cy="16" r="13" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-dasharray="22 60" transform="rotate(-90 16 16)"/><circle cx="16" cy="16" r="7" fill="none" stroke="var(--accent)" stroke-opacity=".45" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="11 33" transform="rotate(120 16 16)"/><circle cx="16" cy="16" r="2.6" fill="var(--accent)"/></svg>` }),
       "FitForge"
     ));
-    const isDark = document.documentElement.classList.contains("dark");
-    header.appendChild(el("div", { class: "header-actions" },
-      el("button", { class: "icon-btn", title: "Toggle theme", on: { click: toggleTheme }, html: isDark ? icons.sun : icons.moon }),
-      el("button", { class: "icon-btn", title: "Settings", on: { click: openSettings }, html: icons.settings })
-    ));
+    // Theme + Settings now live in the You tab / Settings, not the header.
   }
 
   function renderMain() {
@@ -1171,7 +1167,8 @@
   const dockIcons = {
     home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-6h6v6"/></svg>',
     utensils: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3v7a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V3"/><path d="M6 3v18"/><path d="M15 3c-1.5 1.5-2 4-2 6 0 2.5 1.5 4 3 4v8"/><path d="M18 3c1 1.5 1.5 4 1.5 6"/></svg>',
-    chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m6 15 4-5 3 3 5-7"/></svg>'
+    chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m6 15 4-5 3 3 5-7"/></svg>',
+    person: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M5 21c0-3.9 3.1-7 7-7s7 3.1 7 7"/></svg>'
   };
 
   function renderDock(main) {
@@ -1181,7 +1178,7 @@
       { id: "home", icon: dockIcons.home, label: "Home" },
       { id: "nutrition", icon: dockIcons.utensils, label: "Nutrition" },
       { id: "__fab", icon: icons.plus, label: "Quick actions" },
-      { id: "stats", icon: dockIcons.chart, label: "Stats" },
+      { id: "stats", icon: dockIcons.person, label: "You" },
       { id: "library", icon: icons.dumbbell, label: "Exercises" }
     ];
     const dock = el("nav", { class: "dock", "data-testid": "dock" });
@@ -1491,7 +1488,12 @@
   }
 
   // ============ Stats shell (Trends | History) ============
-  function renderStatsShell(view) {
+  async function renderStatsShell(view) {
+    // "You" tab: profile header (targets + setup/settings) then your stats.
+    const headerHost = el("div", { "data-testid": "you-header" });
+    view.appendChild(headerHost);
+    buildYouHeader().then(node => { if (node) headerHost.appendChild(node); });
+
     const seg = el("div", { class: "seg-control", "data-testid": "stats-seg" },
       el("button", {
         class: "seg-btn" + (state.tab === "stats" ? " active" : ""),
@@ -1504,10 +1506,63 @@
         on: { click: () => { state.tab = "history"; renderMain(); } }
       }, "History")
     );
+    view.appendChild(el("div", { class: "you-stats-label" }, "Your stats"));
     view.appendChild(seg);
     const inner = el("div");
     view.appendChild(inner);
     if (state.tab === "history") renderHistory(inner); else renderStats(inner);
+  }
+
+  // Profile header for the You tab — targets + setup/edit/settings entry points.
+  async function buildYouHeader() {
+    const today = U.todayISO();
+    const energy = await resolveEnergyBudget(today);
+    const macroGoals = await resolveMacroGoals(today, energy);
+    const complete = U.profileComplete(state.prefs);
+    const name = (state.prefs.profileName || "").trim();
+
+    // Incomplete → hero that launches the guided setup quiz.
+    if (!complete) {
+      return el("div", { class: "card you-profile you-profile-setup", "data-testid": "you-profile" },
+        el("div", { class: "you-avatar you-avatar-empty", html: dockIcons.person }),
+        el("div", { class: "you-profile-title" }, "Set up your profile"),
+        el("div", { class: "you-profile-sub" }, "Answer a few quick questions to unlock your daily targets."),
+        el("button", {
+          class: "btn btn-primary btn-block mt-8", "data-testid": "you-setup",
+          on: { click: () => openProfileQuiz({ firstRun: false }) }
+        }, "Set up profile")
+      );
+    }
+
+    const goals = macroGoals?.hasGoals ? macroGoals.goals : null;
+    const macroLine = goals
+      ? `${Math.round(goals.protein)}P · ${Math.round(goals.carbs)}C · ${Math.round(goals.fat)}F`
+      : "";
+    const badge = energy.source === "manual" ? "Your number" : "Suggested";
+    const initial = (name || "Y").charAt(0).toUpperCase();
+
+    return el("div", { class: "card you-profile", "data-testid": "you-profile" },
+      el("div", { class: "you-profile-top" },
+        el("div", { class: "you-avatar" }, initial),
+        el("div", { class: "you-profile-id" },
+          el("div", { class: "you-profile-name" }, name || "Your profile"),
+          el("div", { class: "you-profile-target" },
+            el("strong", {}, `${(energy.goal || 0).toLocaleString("en-GB")} kcal`),
+            macroLine ? el("span", { class: "you-profile-macros" }, ` · ${macroLine}` ) : null
+          )
+        ),
+        el("div", { class: "you-profile-badge" + (badge === "Your number" ? " is-manual" : "") }, badge)
+      ),
+      el("div", { class: "you-profile-actions" },
+        el("button", { class: "btn btn-sm you-act", "data-testid": "you-edit",
+          on: { click: () => openProfileQuiz({ firstRun: false }) } },
+          el("span", { html: icons.edit }), "Edit profile"),
+        el("button", { class: "btn btn-sm you-act", "data-testid": "you-mynumber",
+          on: { click: () => openSettings({ focusBudget: true }) } }, "My number"),
+        el("button", { class: "btn btn-sm you-act you-act-gear", title: "Settings", "data-testid": "you-settings",
+          on: { click: () => openSettings() }, html: icons.settings })
+      )
+    );
   }
 
   // ============ Extra icons ============
@@ -8606,6 +8661,24 @@
       )
     );
 
+    // Appearance / theme — moved here from the (now removed) header toggle.
+    const isDarkNow = document.documentElement.classList.contains("dark");
+    const themeLight = el("button", { type: "button", class: "seg-btn" + (!isDarkNow ? " active" : ""), "data-testid": "theme-light" }, "Light");
+    const themeDark = el("button", { type: "button", class: "seg-btn" + (isDarkNow ? " active" : ""), "data-testid": "theme-dark" }, "Dark");
+    const setThemeChoice = async (t) => {
+      document.documentElement.classList.toggle("dark", t === "dark");
+      state.prefs.theme = t;
+      await Storage.setPref("theme", t);
+      themeLight.classList.toggle("active", t !== "dark");
+      themeDark.classList.toggle("active", t === "dark");
+    };
+    themeLight.addEventListener("click", () => setThemeChoice("light"));
+    themeDark.addEventListener("click", () => setThemeChoice("dark"));
+    const appearanceSection = el("div", {},
+      el("div", { class: "settings-section-title mt-16" }, "Appearance"),
+      el("div", { class: "seg-control seg-control-block" }, themeLight, themeDark)
+    );
+
     const body = el("div", { class: "settings-body" },
       // Hero — always first so setup feels outcome-led
       settingsHero,
@@ -8622,6 +8695,8 @@
           el("span", { class: "pquiz-launch-sub" }, "Redo your profile as a quick quiz")
         )
       ),
+
+      appearanceSection,
 
       el("div", { class: "settings-section-title mt-16", "data-step": "1" }, "1 · Body"),
       el("div", { class: "text-xs text-faint", style: "margin: -4px 0 10px" },

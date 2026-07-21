@@ -4002,3 +4002,36 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .ntl-kcal.is-zero { color: var(--text-faint); font-weight: 600; }
 .ntl-chev { display: flex; color: var(--text-faint); flex: none; }
 .ntl-chev svg { width: 16px; height: 16px; }
+
+/* ============ You tab — profile header ============ */
+.seg-control-block { display: flex; width: 100%; }
+.seg-control-block .seg-btn { flex: 1; }
+.you-stats-label { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-faint); margin: 18px 0 8px; }
+.you-profile { padding: 16px; }
+.you-profile-top { display: flex; align-items: center; gap: 12px; }
+.you-avatar {
+  width: 46px; height: 46px; border-radius: 50%; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent-soft); color: var(--accent);
+  font-size: 20px; font-weight: 800;
+}
+.you-avatar-empty svg { width: 26px; height: 26px; }
+.you-avatar-empty { margin: 0 auto 12px; width: 56px; height: 56px; }
+.you-profile-id { flex: 1; min-width: 0; }
+.you-profile-name { font-size: 18px; font-weight: 800; letter-spacing: -0.01em; }
+.you-profile-target { font-size: 14px; color: var(--text-muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.you-profile-target strong { color: var(--text); font-weight: 700; }
+.you-profile-badge {
+  flex: none; font-size: 11px; font-weight: 700; letter-spacing: 0.03em;
+  padding: 4px 9px; border-radius: 999px;
+  background: var(--bg-sunken); color: var(--text-muted); border: 1px solid var(--border);
+}
+.you-profile-badge.is-manual { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.you-profile-actions { display: flex; gap: 8px; margin-top: 14px; }
+.you-act { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.you-act svg { width: 15px; height: 15px; }
+.you-act-gear { flex: 0 0 44px; }
+/* Setup (incomplete) variant */
+.you-profile-setup { text-align: center; }
+.you-profile-title { font-size: 18px; font-weight: 800; }
+.you-profile-sub { font-size: 14px; color: var(--text-muted); margin-top: 6px; line-height: 1.4; }
