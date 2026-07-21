@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=98").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=99").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -5327,9 +5327,20 @@
     const selected = new Map(); // id -> { id, name }
 
     const searchI = el("input", { class: "input", placeholder: "Search exercises…" });
-    const chipRow = el("div", { class: "xpick-chips", "data-testid": "xpick-chips" });
-    const dotsRow = el("div", { class: "xpick-dots", "data-testid": "xpick-dots" });
     const content = el("div", { class: "xpick-content" });
+    // Category wheel + body-map figure (replaces the flat chip row). Loops.
+    const WHEEL_ITEM_W = 132;
+    const catFigure = el("div", { class: "xwheel-figure", "data-testid": "xwheel-figure" });
+    const catWheel = el("div", { class: "xwheel", "data-testid": "xwheel" });
+    const customBtn = el("button", {
+      class: "xwheel-custom", type: "button", "data-testid": "xchip-custom",
+      title: "Create custom exercise", html: icons.plus,
+      on: { click: () => openCustomExerciseForm(onCustomCreated) }
+    });
+    const catWheelWrap = el("div", { class: "xpick-catwheel-wrap", "data-testid": "xpick-catwheel" },
+      catFigure,
+      el("div", { class: "xwheel-row" }, catWheel, allowCustom ? customBtn : null)
+    );
     const cta = el("button", { class: "btn btn-primary btn-block xpick-cta-btn", type: "button", "data-testid": "xpick-cta" });
     const footer = el("div", { class: "xpick-cta", style: "display:none" }, cta);
 
@@ -5341,7 +5352,6 @@
       .filter(c => countFor(c) > 0);
     const cats = [...known, ...extra];
     let activeCat = cats[0] || null;
-    let pager = null; // the horizontal scroll-snap container (null while searching)
 
     function onCustomCreated(ex) {
       if (customImmediate) { onConfirm([{ id: ex.id, name: ex.name }]); return; }
@@ -5349,93 +5359,75 @@
       if (!cats.includes(ex.category) && countFor(ex.category) > 0) cats.push(ex.category);
       selected.set(ex.id, { id: ex.id, name: ex.name });
       searchI.value = "";
-      renderChips();
-      renderDots();
       renderContent();
       scrollToCat(ex.category);
       updateCta();
     }
 
-    function renderChips() {
-      clear(chipRow);
-      if (allowCustom) {
-        chipRow.appendChild(el("button", {
-          class: "xpick-chip xpick-chip-custom",
-          type: "button",
-          "data-testid": "xchip-custom",
-          on: { click: () => openCustomExerciseForm(onCustomCreated) }
-        }, el("span", { class: "xpick-chip-plus", html: icons.plus }), "Custom"));
-      }
-      for (const c of cats) {
-        chipRow.appendChild(el("button", {
-          class: "xpick-chip" + (activeCat === c ? " active" : ""),
-          type: "button",
-          "data-cat": c,
-          "data-testid": `xchip-${c}`,
-          on: { click: () => scrollToCat(c) }
-        }, catLabel(c)));
-      }
+    // ---- Category wheel (looping) ----
+    let wheelRAF = null, settleT = null, stripCats = [];
+    function buildWheelStrip() {
+      clear(catWheel);
+      // Triplicate the categories so the wheel can spin endlessly in both
+      // directions; we silently recenter to the middle copy once it settles.
+      stripCats = cats.length ? [...cats, ...cats, ...cats] : [];
+      stripCats.forEach((c, gi) => {
+        const item = el("button", {
+          class: "xwheel-item", type: "button", "data-cat": c, "data-gi": String(gi),
+          on: { click: () => centerOnIndex(gi, true) }
+        }, catLabel(c));
+        item.style.width = WHEEL_ITEM_W + "px";
+        catWheel.appendChild(item);
+      });
     }
-
-    function renderDots() {
-      clear(dotsRow);
-      for (const c of cats) {
-        dotsRow.appendChild(el("button", {
-          class: "xpick-dot" + (activeCat === c ? " active" : ""),
-          type: "button",
-          "data-cat": c,
-          "aria-label": catLabel(c),
-          on: { click: () => scrollToCat(c) }
-        }));
+    function centerOnIndex(gi, smooth) {
+      catWheel.scrollTo({ left: gi * WHEEL_ITEM_W, behavior: smooth ? "smooth" : "auto" });
+    }
+    function updateFigure() {
+      clear(catFigure);
+      if (activeCat) catFigure.appendChild(exerciseFigureIcon(activeCat));
+    }
+    function paintWheel() {
+      const items = catWheel.children;
+      if (!items.length) return;
+      const centerX = catWheel.scrollLeft + catWheel.clientWidth / 2;
+      let best = 0, bd = Infinity;
+      for (let i = 0; i < items.length; i++) {
+        const c = items[i].offsetLeft + items[i].offsetWidth / 2;
+        const d = Math.abs(c - centerX);
+        if (d < bd) { bd = d; best = i; }
+        const dist = Math.min(2.4, d / WHEEL_ITEM_W);
+        items[i].style.transform = `scale(${(1 - dist * 0.24).toFixed(3)})`;
+        items[i].style.opacity = String(Math.max(0.28, 1 - dist * 0.42).toFixed(3));
+        items[i].classList.remove("is-active");
       }
+      items[best].classList.add("is-active");
+      const cat = items[best].getAttribute("data-cat");
+      if (cat && cat !== activeCat) { activeCat = cat; updateFigure(); }
     }
-
-    // Glide the chip row (horizontal only) so the active chip stays centred —
-    // avoids the sudden jump scrollIntoView() causes mid-swipe.
-    function centerChip(chip) {
-      const target = chip.offsetLeft - (chipRow.clientWidth - chip.clientWidth) / 2;
-      const max = chipRow.scrollWidth - chipRow.clientWidth;
-      chipRow.scrollTo({ left: Math.max(0, Math.min(max, target)), behavior: "smooth" });
+    function recenterWheel() {
+      if (!stripCats.length || !cats.length) return;
+      const gi = Math.round(catWheel.scrollLeft / WHEEL_ITEM_W);
+      const n = cats.length;
+      const local = ((gi % n) + n) % n;
+      const middle = n + local;
+      if (gi !== middle) catWheel.scrollLeft = middle * WHEEL_ITEM_W;
+      renderCatList();
     }
-
-    function syncActive() {
-      for (const chip of Array.from(chipRow.children)) {
-        const on = chip.getAttribute("data-cat") === activeCat;
-        chip.classList.toggle("active", on);
-        if (on) centerChip(chip);
-      }
-      for (const dot of Array.from(dotsRow.children)) {
-        dot.classList.toggle("active", dot.getAttribute("data-cat") === activeCat);
-      }
-    }
-
-    function panelForCat(c) {
-      if (!pager) return null;
-      const key = (window.CSS && CSS.escape) ? CSS.escape(c) : c;
-      return pager.querySelector('.xpick-panel[data-cat="' + key + '"]');
-    }
-
-    // Index of the panel nearest the pager's viewport centre — robust to
-    // panel padding/margins (don't assume panel width === pager width).
-    function nearestPanelIndex() {
-      if (!pager || !pager.children.length) return Math.max(0, cats.indexOf(activeCat));
-      const center = pager.scrollLeft + pager.clientWidth / 2;
-      let best = 0, bestDist = Infinity;
-      const panels = pager.children;
-      for (let i = 0; i < panels.length; i++) {
-        const c = panels[i].offsetLeft + panels[i].offsetWidth / 2;
-        const d = Math.abs(c - center);
-        if (d < bestDist) { bestDist = d; best = i; }
-      }
-      return best;
-    }
+    catWheel.addEventListener("scroll", () => {
+      if (!wheelRAF) wheelRAF = requestAnimationFrame(() => { wheelRAF = null; paintWheel(); });
+      clearTimeout(settleT); settleT = setTimeout(recenterWheel, 130);
+    }, { passive: true });
 
     function scrollToCat(c) {
       if (!cats.includes(c)) return;
       activeCat = c;
-      syncActive();
-      const panel = panelForCat(c);
-      if (pager && panel) pager.scrollTo({ left: panel.offsetLeft, behavior: "smooth" });
+      centerOnIndex(cats.length + cats.indexOf(c), true);
+    }
+    function renderCatList() {
+      const items = all.filter(e => e.category === activeCat);
+      clear(content);
+      content.appendChild(el("div", { class: "xpick-catlist" }, ...items.map(rowFor)));
     }
 
     function rowFor(ex) {
@@ -5511,65 +5503,29 @@
       return results;
     }
 
-    // One swipeable card per category, laid out in a horizontal snap pager.
-    function buildPager() {
-      const p = el("div", { class: "xpick-pager", "data-testid": "xpick-pager" });
-      for (const c of cats) {
-        const items = all.filter(e => e.category === c);
-        const panel = el("div", { class: "xpick-panel", "data-cat": c },
-          el("div", { class: "xpick-card" },
-            el("div", { class: "xpick-panel-head" },
-              el("span", { class: "xpick-panel-title" }, catLabel(c)),
-              el("span", { class: "xpick-panel-count" }, `${items.length}`)
-            ),
-            el("div", { class: "xpick-panel-list" }, ...items.map(rowFor))
-          )
-        );
-        p.appendChild(panel);
-      }
-      // Track the swipe in real time (rAF-throttled, not debounced) so the
-      // category highlight follows the finger and flips smoothly at the
-      // midpoint instead of snapping after the scroll settles. Uses actual
-      // panel geometry (nearest to viewport centre) rather than assuming each
-      // panel is exactly the pager width.
-      let scrollRAF = null;
-      p.addEventListener("scroll", () => {
-        if (scrollRAF) return;
-        scrollRAF = requestAnimationFrame(() => {
-          scrollRAF = null;
-          const c = cats[nearestPanelIndex()];
-          if (c && c !== activeCat) { activeCat = c; syncActive(); }
-        });
-      }, { passive: true });
-      return p;
-    }
-
     function renderContent() {
-      clear(content);
       const q = searchI.value.trim().toLowerCase();
       if (q) {
-        chipRow.style.display = "none";
-        dotsRow.style.display = "none";
-        pager = null;
+        catWheelWrap.style.display = "none";
+        clear(content);
         content.appendChild(renderSearch(q));
         return;
       }
-      chipRow.style.display = "";
+      catWheelWrap.style.display = "";
       if (!cats.length) {
-        dotsRow.style.display = "none";
-        pager = null;
+        clear(content);
         content.appendChild(el("div", { class: "text-sm text-faint", style: "padding: 16px 4px" }, "No exercises found."));
         return;
       }
-      dotsRow.style.display = cats.length > 1 ? "" : "none";
-      pager = buildPager();
-      content.appendChild(pager);
       if (!activeCat || !cats.includes(activeCat)) activeCat = cats[0];
-      syncActive();
-      // Jump (no animation) to the active card once laid out.
+      buildWheelStrip();
+      updateFigure();
+      renderCatList();
+      // Center the wheel on the active category (middle copy) once laid out.
       requestAnimationFrame(() => {
-        const panel = panelForCat(activeCat);
-        if (pager && panel) pager.scrollLeft = panel.offsetLeft;
+        const local = Math.max(0, cats.indexOf(activeCat));
+        catWheel.scrollLeft = (cats.length + local) * WHEEL_ITEM_W;
+        paintWheel();
       });
     }
 
@@ -5592,12 +5548,12 @@
     ) : null;
 
     const body = el("div", { class: "xpick xpick-multi" },
-      headerEl, searchI, chipRow, content, dotsRow, footer
+      headerEl, searchI, catWheelWrap, content, footer
     );
 
     let didInitialScroll = false;
     function refresh() {
-      renderChips(); renderDots(); renderContent(); updateCta();
+      renderContent(); updateCta();
       // Optionally open on a specific category (e.g. a focus day's "Start").
       if (!didInitialScroll && opts.initialCat && cats.includes(opts.initialCat)) {
         didInitialScroll = true;
