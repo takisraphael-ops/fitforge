@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=93").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=94").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1362,18 +1362,24 @@
     // the previous-session placeholder, and commits it so it's the default.
     let applyValueToWheels = null;
     const caption = el("div", { class: "numpad-wheel-caption" });
+    // wheelMode is a config: { min, max, frac } — frac "quarter"|"tenth" adds a
+    // second column for decimals; omitted = single integer wheel.
     function buildWheelArea() {
+      const wc = wheelMode;
       const iv = raw !== "" ? parseFloat(raw) : seed;
-      if (wheelMode === "weight") {
-        let whole = Math.max(0, Math.floor(iv || 0));
-        let frac = Math.round(((iv || 0) - whole) * 4) / 4;
+      if (wc.frac) {
+        const denom = wc.frac === "tenth" ? 10 : 4;
+        const fracItems = (wc.frac === "tenth"
+          ? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => ({ value: n / 10, label: "." + n }))
+          : [0, 1, 2, 3].map(n => ({ value: n / 4, label: "." + String(n * 25).padStart(2, "0") })));
+        let whole = Math.floor(iv || 0);
+        let frac = Math.round(((iv || 0) - whole) * denom) / denom;
         if (frac >= 1) { whole += 1; frac = 0; }
-        const fracItems = [{ value: 0, label: ".00" }, { value: 0.25, label: ".25" }, { value: 0.5, label: ".50" }, { value: 0.75, label: ".75" }];
         const syncW = () => { const w = whole + frac; raw = fmt(w); fresh = true; commit(); caption.textContent = `${fmt(w)} ${unit}`.trim(); };
-        const wholeWheel = buildWheel({ items: wheelRange(0, 300, 1), value: whole, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-whole", onChange: (v) => { whole = v; syncW(); } });
+        const wholeWheel = buildWheel({ items: wheelRange(wc.min, wc.max, 1), value: whole, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-whole", onChange: (v) => { whole = v; syncW(); } });
         const fracWheel = buildWheel({ items: fracItems, value: frac, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-frac", onChange: (v) => { frac = v; syncW(); } });
         applyValueToWheels = (val) => {
-          let wl = Math.max(0, Math.floor(val)); let fr = Math.round((val - wl) * 4) / 4;
+          let wl = Math.floor(val); let fr = Math.round((val - wl) * denom) / denom;
           if (fr >= 1) { wl += 1; fr = 0; }
           whole = wl; frac = fr; wholeWheel.setValue(wl); fracWheel.setValue(fr); syncW();
         };
@@ -1384,10 +1390,10 @@
           el("div", { class: "numpad-wheel-unit" }, unit)
         );
       }
-      // reps (single integer wheel)
-      let cur = Math.max(1, Math.round(iv || 1));
-      const w = buildWheel({ items: wheelRange(1, 60, 1), value: cur, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-reps", onChange: (v) => { raw = String(v); fresh = true; commit(); caption.textContent = `${v} ${unit}`.trim(); } });
-      applyValueToWheels = (val) => { const rv = Math.max(1, Math.round(val)); w.setValue(rv); raw = String(rv); fresh = true; commit(); caption.textContent = `${rv} ${unit}`.trim(); };
+      // Single integer wheel
+      let cur = Math.max(wc.min, Math.min(wc.max, Math.round(iv || wc.min)));
+      const w = buildWheel({ items: wheelRange(wc.min, wc.max, 1), value: cur, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-int", onChange: (v) => { raw = String(v); fresh = true; commit(); caption.textContent = `${v} ${unit}`.trim(); } });
+      applyValueToWheels = (val) => { const rv = Math.max(wc.min, Math.min(wc.max, Math.round(val))); w.setValue(rv); raw = String(rv); fresh = true; commit(); caption.textContent = `${rv} ${unit}`.trim(); };
       raw = String(cur); fresh = true; commit(); caption.textContent = `${cur} ${unit}`.trim();
       return el("div", { class: "numpad-wheel-single" }, w.el);
     }
@@ -3962,11 +3968,11 @@
       try { await Storage.saveWorkout(state.activeWorkout); } catch (err) { console.error(err); }
     }, 250);
     durInput.addEventListener("input", () => { mirrorCardioInputs(); debouncedSave(); });
-    attachNumPad(durInput, { label: `${ex.name} \u00b7 interval ${si + 1} \u00b7 minutes`, unit: "min", step: 5, decimals: true });
+    attachNumPad(durInput, { label: `${ex.name} \u00b7 interval ${si + 1} \u00b7 minutes`, unit: "min", step: 5, decimals: true, wheel: { min: 1, max: 240 } });
     attachNumPad(kcalInput, { label: `${ex.name} \u00b7 interval ${si + 1} \u00b7 calories`, unit: "kcal", step: 10 });
     selectOnFocus(kcalInput);
     if (distInput) {
-      attachNumPad(distInput, { label: `${ex.name} \u00b7 interval ${si + 1} \u00b7 distance`, unit: "km", step: 0.5, decimals: true });
+      attachNumPad(distInput, { label: `${ex.name} \u00b7 interval ${si + 1} \u00b7 distance`, unit: "km", step: 0.5, decimals: true, wheel: { min: 0, max: 100, frac: "tenth" } });
       selectOnFocus(distInput);
       distInput.addEventListener("input", () => { mirrorCardioInputs(); debouncedSave(); });
     }
@@ -4314,12 +4320,12 @@
       label: `${ex.name} \u00b7 set ${si + 1} \u00b7 ${exType === "weighted_bodyweight" ? "added weight" : "weight"}`,
       unit: "kg", step: 2.5, decimals: exType !== "weighted_bodyweight",
       allowMinus: exType === "weighted_bodyweight",
-      // Assisted (negative) added-weight stays on the keypad; plain weight spins.
-      wheel: exType === "weighted_bodyweight" ? null : "weight",
+      // Added weight can be negative (assisted); plain weight starts at 0.
+      wheel: { min: exType === "weighted_bodyweight" ? -100 : 0, max: 400, frac: "quarter" },
       chips: weightChips, hint: setHint
     });
     attachNumPad(repsInput, {
-      label: `${ex.name} \u00b7 set ${si + 1} \u00b7 reps`, unit: "reps", step: 1, wheel: "reps",
+      label: `${ex.name} \u00b7 set ${si + 1} \u00b7 reps`, unit: "reps", step: 1, wheel: { min: 1, max: 60 },
       chips: repsChips, hint: setHint,
       onLogSet: async () => { if (await markSetDone()) refreshExerciseBlock(ex); }
     });
