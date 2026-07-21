@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=97").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=98").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -911,7 +911,7 @@
 
     body.appendChild(el("div", { class: "form-row" },
       el("div", { style: "flex:2" }, el("label", { class: "label" }, "Target weight (kg)"), targetI),
-      el("div", { style: "flex:1" }, el("label", { class: "label" }, "Bar"), barS)
+      el("div", { style: "flex:1" }, el("label", { class: "label" }, "Bar"), wheelizeSelect(barS, { title: "Bar weight" }))
     ));
     body.appendChild(output);
 
@@ -3869,7 +3869,7 @@
             "Switching how this exercise is logged will clear its logged sets. Continue?",
             { title: "Change logging type?", okLabel: "Switch", danger: true }
           );
-          if (!ok) { typeMenu.value = exType; return; }
+          if (!ok) { typeMenu.value = exType; renderMain(); return; }
           ex.sets = [emptySetForType(nextType)];
         } else if (!hasLogged) {
           ex.sets = [emptySetForType(nextType)];
@@ -3879,6 +3879,9 @@
         renderMain();
       });
     }
+    const typeControl = (typeMenu.tagName === "SELECT")
+      ? wheelizeSelect(typeMenu, { title: "How it's logged" })
+      : typeMenu;
 
     block.appendChild(el("div", { class: "exercise-block-header" },
       el("div", { class: "exercise-block-title" },
@@ -3887,7 +3890,7 @@
         exKcal > 0 ? el("span", { class: "chip chip-sm", style: "margin-left:8px" }, `≈ ${exKcal} kcal`) : null
       ),
       el("div", { class: "row" },
-        typeMenu,
+        typeControl,
         nextEx && !isCardio ? el("button", {
           class: "icon-btn",
           title: ex.supersetGroup && ex.supersetGroup === nextEx.supersetGroup ? "Unlink superset" : "Link with next",
@@ -5168,7 +5171,7 @@
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Metric name"), metricLabelI),
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Unit"), metricUnitI)
       ),
-      el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "Personal best"), betterS)),
+      el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "Personal best"), wheelizeSelect(betterS, { title: "Personal best" }))),
       el("div", { class: "text-xs text-faint", style: "margin-top:-4px;margin-bottom:8px" },
         "Log one number per set for this metric (e.g. skips, metres, seconds held, watts).")
     );
@@ -5179,10 +5182,10 @@
     const body = el("div", {},
       el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "Name"), nameI)),
       el("div", { class: "form-row" },
-        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Category"), catS),
+        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Category"), wheelizeSelect(catS, { title: "Category" })),
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Equipment"), equipI)
       ),
-      el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "How it's logged"), logS)),
+      el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "How it's logged"), wheelizeSelect(logS, { title: "How it's logged" }))),
       metricWrap,
       el("div", { class: "form-row" },
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Muscles"), musclesI),
@@ -5886,7 +5889,7 @@
       nameI,
       el("div", { class: "supplement-dose-row", style: "margin-top:12px" },
         el("div", {}, el("label", { class: "label" }, "Usual dose"), doseI),
-        el("div", {}, el("label", { class: "label" }, "Unit"), unitSel)
+        el("div", {}, el("label", { class: "label" }, "Unit"), wheelizeSelect(unitSel, { title: "Unit" }))
       ),
       el("label", { class: "label", style: "margin-top:12px" }, "Notes"),
       notesI,
@@ -7217,7 +7220,7 @@
       el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "Meal name"), nameI)),
       el("div", { class: "form-row" },
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Calories"), kcalI),
-        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Category"), sectionS)
+        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Category"), wheelizeSelect(sectionS, { title: "Meal category" }))
       ),
       el("div", { class: "settings-section-title", style: "margin-top: 4px" }, "Macros (g)"),
       el("div", { class: "form-row macro-fields" },
@@ -7314,7 +7317,7 @@
       el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "Name"), nameI)),
       el("div", { class: "form-row" },
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Calories"), kcalI),
-        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Default category"), sectionS)
+        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Default category"), wheelizeSelect(sectionS, { title: "Default category" }))
       ),
       el("div", { class: "form-row macro-fields" },
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Protein"), proteinI),
@@ -8243,6 +8246,25 @@
     return btn;
   }
 
+  // Replace a <select> with a wheel field. The select stays in the DOM
+  // (hidden) so its value + change listeners keep working; the wheel writes
+  // back to it. Returns a wrapper to drop in wherever the select went.
+  function wheelizeSelect(selectEl, opts = {}) {
+    const items = Array.from(selectEl.options).map(o => ({ value: o.value, label: o.textContent }));
+    selectEl.style.display = "none";
+    selectEl.setAttribute("aria-hidden", "true");
+    const field = wheelField({
+      value: selectEl.value, items, title: opts.title || "Choose", testid: opts.testid,
+      onPick: (v) => {
+        selectEl.value = String(v);
+        selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+        selectEl.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    });
+    if (opts.class) field.classList.add(opts.class);
+    return el("span", { class: "wheel-select" }, field, selectEl);
+  }
+
   async function openSettings(opts = {}) {
     const weightKg = await getBodyweightKg();
     const restI = el("input", { class: "input input-num", type: "number", value: state.prefs.defaultRestSec });
@@ -8705,7 +8727,7 @@
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Name (for the home greeting)"), nameI)
       ),
       el("div", { class: "form-row" },
-        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Sex"), sexS),
+        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Sex"), wheelizeSelect(sexS, { title: "Sex" })),
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Age"), ageI)
       ),
       el("div", { class: "form-row" },
@@ -8725,14 +8747,14 @@
       el("div", { class: "form-row" },
         el("div", { style: "flex:1" },
           el("label", { class: "label" }, "How active is a normal day?"),
-          activityS, activityHint)
+          wheelizeSelect(activityS, { title: "Daily activity" }), activityHint)
       ),
 
       el("div", { class: "settings-section-title mt-16", "data-step": "3" }, "3 · Goal"),
       el("div", { class: "form-row" },
         el("div", { style: "flex:1" },
           el("label", { class: "label" }, "What are you aiming for?"),
-          goalIntentS, goalIntentHint),
+          wheelizeSelect(goalIntentS, { title: "Goal" }), goalIntentHint),
         el("div", { style: "flex:1" },
           el("label", { class: "label" }, "Personal tweak"),
           offsetI, offsetHint)

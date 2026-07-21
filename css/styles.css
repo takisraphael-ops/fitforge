@@ -4035,3 +4035,7 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .you-profile-setup { text-align: center; }
 .you-profile-title { font-size: 18px; font-weight: 800; }
 .you-profile-sub { font-size: 14px; color: var(--text-muted); margin-top: 6px; line-height: 1.4; }
+
+/* Wheel-ified <select> wrapper (dropdowns replaced by wheel fields) */
+.wheel-select { display: block; }
+.wheel-select .wheel-field { width: 100%; }
