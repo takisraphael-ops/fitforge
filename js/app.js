@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=63").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=95").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -100,6 +100,11 @@
     if (!Storage.isPersistent()) {
       setTimeout(() => toast("Storage is temporary in this browser — export a backup after workouts"), 600);
     }
+    // First run: greet new users with the guided setup quiz rather than the dense
+    // settings form. Only auto-opens once (until profile is complete or skipped).
+    if (!state.prefs.onboarded && !U.profileComplete(state.prefs) && !state.activeWorkout) {
+      setTimeout(() => openProfileQuiz({ firstRun: true }), 400);
+    }
   }
 
   // ============ Theme ============
@@ -151,9 +156,18 @@
     const history = await getHistoryFor(exerciseId);
     let maxWeight = 0, maxE1RM = 0, maxReps = 0, maxVolume = 0;
     let maxDuration = 0, maxDistance = 0, maxKcal = 0;
+    let maxValue = 0, minValue = 0;
     let maxWeightDate = null, maxE1RMDate = null;
     for (const h of history) {
       for (const s of h.sets) {
+        if (s.value != null && s.value !== "") {
+          const v = Number(s.value);
+          if (Number.isFinite(v)) {
+            if (v > maxValue) maxValue = v;
+            if (v > 0 && (minValue === 0 || v < minValue)) minValue = v;
+          }
+          continue;
+        }
         if (s.durationMin) {
           if (s.durationMin > maxDuration) maxDuration = s.durationMin;
           if ((s.distanceKm || 0) > maxDistance) maxDistance = s.distanceKm || 0;
@@ -179,6 +193,7 @@
     return {
       maxWeight, maxE1RM, maxReps, maxVolume,
       maxDuration, maxDistance, maxKcal,
+      maxValue, minValue,
       maxWeightDate, maxE1RMDate
     };
   }
@@ -216,9 +231,13 @@
           maxDuration: 0,
           maxDistance: 0,
           maxKcal: 0,
+          maxValue: 0,
+          minValue: 0,
+          metric: null,
           sessionCount: 0,
           lastTrained: null,
-          isCardio: type === "cardio"
+          isCardio: type === "cardio",
+          isCustom: type === "custom"
         };
         map.set(id, r);
       }
@@ -229,8 +248,10 @@
     for (const w of completed) {
       for (const ex of (w.exercises || [])) {
         const isCardio = ex.type === "cardio";
+        const isCustom = ex.type === "custom";
         const doneSets = (ex.sets || []).filter(s => {
           if (!s.done) return false;
+          if (isCustom || s.value != null) return s.value != null && s.value !== "";
           if (isCardio || s.durationMin != null) return !!s.durationMin;
           return s.reps != null && s.reps > 0;
         });
@@ -240,6 +261,18 @@
         r.sessionCount += 1;
         if (!r.lastTrained || w.date > r.lastTrained) r.lastTrained = w.date;
         if (exerciseById.get(ex.exerciseId)?.name) r.name = exerciseById.get(ex.exerciseId).name;
+
+        if (isCustom) {
+          r.isCustom = true;
+          r.metric = normalizeMetric(ex.metric || exerciseById.get(ex.exerciseId)?.metric);
+          for (const s of doneSets) {
+            const v = Number(s.value);
+            if (!Number.isFinite(v)) continue;
+            if (v > r.maxValue) r.maxValue = v;
+            if (v > 0 && (r.minValue === 0 || v < r.minValue)) r.minValue = v;
+          }
+          continue;
+        }
 
         if (isCardio) {
           r.isCardio = true;
@@ -379,6 +412,10 @@
       lastBackupAt: await Storage.getPref("lastBackupAt", null),
       // ISO timestamp: hide Home backup CTA until this time (snooze).
       backupSnoozedUntil: await Storage.getPref("backupSnoozedUntil", null),
+      // First-run guided setup: once shown/finished/skipped we don't auto-open again.
+      onboarded: !!(await Storage.getPref("onboarded", false)),
+      // Weekly split/program: { mon: templateId | "rest", ... } (missing = open day).
+      weeklyPlan: await Storage.getPref("weeklyPlan", {}),
       theme: await Storage.getPref("theme", null)
     };
   }
@@ -548,19 +585,36 @@
         done: false
       };
     }
+    if (type === "custom") {
+      return { value: null, done: false };
+    }
     return { weight: null, reps: null, done: false };
+  }
+
+  /** Normalise a custom-exercise metric descriptor to a safe shape. */
+  function normalizeMetric(metric) {
+    const m = metric || {};
+    return {
+      label: (m.label && String(m.label).trim()) || "Value",
+      unit: m.unit != null ? String(m.unit).trim() : "",
+      higherIsBetter: m.higherIsBetter !== false // default: more is better
+    };
   }
 
   /** Clone logged (or planned) sets into a fresh session — values filled, none marked done. */
   function cloneSetsForReplay(sets, type) {
     const src = (sets || []).filter(s => {
       if (!s) return false;
+      if (type === "custom" || s.value != null) return s.done || s.value != null;
       if (type === "cardio" || s.durationMin != null) {
         return s.done || s.durationMin != null || s.distanceKm != null;
       }
       return s.done || s.weight != null || s.reps != null;
     });
     if (!src.length) return [emptySetForType(type)];
+    if (type === "custom") {
+      return src.map(s => ({ value: s.value ?? null, done: false }));
+    }
     if (type === "cardio") {
       return src.map(s => ({
         durationMin: s.durationMin ?? null,
@@ -641,12 +695,26 @@
     });
   }
 
+  // Swap just one exercise card in place after a set change, instead of
+  // rebuilding the whole screen. Keeps logging a set feeling instant — no
+  // full-page flash, scroll jump, or card re-mount. Falls back to a full
+  // re-render if the block isn't on screen (e.g. outside the active workout).
+  async function refreshExerciseBlock(ex) {
+    const w = state.activeWorkout;
+    const idx = w && Array.isArray(w.exercises) ? w.exercises.indexOf(ex) : -1;
+    if (idx < 0) { renderMainKeepScroll(); return; }
+    const old = document.querySelector(`.exercise-block[data-ex-idx="${idx}"]`);
+    if (!old) { renderMainKeepScroll(); return; }
+    const fresh = await renderExerciseBlock(ex, idx);
+    old.replaceWith(fresh);
+  }
+
   async function buildExerciseEntry(exerciseId, name) {
     const all = await getAllExercises();
     const def = all.find(x => x.id === exerciseId);
     // Prefer definition classification; fall back to name when the id is missing.
     let type = def ? inferExerciseType(def) : "weighted";
-    if (type !== "cardio" && looksLikeCardio({ id: exerciseId, name: name || def?.name })) {
+    if (type !== "cardio" && type !== "custom" && looksLikeCardio({ id: exerciseId, name: name || def?.name })) {
       type = "cardio";
     }
     // Start with a single empty set. Matching last session's sets is
@@ -658,6 +726,7 @@
       type,
       category: def?.category,
       met: def?.met,
+      ...(def?.metric ? { metric: def.metric } : {}),
       sets
     };
   }
@@ -857,7 +926,19 @@
 
   // ============ Determine exercise "type" (weighted / bodyweight / weighted+bw / cardio) ============
   // Built-in cardio ids from the exercise database.
-  const CARDIO_IDS = new Set(["run", "rowing", "cycling", "jump-rope", "burpee"]);
+  const CARDIO_IDS = new Set(["run", "rowing", "cycling", "jump-rope"]);
+  // Cardio exercises that are not distance-based (e.g. jump rope) hide the km field.
+  const NO_DISTANCE_CARDIO_IDS = new Set(["jump-rope"]);
+
+  /** Whether a cardio exercise should show/track a distance (km) field. */
+  function cardioTracksDistance(ex) {
+    if (!ex) return true;
+    const id = String(ex.exerciseId || ex.id || "").toLowerCase();
+    if (NO_DISTANCE_CARDIO_IDS.has(id)) return false;
+    const name = String(ex.name || "").toLowerCase();
+    if (/\b(jump\s*rope|skip(ping|s)?)\b/.test(name)) return false;
+    return true;
+  }
 
   function looksLikeCardio(ex) {
     if (!ex) return false;
@@ -868,10 +949,12 @@
     const name = String(ex.name || "").toLowerCase();
     // NB: match "rowing"/"erg" but NOT bare "row" — the latter also appears in
     // strength moves (bent-over row, cable row, upright row, …) which are not cardio.
-    return /\b(run|running|rowing|rower|cycle|cycling|bike|erg|ergometer|jump\s*rope|burpee|treadmill|cardio|elliptical|assault\s*bike)\b/.test(name);
+    return /\b(run|running|rowing|rower|cycle|cycling|bike|erg|ergometer|jump\s*rope|treadmill|cardio|elliptical|assault\s*bike)\b/.test(name);
   }
 
   function inferExerciseType(ex) {
+    // An explicit custom-metric exercise always logs with its own metric.
+    if (ex && ex.type === "custom") return "custom";
     // Cardio classification always wins over a stale stored type so Running never
     // falls back to kg/reps just because an older session saved type: "weighted".
     if (looksLikeCardio(ex)) return "cardio";
@@ -942,6 +1025,8 @@
       barbell/dumbbell/machine lifts only log kg; calisthenics get BW and BW +kg. */
   function allowedTypesFor(def, ex = null) {
     const source = def || ex || {};
+    // Custom-metric exercises are logged only with their own metric.
+    if (source.type === "custom" || ex?.type === "custom") return ["custom"];
     if (looksLikeCardio(source) || looksLikeCardio(ex)) return ["cardio"];
     const equipment = String(source.equipment || ex?.equipment || "").toLowerCase();
     const name = String(source.name || ex?.name || "").toLowerCase();
@@ -978,6 +1063,17 @@
   function normalizeWorkoutExercise(ex, def) {
     if (!ex) return ex;
     const source = def || ex;
+    // Custom-metric exercises: lock the type, carry the metric onto the entry,
+    // and ensure the set shape holds a single numeric value.
+    if (source.type === "custom" || ex.type === "custom") {
+      ex.type = "custom";
+      if (def?.metric && !ex.metric) ex.metric = def.metric;
+      const onlyEmpty = !(ex.sets || []).length ||
+        (ex.sets || []).every(s => !s.done && s.value == null);
+      if (onlyEmpty) ex.sets = [emptySetForType("custom")];
+      if (def?.met != null && ex.met == null) ex.met = def.met;
+      return ex;
+    }
     const shouldBeCardio = looksLikeCardio(source) || looksLikeCardio(ex);
     const hasCardioData = (ex.sets || []).some(s => s.done || s.durationMin != null || s.distanceKm != null);
     const hasStrengthData = (ex.sets || []).some(s => s.done || (s.weight != null && s.weight !== "") || (s.reps != null && s.reps !== ""));
@@ -1025,7 +1121,6 @@
 
   // ============ Render root ============
   function render() {
-    renderHeader();
     renderMain();
   }
 
@@ -1044,6 +1139,14 @@
   }
 
   function renderMain() {
+    // The app header (logo + theme/settings) only appears on Home; other tabs
+    // hide it to give their content the full screen.
+    const headerEl = document.getElementById("header");
+    if (headerEl) {
+      if (state.tab === "home") { headerEl.style.display = ""; renderHeader(); }
+      else { headerEl.style.display = "none"; }
+    }
+
     const main = $("#main");
     clear(main);
 
@@ -1099,7 +1202,7 @@
         title: it.label,
         "data-testid": "dock-" + it.id,
         html: it.icon,
-        on: { click: () => { state.tab = it.id; renderMain(); window.scrollTo(0, 0); } }
+        on: { click: () => { nutritionScrollKey = null; workoutScrollIdx = 0; state.tab = it.id; renderMain(); window.scrollTo(0, 0); } }
       }));
     }
     document.body.appendChild(dock);
@@ -1138,6 +1241,7 @@
     const decimals = !!opts.decimals;
     const allowMinus = !!opts.allowMinus;
     const unit = opts.unit || "";
+    const wheelMode = opts.wheel || null; // "weight" | "reps" | null (digit keypad)
     let raw = input.value || "";
     let fresh = true; // first digit replaces the current value
 
@@ -1159,6 +1263,8 @@
       return String(r);
     };
 
+    const haptic = (ms = 8) => { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (_) {} };
+
     const display = el("div", { class: "numpad-value", "data-testid": "numpad-value" });
     const updateDisplay = () => {
       clear(display);
@@ -1179,6 +1285,8 @@
       commit(); updateDisplay();
     };
 
+    const setRaw = (v) => { raw = fmt(Number(v)); fresh = true; commit(); updateDisplay(); };
+
     const press = (key) => {
       if (key === "back") {
         raw = fresh ? "" : raw.slice(0, -1);
@@ -1197,6 +1305,7 @@
         else if (raw.replace(/[-.]/g, "").length < 6) raw += key;
         fresh = false;
       }
+      haptic(6);
       commit(); updateDisplay();
     };
 
@@ -1233,8 +1342,72 @@
       on: { click: () => press("back") }
     }));
 
-    const minus = el("button", { type: "button", class: "numpad-step", "data-testid": "numpad-minus", "aria-label": `Decrease by ${step}`, on: { click: () => nudge(-1) } }, `−${step}`);
-    const plus = el("button", { type: "button", class: "numpad-step", "data-testid": "numpad-plus", "aria-label": `Increase by ${step}`, on: { click: () => nudge(1) } }, `+${step}`);
+    const minus = el("button", { type: "button", class: "numpad-step", "data-testid": "numpad-minus", "aria-label": `Decrease by ${step}` }, `−${step}`);
+    const plus = el("button", { type: "button", class: "numpad-step", "data-testid": "numpad-plus", "aria-label": `Increase by ${step}` }, `+${step}`);
+    // Press-and-hold to repeat (spin reps/weight quickly). One buzz on press.
+    const holdRepeat = (btn, dir) => {
+      let to = null, iv = null;
+      const stop = () => { if (to) clearTimeout(to); if (iv) clearInterval(iv); to = iv = null; };
+      btn.addEventListener("pointerdown", (e) => {
+        e.preventDefault(); nudge(dir); haptic(10);
+        to = setTimeout(() => { iv = setInterval(() => nudge(dir), 90); }, 380);
+      });
+      for (const ev of ["pointerup", "pointerleave", "pointercancel"]) btn.addEventListener(ev, stop);
+    };
+    holdRepeat(minus, -1); holdRepeat(plus, 1);
+
+    // ---- Wheel mode: spin kg/reps instead of typing ----
+    // Weight uses two wheels (whole kg + .00/.25/.50/.75) so any 0.25 step is
+    // reachable; reps uses a single 1–60 wheel. Seeds from the current value or
+    // the previous-session placeholder, and commits it so it's the default.
+    let applyValueToWheels = null;
+    const caption = el("div", { class: "numpad-wheel-caption" });
+    // wheelMode is a config: { min, max, frac } — frac "quarter"|"tenth" adds a
+    // second column for decimals; omitted = single integer wheel.
+    function buildWheelArea() {
+      const wc = wheelMode;
+      const iv = raw !== "" ? parseFloat(raw) : seed;
+      if (wc.frac) {
+        const denom = wc.frac === "tenth" ? 10 : 4;
+        const fracItems = (wc.frac === "tenth"
+          ? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => ({ value: n / 10, label: "." + n }))
+          : [0, 1, 2, 3].map(n => ({ value: n / 4, label: "." + String(n * 25).padStart(2, "0") })));
+        let whole = Math.floor(iv || 0);
+        let frac = Math.round(((iv || 0) - whole) * denom) / denom;
+        if (frac >= 1) { whole += 1; frac = 0; }
+        const syncW = () => { const w = whole + frac; raw = fmt(w); fresh = true; commit(); caption.textContent = `${fmt(w)} ${unit}`.trim(); };
+        const wholeWheel = buildWheel({ items: wheelRange(wc.min, wc.max, 1), value: whole, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-whole", onChange: (v) => { whole = v; syncW(); } });
+        const fracWheel = buildWheel({ items: fracItems, value: frac, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-frac", onChange: (v) => { frac = v; syncW(); } });
+        applyValueToWheels = (val) => {
+          let wl = Math.floor(val); let fr = Math.round((val - wl) * denom) / denom;
+          if (fr >= 1) { wl += 1; fr = 0; }
+          whole = wl; frac = fr; wholeWheel.setValue(wl); fracWheel.setValue(fr); syncW();
+        };
+        syncW();
+        return el("div", { class: "numpad-wheel-cols" },
+          el("div", { class: "numpad-wheel-col numpad-wheel-whole" }, wholeWheel.el),
+          el("div", { class: "numpad-wheel-col numpad-wheel-fracw" }, fracWheel.el),
+          el("div", { class: "numpad-wheel-unit" }, unit)
+        );
+      }
+      // Single integer wheel
+      let cur = Math.max(wc.min, Math.min(wc.max, Math.round(iv || wc.min)));
+      const w = buildWheel({ items: wheelRange(wc.min, wc.max, 1), value: cur, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-int", onChange: (v) => { raw = String(v); fresh = true; commit(); caption.textContent = `${v} ${unit}`.trim(); } });
+      applyValueToWheels = (val) => { const rv = Math.max(wc.min, Math.min(wc.max, Math.round(val))); w.setValue(rv); raw = String(rv); fresh = true; commit(); caption.textContent = `${rv} ${unit}`.trim(); };
+      raw = String(cur); fresh = true; commit(); caption.textContent = `${cur} ${unit}`.trim();
+      return el("div", { class: "numpad-wheel-single" }, w.el);
+    }
+    const applyValue = (v) => { if (wheelMode && applyValueToWheels) applyValueToWheels(v); else setRaw(v); haptic(12); };
+
+    // Quick-fill chips (previous set / last session) — one tap fills the value.
+    const chipList = Array.isArray(opts.chips) ? opts.chips.filter(c => c && c.value != null) : [];
+    const chipsRow = chipList.length ? el("div", { class: "numpad-chips" },
+      ...chipList.map(c => el("button", {
+        type: "button", class: "numpad-chip", "data-testid": `numpad-chip-${c.value}`,
+        on: { click: () => applyValue(c.value) }
+      }, c.label))
+    ) : null;
+    const hintEl = opts.hint ? el("div", { class: "numpad-hint text-xs text-faint" }, opts.hint) : null;
 
     const doneBtn = el("button", {
       type: "button", class: "btn numpad-done", "data-testid": "numpad-done",
@@ -1244,25 +1417,35 @@
       type: "button", class: "btn btn-primary numpad-next", "data-testid": "numpad-next",
       on: { click: () => { closeNumPad(); openNumPad(nextInput); } }
     }, "Next \u2192") : null;
+    // On the reps field, log the whole set in one tap (preferred over Next).
+    const logSet = () => { commit(); haptic(25); closeNumPad(); opts.onLogSet(); };
+    const logBtn = (typeof opts.onLogSet === "function") ? el("button", {
+      type: "button", class: "btn btn-primary numpad-log", "data-testid": "numpad-logset",
+      on: { click: logSet }
+    }, "Log set \u2713") : null;
 
-    const sheet = el("div", { class: "numpad-sheet", "data-testid": "numpad" },
+    const middle = wheelMode
+      ? [caption, buildWheelArea()]
+      : [el("div", { class: "numpad-display-row" }, minus, display, plus), grid];
+    const sheet = el("div", { class: "numpad-sheet" + (wheelMode ? " numpad-sheet-wheel" : ""), "data-testid": "numpad" },
       el("div", { class: "numpad-label" }, opts.label || "Enter value"),
-      el("div", { class: "numpad-display-row" }, minus, display, plus),
-      grid,
-      el("div", { class: "numpad-actions" }, doneBtn, nextBtn)
+      hintEl,
+      chipsRow,
+      ...middle,
+      el("div", { class: "numpad-actions" }, doneBtn, logBtn || nextBtn)
     );
     overlay.appendChild(sheet);
     document.body.appendChild(overlay);
     updateDisplay();
 
     const keyHandler = (e) => {
-      if (e.key >= "0" && e.key <= "9") { press(e.key); }
-      else if (e.key === ".") { press("."); }
-      else if (e.key === "-") { if (allowMinus) press("sign"); }
-      else if (e.key === "Backspace") { press("back"); }
-      else if (e.key === "ArrowUp") { nudge(1); }
-      else if (e.key === "ArrowDown") { nudge(-1); }
-      else if (e.key === "Enter") { if (nextInput) { closeNumPad(); openNumPad(nextInput); } else closeNumPad(); }
+      if (!wheelMode && e.key >= "0" && e.key <= "9") { press(e.key); }
+      else if (!wheelMode && e.key === ".") { press("."); }
+      else if (!wheelMode && e.key === "-") { if (allowMinus) press("sign"); }
+      else if (!wheelMode && e.key === "Backspace") { press("back"); }
+      else if (!wheelMode && e.key === "ArrowUp") { nudge(1); }
+      else if (!wheelMode && e.key === "ArrowDown") { nudge(-1); }
+      else if (e.key === "Enter") { if (logBtn) { logSet(); } else if (nextInput) { closeNumPad(); openNumPad(nextInput); } else closeNumPad(); }
       else if (e.key === "Escape") { closeNumPad(); }
       else if (e.key === "Tab") { return; }
       else return;
@@ -1523,46 +1706,133 @@
     return { className: "energy-status-maintain", label: "About right" };
   }
 
+  let ringSeq = 0;
+  const SVGNS = "http://www.w3.org/2000/svg";
   function buildEnergyRing(pct, overBudget) {
     const size = 176;
-    const stroke = 12;
+    const stroke = 13;
+    const cx = size / 2;
     const r = (size - stroke) / 2;
     const c = 2 * Math.PI * r;
     const fillPct = Math.max(0, Math.min(100, pct));
     const dashOffset = c * (1 - fillPct / 100);
-    const strokeColor = overBudget ? "var(--danger)" : (fillPct >= 85 ? "var(--warning, #c48a2a)" : "var(--accent)");
+    const near = fillPct >= 85 && !overBudget;
+    const endColor = overBudget ? "var(--danger, #e5484d)" : (near ? "var(--warning, #c48a2a)" : "var(--accent)");
+    const startColor = overBudget ? "#f0883e" : (near ? "#e0b04a" : "var(--accent-hover, #74d6e1)");
+    const gid = "ering-" + (++ringSeq);
 
     const wrap = el("div", { class: "energy-ring-wrap" });
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const svg = document.createElementNS(SVGNS, "svg");
     svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
     svg.setAttribute("class", "energy-ring");
     svg.setAttribute("width", String(size));
     svg.setAttribute("height", String(size));
     svg.setAttribute("aria-hidden", "true");
 
-    const bg = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    bg.setAttribute("cx", String(size / 2));
-    bg.setAttribute("cy", String(size / 2));
-    bg.setAttribute("r", String(r));
-    bg.setAttribute("fill", "none");
-    bg.setAttribute("stroke", "var(--border)");
-    bg.setAttribute("stroke-width", String(stroke));
+    // Gradient so the arc shades from bright to accent as it sweeps.
+    const defs = document.createElementNS(SVGNS, "defs");
+    const grad = document.createElementNS(SVGNS, "linearGradient");
+    grad.setAttribute("id", gid);
+    grad.setAttribute("x1", "0%"); grad.setAttribute("y1", "0%");
+    grad.setAttribute("x2", "100%"); grad.setAttribute("y2", "100%");
+    const s1 = document.createElementNS(SVGNS, "stop");
+    s1.setAttribute("offset", "0%"); s1.setAttribute("stop-color", startColor);
+    const s2 = document.createElementNS(SVGNS, "stop");
+    s2.setAttribute("offset", "100%"); s2.setAttribute("stop-color", endColor);
+    grad.appendChild(s1); grad.appendChild(s2);
+    defs.appendChild(grad);
+    svg.appendChild(defs);
 
-    const fg = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    fg.setAttribute("cx", String(size / 2));
-    fg.setAttribute("cy", String(size / 2));
-    fg.setAttribute("r", String(r));
-    fg.setAttribute("fill", "none");
-    fg.setAttribute("stroke", strokeColor);
+    const bg = document.createElementNS(SVGNS, "circle");
+    bg.setAttribute("cx", String(cx)); bg.setAttribute("cy", String(cx)); bg.setAttribute("r", String(r));
+    bg.setAttribute("fill", "none"); bg.setAttribute("stroke", "var(--bg-sunken)"); bg.setAttribute("stroke-width", String(stroke));
+    svg.appendChild(bg);
+
+    const fg = document.createElementNS(SVGNS, "circle");
+    fg.setAttribute("cx", String(cx)); fg.setAttribute("cy", String(cx)); fg.setAttribute("r", String(r));
+    fg.setAttribute("fill", "none"); fg.setAttribute("stroke", `url(#${gid})`);
     fg.setAttribute("stroke-width", String(stroke));
     fg.setAttribute("stroke-linecap", "round");
     fg.setAttribute("stroke-dasharray", String(c));
-    fg.setAttribute("stroke-dashoffset", String(dashOffset));
-    fg.setAttribute("transform", `rotate(-90 ${size / 2} ${size / 2})`);
-
-    svg.appendChild(bg);
+    fg.setAttribute("stroke-dashoffset", String(c)); // start empty, animate to target
+    fg.setAttribute("transform", `rotate(-90 ${cx} ${cx})`);
+    fg.setAttribute("class", "energy-ring-fg");
     svg.appendChild(fg);
+
+    // Glowing dot at the leading edge of the arc.
+    let dot = null;
+    if (fillPct > 1 && fillPct < 99.5) {
+      const ang = (-90 + 360 * fillPct / 100) * Math.PI / 180;
+      dot = document.createElementNS(SVGNS, "circle");
+      dot.setAttribute("cx", String(cx + r * Math.cos(ang)));
+      dot.setAttribute("cy", String(cx + r * Math.sin(ang)));
+      dot.setAttribute("r", String(stroke / 2 - 1));
+      dot.setAttribute("fill", "#fff");
+      dot.setAttribute("class", "energy-ring-dot");
+      svg.appendChild(dot);
+    }
+
     wrap.appendChild(svg);
+    // Animate the sweep on mount.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      fg.style.transition = "stroke-dashoffset 900ms cubic-bezier(.2,.8,.2,1)";
+      fg.setAttribute("stroke-dashoffset", String(dashOffset));
+      if (dot) dot.classList.add("is-in");
+    }));
+    return wrap;
+  }
+
+  // Distinct colours per meal section for the meals-today donut + legend.
+  const MEAL_COLORS = {
+    breakfast: "#f0a35e",
+    lunch: "#57c9d6",
+    dinner: "#7c8cff",
+    snack: "#58c07f",
+    pre_workout: "#d98cff",
+    post_workout: "#ffce54",
+    other: "#8a94a4"
+  };
+  const mealColor = (key) => MEAL_COLORS[key] || "#8a94a4";
+
+  // Donut of today's calories split by meal. entries: [{key,label,kcal,color}].
+  function buildMealsDonut(entries, totalEaten) {
+    const size = 168, stroke = 20, cx = size / 2, r = (size - stroke) / 2, c = 2 * Math.PI * r;
+    const wrap = el("div", { class: "nmeals-donut-wrap", "data-testid": "meals-donut" });
+    const svg = document.createElementNS(SVGNS, "svg");
+    svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
+    svg.setAttribute("class", "nmeals-donut");
+    svg.setAttribute("width", String(size)); svg.setAttribute("height", String(size));
+    svg.setAttribute("aria-hidden", "true");
+
+    const track = document.createElementNS(SVGNS, "circle");
+    track.setAttribute("cx", String(cx)); track.setAttribute("cy", String(cx)); track.setAttribute("r", String(r));
+    track.setAttribute("fill", "none"); track.setAttribute("stroke", "var(--bg-sunken)"); track.setAttribute("stroke-width", String(stroke));
+    svg.appendChild(track);
+
+    const slices = (entries || []).filter(e => e.kcal > 0);
+    const total = slices.reduce((s, e) => s + e.kcal, 0);
+    if (total > 0) {
+      const gap = slices.length > 1 ? 3 : 0;
+      let accum = 0;
+      for (const e of slices) {
+        const frac = e.kcal / total;
+        const len = Math.max(1, frac * c - gap);
+        const seg = document.createElementNS(SVGNS, "circle");
+        seg.setAttribute("cx", String(cx)); seg.setAttribute("cy", String(cx)); seg.setAttribute("r", String(r));
+        seg.setAttribute("fill", "none"); seg.setAttribute("stroke", e.color);
+        seg.setAttribute("stroke-width", String(stroke));
+        seg.setAttribute("stroke-dasharray", `${len} ${c - len}`);
+        seg.setAttribute("stroke-dashoffset", String(-accum));
+        seg.setAttribute("transform", `rotate(-90 ${cx} ${cx})`);
+        svg.appendChild(seg);
+        accum += frac * c;
+      }
+    }
+    wrap.appendChild(svg);
+    wrap.appendChild(el("div", { class: "nmeals-donut-center" },
+      el("div", { class: "nmeals-donut-num" }, Math.round(totalEaten || 0).toLocaleString("en-GB")),
+      el("div", { class: "nmeals-donut-sub" }, total > 0 ? "eaten" : "no meals yet")
+    ));
     return wrap;
   }
 
@@ -1898,6 +2168,188 @@
     return wrap;
   }
 
+  // Today's-workout hero for Home — driven by the weekly plan.
+  function buildTodayWorkoutHero({ plan, tplById, exById }) {
+    const hasPlan = planHasAny(plan);
+    const todayKey = weekdayKeyFor();
+    const assign = plan[todayKey];
+    const arrow = '<svg viewBox="0 0 16 16" width="16" height="16"><path d="M3 8h9M8 3.5L12.5 8 8 12.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const editLink = () => el("button", {
+      class: "today-hero-edit", type: "button", "data-testid": "hero-edit-week",
+      on: { click: openWeeklyPlanQuiz }
+    }, "Edit week");
+
+    // No plan configured at all → invitation to set one up.
+    if (!hasPlan) {
+      return el("div", { class: "card today-hero today-hero-plan", "data-testid": "today-hero" },
+        el("div", { class: "today-hero-eyebrow" }, "Your week"),
+        el("div", { class: "today-hero-title" }, "Plan your training week"),
+        el("div", { class: "today-hero-sub" },
+          "Assign a template to each day and Home will show today's session ready to start."),
+        el("div", { class: "today-hero-actions" },
+          el("button", {
+            class: "btn btn-primary btn-block today-hero-start", "data-testid": "hero-plan-week",
+            on: { click: openWeeklyPlanQuiz }
+          }, "Plan your week", el("span", { class: "today-hero-arrow", html: arrow })),
+          el("button", {
+            class: "btn today-hero-browse", title: "Start a workout now",
+            on: { click: () => goTab("workout") }
+          }, "Start a workout")
+        )
+      );
+    }
+
+    // Rest day.
+    if (assign === "rest") {
+      return el("div", { class: "card today-hero today-hero-rest", "data-testid": "today-hero" },
+        el("div", { class: "row-between", style: "align-items:flex-start;gap:10px" },
+          el("div", {},
+            el("div", { class: "today-hero-eyebrow" }, "Today · Rest"),
+            el("div", { class: "today-hero-title" }, "Rest day"),
+            el("div", { class: "today-hero-sub" }, "Recovery is where the work pays off. Enjoy it.")
+          ),
+          editLink()
+        ),
+        el("button", {
+          class: "btn btn-sm today-hero-rest-cta mt-8",
+          on: { click: () => goTab("workout") }
+        }, "Train anyway")
+      );
+    }
+
+    // Focus day (Push / Pull / Legs / Cardio / …) — no template, just a target.
+    const focusDay = focusFromValue(assign);
+    if (focusDay) {
+      return el("div", { class: "card today-hero today-hero-train", "data-testid": "today-hero" },
+        el("div", { class: "today-hero-glow" }),
+        el("div", { class: "today-hero-body" },
+          el("div", { class: "row-between", style: "align-items:flex-start;gap:10px" },
+            el("div", { class: "today-hero-eyebrow" }, `Today · ${WEEKDAY_LABELS[todayKey]}`),
+            editLink()
+          ),
+          el("div", { class: "row-between", style: "align-items:center;gap:12px;margin-top:4px" },
+            el("div", { class: "today-hero-title today-hero-focus-title" },
+              el("span", { class: "today-hero-ficon", html: focusDay.icon }),
+              focusDay.label
+            ),
+            el("div", { class: "today-hero-focus" }, "Focus")
+          ),
+          el("div", { class: "today-hero-sub" }, focusDay.desc),
+          el("div", { class: "today-hero-actions" },
+            el("button", {
+              class: "btn btn-primary today-hero-start", "data-testid": "hero-start-focus",
+              on: { click: () => { pendingPickerCat = focusDay.cat; goTab("workout"); } }
+            }, "Start workout", el("span", { class: "today-hero-arrow", html: arrow })),
+            el("button", {
+              class: "today-hero-swap", title: "Start a different workout",
+              "data-testid": "hero-swap", on: { click: () => { pendingPickerCat = null; goTab("workout"); } },
+              html: '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h11M4 7l3-3M4 7l3 3M20 17H9m11 0l-3-3m3 3l-3 3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+            })
+          )
+        )
+      );
+    }
+
+    const tpl = (assign && assign !== "rest") ? tplById.get(assign) : null;
+
+    // Planned training day with a valid template.
+    if (tpl) {
+      const focus = templateFocus(tpl, exById);
+      const est = templateEstMin(tpl);
+      const exCount = (tpl.exercises || []).length;
+      const meta = `${exCount} exercise${exCount === 1 ? "" : "s"} · ~${est} min`;
+      const names = (tpl.exercises || []).map(e => e.name);
+      const chipRow = el("div", { class: "today-hero-chips" });
+      names.slice(0, 3).forEach(n => chipRow.appendChild(el("span", { class: "today-hero-chip" }, n)));
+      if (names.length > 3) chipRow.appendChild(el("span", { class: "today-hero-chip is-more" }, `+${names.length - 3}`));
+
+      return el("div", { class: "card today-hero today-hero-train", "data-testid": "today-hero" },
+        el("div", { class: "today-hero-glow" }),
+        el("div", { class: "today-hero-body" },
+          el("div", { class: "row-between", style: "align-items:flex-start;gap:10px" },
+            el("div", { class: "today-hero-eyebrow" }, `Today · ${WEEKDAY_LABELS[todayKey]}`),
+            editLink()
+          ),
+          el("div", { class: "row-between", style: "align-items:baseline;gap:12px;margin-top:4px" },
+            el("div", { class: "today-hero-title" }, tpl.name),
+            focus ? el("div", { class: "today-hero-focus" }, focus) : null
+          ),
+          el("div", { class: "today-hero-meta" }, meta),
+          chipRow,
+          el("div", { class: "today-hero-actions" },
+            el("button", {
+              class: "btn btn-primary today-hero-start", "data-testid": "hero-start-workout",
+              on: { click: () => startNewWorkout(tpl) }
+            }, "Start workout", el("span", { class: "today-hero-arrow", html: arrow })),
+            el("button", {
+              class: "today-hero-swap", title: "Start a different workout",
+              "data-testid": "hero-swap", on: { click: () => goTab("workout") },
+              html: '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h11M4 7l3-3M4 7l3 3M20 17H9m11 0l-3-3m3 3l-3 3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+            })
+          )
+        )
+      );
+    }
+
+    // Plan exists but today is open (or its template was deleted).
+    return el("div", { class: "card today-hero today-hero-open", "data-testid": "today-hero" },
+      el("div", { class: "row-between", style: "align-items:flex-start;gap:10px" },
+        el("div", {},
+          el("div", { class: "today-hero-eyebrow" }, `Today · ${WEEKDAY_LABELS[todayKey]}`),
+          el("div", { class: "today-hero-title" }, "Nothing planned today"),
+          el("div", { class: "today-hero-sub" }, "Open day — start whatever you feel like.")
+        ),
+        editLink()
+      ),
+      el("button", {
+        class: "btn btn-primary btn-block today-hero-start mt-8", "data-testid": "hero-start-open",
+        on: { click: () => goTab("workout") }
+      }, "Start a workout", el("span", { class: "today-hero-arrow", html: arrow }))
+    );
+  }
+
+  // Monday-first 7-day cadence strip: done / today / rest / open.
+  function buildWeekStrip(completed, plan) {
+    const doneDates = new Set(completed.map(w => w.date));
+    const today = U.todayISO();
+    const week = weekDatesFor();
+    const goal = state.prefs.weeklyWorkoutGoal || 4;
+    let doneCount = 0;
+
+    const row = el("div", { class: "week-strip-row" });
+    for (const { key, iso } of week) {
+      const isDone = doneDates.has(iso);
+      const isToday = iso === today;
+      const isRest = plan[key] === "rest";
+      if (isDone) doneCount++;
+      let state2 = "open";
+      if (isDone) state2 = "done";
+      else if (isToday) state2 = "today";
+      else if (isRest) state2 = "rest";
+      const tile = el("div", { class: `week-tile is-${state2}` });
+      if (isDone) {
+        tile.appendChild(el("span", { class: "week-tile-check",
+          html: '<svg viewBox="0 0 16 16" width="15" height="15"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' }));
+      } else if (isRest) {
+        tile.appendChild(el("span", { class: "week-tile-dot" }));
+      }
+      row.appendChild(el("div", { class: "week-strip-day" + (isToday ? " is-today" : "") },
+        el("span", { class: "week-strip-letter" }, WEEKDAY_LETTERS[key]),
+        tile
+      ));
+    }
+
+    return el("div", { class: "card week-strip-card", "data-testid": "home-week-strip" },
+      el("div", { class: "row-between" },
+        el("div", { class: "week-strip-heading" }, "Cadence"),
+        el("div", { class: "week-strip-count" },
+          el("span", { class: "week-strip-count-num" }, String(doneCount)),
+          ` / ${goal} workouts`)
+      ),
+      row
+    );
+  }
+
   async function renderHome(view) {
     const [workouts, meals] = await Promise.all([Storage.getWorkouts(), Storage.getMeals()]);
     const completed = workouts.filter(w => w.completedAt);
@@ -1918,12 +2370,32 @@
       return s + (w.exercises || []).reduce((s2, ex) => s2 + U.volume(ex.sets), 0);
     }, 0);
 
-    // 1) Greeting
+    // 1) Greeting — date eyebrow, greeting, streak flame pill
     const profileName = (state.prefs?.profileName || "").trim();
-    view.appendChild(el("h1", { class: "home-greeting" },
-      el("span", { class: "greet-part" }, profileName ? `Good ${greeting()}, ` : `Good ${greeting()}.`),
-      profileName ? el("span", { class: "greet-name" }, profileName) : null
-    ));
+    const dateStr = new Date().toLocaleDateString("en-GB",
+      { weekday: "short", day: "numeric", month: "short" }).toUpperCase();
+    const topbar = el("div", { class: "home-topbar" },
+      el("div", { class: "home-topbar-main" },
+        el("div", { class: "home-date" }, dateStr),
+        el("h1", { class: "home-greeting" },
+          el("span", { class: "greet-part" }, profileName ? `Good ${greeting()}, ` : `Good ${greeting()}.`),
+          profileName ? el("span", { class: "greet-name" }, profileName) : null
+        )
+      )
+    );
+    if (streak >= 1) {
+      topbar.appendChild(el("div", { class: "streak-pill", title: `${streak}-day streak`, "data-testid": "home-streak-pill" },
+        el("span", { class: "streak-flame", html: '<svg viewBox="0 0 15 17" width="15" height="17"><path d="M7.5 1C8 4 11 5 11 8.5A3.5 3.5 0 0 1 4 8.5c0-1 .4-1.6.9-2.2C5.6 7 6.5 7 6.5 5.4 6.5 3.6 6 2.3 7.5 1Z" fill="#f0883e"/><path d="M7.5 16a4 4 0 0 1-4-4c0-2.2 1.7-3.2 2.4-4.6.3 1.4 1.3 1.6 1.3 2.8 0 .9-.5 1.2-.5 1.9A1.8 1.8 0 0 0 10 12c0-1.6-.8-2.3-.8-2.3S11.5 10.5 11.5 12a4 4 0 0 1-4 4Z" fill="#ffb454"/></svg>' }),
+        el("span", { class: "streak-num" }, String(streak))
+      ));
+    }
+    view.appendChild(topbar);
+
+    // Weekly-plan data for the today hero + week strip
+    const [allEx, templates] = await Promise.all([getAllExercises(), Storage.getTemplates()]);
+    const exById = new Map(allEx.map(e => [e.id, e]));
+    const tplById = new Map(templates.map(t => [t.id, t]));
+    const plan = getWeeklyPlan();
 
     // Active workout stays above everything — interrupt context
     if (state.activeWorkout) {
@@ -1950,12 +2422,17 @@
       ));
     }
 
-    // 2) Today — food room hero + macro tiles
+    // 2) Today's training — plan-driven hero (hidden while a workout is active)
+    if (!state.activeWorkout) {
+      view.appendChild(buildTodayWorkoutHero({ plan, tplById, exById }));
+    }
+
+    // 3) Today — food room hero + stacked macro balance bar
     const todayBlock = homeSection(
       "Today",
       "home-section-today",
       renderEnergyBudgetCard(energy, todaysKcal),
-      renderMacroTiles(todayMacros, macroGoals, energy)
+      renderMacroStackBar(todayMacros, macroGoals, energy)
     );
     view.appendChild(todayBlock);
 
@@ -2004,7 +2481,8 @@
           : el("div", { class: "sparkline-empty", style: "height:58px" }, "No data yet")
       )
     );
-    view.appendChild(homeSection("This week", "home-section-week", weekDuo, weekStats));
+    const weekStrip = buildWeekStrip(completed, plan);
+    view.appendChild(homeSection("This week", "home-section-week", weekStrip, weekStats, weekDuo));
 
     // 5) Trends — longer-range signals, secondary to action + today
     const trends = homeSection(
@@ -2055,6 +2533,52 @@
       row.appendChild(tile);
     }
     return row;
+  }
+
+  // Single stacked bar showing macro *balance* (share of eaten calories) plus a
+  // compact grams-vs-goal legend. Replaces the 3 flat tiles on Home.
+  function renderMacroStackBar(totals, macroGoals, energy) {
+    const t = totals || { protein: 0, carbs: 0, fat: 0 };
+    const goals = macroGoals?.hasGoals ? macroGoals.goals : null;
+    const estimate = !macrosArePersonal(macroGoals, energy);
+    const defs = [
+      { key: "protein", label: "Protein", cls: "is-protein", perG: 4 },
+      { key: "carbs", label: "Carbs", cls: "is-carbs", perG: 4 },
+      { key: "fat", label: "Fat", cls: "is-fat", perG: 9 }
+    ];
+    const kcals = defs.map(d => Math.max(0, (t[d.key] || 0)) * d.perG);
+    const totalKcal = kcals.reduce((a, b) => a + b, 0);
+
+    const card = el("div", { class: "card macro-stack-card", "data-testid": "home-today-macros" });
+    card.appendChild(el("div", { class: "row-between", style: "align-items:baseline" },
+      el("div", { class: "macro-stack-title" }, "Macros"),
+      el("div", { class: "text-xs text-faint" }, totalKcal > 0 ? "share of calories eaten" : (estimate ? "targets are estimates" : ""))
+    ));
+
+    const bar = el("div", { class: "macro-stack-bar" });
+    if (totalKcal > 0) {
+      defs.forEach((d, i) => {
+        const w = (kcals[i] / totalKcal) * 100;
+        if (w > 0) bar.appendChild(el("div", { class: "macro-stack-seg " + d.cls, style: `width:${w}%`, title: d.label }));
+      });
+    } else {
+      bar.appendChild(el("div", { class: "macro-stack-empty" }));
+    }
+    card.appendChild(bar);
+
+    const legend = el("div", { class: "macro-stack-legend" });
+    for (const d of defs) {
+      const val = Math.round(t[d.key] || 0);
+      const goal = goals ? Math.round(goals[d.key] || 0) : 0;
+      legend.appendChild(el("div", { class: "macro-stack-item", "data-testid": "macro-tile-" + d.key },
+        el("span", { class: "macro-stack-dot " + d.cls }),
+        el("span", { class: "macro-stack-name" }, d.label),
+        el("span", { class: "macro-stack-val" }, `${val}g`),
+        goal > 0 ? el("span", { class: "macro-stack-goal" }, `/ ${goal}${estimate ? " est" : ""}`) : null
+      ));
+    }
+    card.appendChild(legend);
+    return card;
   }
 
   function miniBars(values, opts = {}) {
@@ -2111,6 +2635,113 @@
     return streak;
   }
 
+  // ============ Weekly plan (lightweight split/program) ============
+  // A plan maps weekdays to a template id or the literal "rest". Missing keys
+  // are "open" days (decide at the gym). Weekday-based so "today's plan" needs
+  // no rotation state and the week strip stays calendar-aligned.
+  const WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+  const WEEKDAY_LABELS = { mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday", sun: "Sunday" };
+  const WEEKDAY_LETTERS = { mon: "M", tue: "T", wed: "W", thu: "T", fri: "F", sat: "S", sun: "S" };
+
+  // Preset day focuses — assignable without a full template. `cat` pre-scopes
+  // the exercise picker to that category when the session is started (null =
+  // no scope). Stored on a day as "focus:<key>".
+  const focusSvg = (inner) =>
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + inner + '</svg>';
+  const DAY_FOCUSES = [
+    { key: "push", label: "Push", cat: "chest", desc: "Chest, shoulders & triceps",
+      icon: focusSvg('<path d="M4 12h9"/><path d="M10 8l4 4-4 4"/><path d="M18 4v16"/>') },
+    { key: "pull", label: "Pull", cat: "back", desc: "Back & biceps",
+      icon: focusSvg('<path d="M20 12h-9"/><path d="M14 8l-4 4 4 4"/><path d="M6 4v16"/>') },
+    { key: "legs", label: "Legs", cat: "legs", desc: "Quads, hamstrings & glutes",
+      icon: focusSvg('<path d="M9 3l-1 9-2 9"/><path d="M15 3l1 9 2 9"/><path d="M8.5 12h7"/>') },
+    { key: "upper", label: "Upper body", cat: "chest", desc: "Chest, back, shoulders & arms",
+      icon: focusSvg('<path d="M6 8l2.5-3h7L18 8"/><path d="M8 5v6a4 4 0 008 0V5"/>') },
+    { key: "lower", label: "Lower body", cat: "legs", desc: "Legs & glutes",
+      icon: focusSvg('<path d="M6 6h12l-1 6H7z"/><path d="M8.5 12l-1.5 9M15.5 12l1.5 9"/>') },
+    { key: "full", label: "Full body", cat: null, desc: "A bit of everything",
+      icon: focusSvg('<circle cx="12" cy="4.5" r="2"/><path d="M12 7v7"/><path d="M6.5 9.5l5.5 2 5.5-2"/><path d="M12 14l-3.5 6M12 14l3.5 6"/>') },
+    { key: "arms", label: "Arms", cat: "arms", desc: "Biceps & triceps",
+      icon: focusSvg('<path d="M7 21v-6a3 3 0 013-3h1"/><path d="M11 12V6a2.5 2.5 0 015 0c0 3 2 4 2 7a4 4 0 01-8 .5"/>') },
+    { key: "chest", label: "Chest", cat: "chest", desc: "Chest focus",
+      icon: focusSvg('<path d="M4 8h16v3a4 4 0 01-4 4h-2a2 2 0 01-4 0H8a4 4 0 01-4-4z"/><path d="M12 8v7"/>') },
+    { key: "back", label: "Back", cat: "back", desc: "Back focus",
+      icon: focusSvg('<path d="M12 3v18"/><path d="M12 7L6 9v4M12 7l6 2v4"/>') },
+    { key: "shoulders", label: "Shoulders", cat: "shoulders", desc: "Delts",
+      icon: focusSvg('<circle cx="6.5" cy="12" r="3.5"/><circle cx="17.5" cy="12" r="3.5"/><path d="M10 12h4"/>') },
+    { key: "core", label: "Core", cat: "core", desc: "Abs & core",
+      icon: focusSvg('<rect x="8.5" y="4" width="7" height="16" rx="2"/><path d="M8.5 9.5h7M8.5 14.5h7"/>') },
+    { key: "cardio", label: "Cardio", cat: "cardio", desc: "Conditioning",
+      icon: focusSvg('<path d="M3 12h4l2-6 4 13 2.5-7H21"/>') }
+  ];
+  const REST_ICON = focusSvg('<path d="M20.5 14.5A8 8 0 1110.2 3.6a6 6 0 0010.3 10.9z"/>');
+  const OPEN_ICON = focusSvg('<circle cx="12" cy="12" r="8" stroke-dasharray="3 3"/><path d="M12 8v4l3 2"/>');
+  const TEMPLATE_ICON = focusSvg('<rect x="6" y="3.5" width="12" height="17" rx="2"/><path d="M9.5 9h5M9.5 13h5M9.5 17h3"/>');
+  const DAY_FOCUS_BY_KEY = Object.fromEntries(DAY_FOCUSES.map(f => [f.key, f]));
+  // Resolve a stored day value to a focus preset (or null).
+  function focusFromValue(v) {
+    return (typeof v === "string" && v.startsWith("focus:")) ? (DAY_FOCUS_BY_KEY[v.slice(6)] || null) : null;
+  }
+  // Category to pre-open the picker with after a focus-day "Start".
+  let pendingPickerCat = null;
+
+  // JS getDay(): 0=Sun..6=Sat → our Monday-first keys.
+  function weekdayKeyFor(date = new Date()) {
+    return WEEKDAY_KEYS[(date.getDay() + 6) % 7];
+  }
+
+  function getWeeklyPlan() {
+    const p = state.prefs.weeklyPlan;
+    return (p && typeof p === "object") ? p : {};
+  }
+
+  function planHasAny(plan) {
+    return WEEKDAY_KEYS.some(k => plan[k] === "rest" || (plan[k] && plan[k] !== ""));
+  }
+
+  // Dates (ISO) for the Monday-first week containing `ref`.
+  function weekDatesFor(ref = new Date()) {
+    const monday = new Date(ref);
+    monday.setDate(ref.getDate() - ((ref.getDay() + 6) % 7));
+    return WEEKDAY_KEYS.map((key, i) => {
+      const d = new Date(monday); d.setDate(monday.getDate() + i);
+      return { key, iso: U.todayISO(d) };
+    });
+  }
+
+  const FOCUS_BUCKETS = [
+    { key: "Chest", match: /pector|chest/i },
+    { key: "Back", match: /lat|rhomboid|trap|erector|\bback\b/i },
+    { key: "Shoulders", match: /deltoid|shoulder/i },
+    { key: "Arms", match: /bicep|tricep|forearm|brachial/i },
+    { key: "Legs", match: /quad|hamstring|glute|calf|calves|adductor|abductor|hip/i },
+    { key: "Core", match: /abdominal|oblique|core|quadratus/i }
+  ];
+
+  // Short "Chest & Triceps"-style label from a template's exercises.
+  function templateFocus(template, byId) {
+    const counts = {};
+    for (const te of (template.exercises || [])) {
+      const def = byId.get(te.exerciseId);
+      const muscles = def?.muscles || [];
+      const hit = new Set();
+      for (const m of muscles) for (const b of FOCUS_BUCKETS) if (b.match.test(m)) hit.add(b.key);
+      for (const k of hit) counts[k] = (counts[k] || 0) + 1;
+    }
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(e => e[0]);
+    return top.length ? top.slice(0, 2).join(" & ") : null;
+  }
+
+  // Rough session length: ~3.5 min per strength set (incl rest) + cardio minutes.
+  function templateEstMin(template) {
+    let min = 0;
+    for (const te of (template.exercises || [])) {
+      if (te.targetDurationMin != null) min += te.targetDurationMin;
+      else min += (te.targetSets || 3) * 3.5;
+    }
+    return Math.max(5, Math.round(min / 5) * 5);
+  }
+
   function renderHeatmap(completed) {
     const card = el("div", { class: "card" });
     card.appendChild(el("div", { class: "card-title" }, "Training frequency (last 24 weeks)"));
@@ -2155,22 +2786,23 @@
   // ============ WORKOUT ============
   async function renderWorkout(view) {
     if (!state.activeWorkout) {
-      // Primary path — pick an exercise and the session starts immediately.
+      // Primary path — tap to add exercises, then start when ready.
       const all = await getAllExercises();
-      const startCard = el("div", { class: "card" },
-        el("h2", { style: "margin-bottom: 6px;" }, "Start a workout"),
-        el("p", { class: "text-muted text-sm mb-8" },
-          "Pick an exercise to begin — your session starts the moment you choose one. Add more as you go.")
-      );
-      const picker = buildExercisePickerUI(all, async (id, name) => {
-        await beginWorkoutSession({
-          name: suggestedName(),
-          exercises: [await buildExerciseEntry(id, name)],
-          source: "empty"
-        });
+      // A focus day's "Start" pre-opens the picker on that category (once).
+      const initialCat = pendingPickerCat;
+      pendingPickerCat = null;
+      const picker = buildExercisePickerUI(all, {
+        confirmLabel: (n) => `Start workout · ${n} exercise${n === 1 ? "" : "s"}`,
+        allowCustom: true,
+        customImmediate: false,
+        initialCat,
+        onConfirm: async (items) => {
+          const exercises = [];
+          for (const it of items) exercises.push(await buildExerciseEntry(it.id, it.name));
+          await beginWorkoutSession({ name: suggestedName(), exercises, source: "empty" });
+        }
       });
-      startCard.appendChild(picker.body);
-      view.appendChild(startCard);
+      view.appendChild(el("div", { class: "xpick-screen" }, picker.body));
       picker.refresh();
 
       // Repeat last completed session — compact fast path.
@@ -2195,15 +2827,32 @@
         ));
       }
 
-      // Templates section
-      const templates = await Storage.getTemplates();
-      const tplCard = el("div", { class: "card" });
-      tplCard.appendChild(el("div", { class: "row-between" },
-        el("div", { class: "card-title", style: "margin: 0" }, "Templates"),
-        el("span", { class: "text-xs text-faint" }, "Save routines when you finish a workout")
+      // Weekly plan entry — summarises the split and opens the editor.
+      const wplan = getWeeklyPlan();
+      const trainingDays = WEEKDAY_KEYS.filter(k => wplan[k] && wplan[k] !== "rest").length;
+      const restDays = WEEKDAY_KEYS.filter(k => wplan[k] === "rest").length;
+      const planSummary = planHasAny(wplan)
+        ? `${trainingDays} training day${trainingDays === 1 ? "" : "s"}` + (restDays ? ` · ${restDays} rest` : "")
+        : "Not set up yet";
+      view.appendChild(el("div", { class: "card wplan-entry", "data-testid": "workout-weekly-plan" },
+        el("div", { class: "row-between", style: "gap:12px;align-items:center" },
+          el("div", { style: "min-width:0" },
+            el("div", { class: "card-title", style: "margin:0 0 4px 0" }, "Weekly plan"),
+            el("div", { class: "text-xs text-muted" }, planSummary)
+          ),
+          el("button", {
+            class: "btn btn-sm", style: "flex:none",
+            on: { click: openWeeklyPlanQuiz }
+          }, planHasAny(wplan) ? "Edit" : "Set up")
+        )
       ));
+
+      // Templates section — collapsible, collapsed by default to keep the
+      // exercise card the focus on small screens.
+      const templates = await Storage.getTemplates();
+      const tplBody = el("div", { class: "xcollapse-body" });
       if (templates.length === 0) {
-        tplCard.appendChild(el("p", { class: "text-sm text-faint", style: "margin: 8px 0" },
+        tplBody.appendChild(el("p", { class: "text-sm text-faint", style: "margin: 8px 0" },
           "No templates yet. Build one below, or finish a workout and save it as a template."));
       } else {
         const grid = el("div", { class: "template-grid" });
@@ -2233,62 +2882,219 @@
             )
           ));
         }
-        tplCard.appendChild(grid);
+        tplBody.appendChild(grid);
       }
       // Manual "New template" button
-      tplCard.appendChild(el("button", { class: "btn btn-ghost btn-sm mt-8", on: { click: () => openTemplateEditor(null) } },
+      tplBody.appendChild(el("button", { class: "btn btn-ghost btn-sm mt-8", on: { click: () => openTemplateEditor(null) } },
         el("span", { html: icons.plus }), "Create template manually"
       ));
+      const tplChevron = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+      const tplHead = el("button", { class: "xcollapse-head", type: "button", "aria-expanded": "false", "data-testid": "templates-toggle" },
+        el("span", { class: "xcollapse-title" }, "Templates"),
+        el("span", { class: "xcollapse-count" }, String(templates.length)),
+        el("span", { class: "xcollapse-spacer" }),
+        el("span", { class: "xcollapse-chev", html: tplChevron })
+      );
+      const tplCard = el("div", { class: "card xcollapse" }, tplHead, tplBody);
+      tplHead.addEventListener("click", () => {
+        const open = tplCard.classList.toggle("open");
+        tplHead.setAttribute("aria-expanded", open ? "true" : "false");
+      });
       view.appendChild(tplCard);
       return;
     }
 
-    const w = state.activeWorkout;
+    await renderActiveWorkout(view);
+  }
 
-    // Header — name, timer, actions
+  // Full-screen celebration overlay. Tap anywhere or the CTA to continue.
+  const EX_CHEERS = [
+    { e: "💪", t: "Crushed it!" }, { e: "🔥", t: "On fire!" },
+    { e: "😤", t: "Strong work!" }, { e: "⚡", t: "Electric!" },
+    { e: "🎯", t: "Dialled in!" }, { e: "🚀", t: "Keep climbing!" },
+    { e: "🦁", t: "Beast mode!" }, { e: "👏", t: "Well done!" }
+  ];
+  function showCelebration({ emoji, title, message, stats, ctaLabel = "Continue", onContinue, big = false }) {
+    const prev = document.getElementById("celebration");
+    if (prev) prev.remove();
+    const overlay = el("div", { id: "celebration", class: "celebration" + (big ? " celebration-big" : "") });
+    let fired = false;
+    const done = () => {
+      if (fired) return; fired = true;
+      overlay.classList.add("out");
+      setTimeout(() => overlay.remove(), 240);
+      if (onContinue) onContinue();
+    };
+    const inner = el("div", { class: "celebration-inner" },
+      el("div", { class: "celebration-emoji" }, emoji),
+      el("div", { class: "celebration-title" }, title),
+      message ? el("div", { class: "celebration-msg" }, message) : null,
+      (stats && stats.length) ? el("div", { class: "celebration-stats" },
+        ...stats.map(s => el("div", { class: "celebration-stat" },
+          el("div", { class: "celebration-stat-val" }, s.value),
+          el("div", { class: "celebration-stat-lbl" }, s.label)
+        ))
+      ) : null,
+      el("button", { class: "btn btn-primary btn-block celebration-cta", on: { click: (e) => { e.stopPropagation(); done(); } } }, ctaLabel)
+    );
+    overlay.appendChild(inner);
+    overlay.addEventListener("click", done);
+    document.body.appendChild(overlay);
+  }
+
+  // Active workout as a vertical card pager — one card per exercise (or per
+  // superset group), a Finish card at the end, celebrations on completion.
+  async function renderActiveWorkout(view) {
+    const w = state.activeWorkout;
+    const exs = w.exercises || [];
+
+    // Group consecutive exercises that share a supersetGroup into one card.
+    const cards = [];
+    for (let i = 0; i < exs.length; i++) {
+      const g = exs[i].supersetGroup;
+      const last = cards[cards.length - 1];
+      if (g && last && last.group === g) last.idxs.push(i);
+      else cards.push({ group: g || null, idxs: [i] });
+    }
+    const totalCards = cards.length;
+    const panelCount = totalCards + 1; // + Finish card
+
+    const screen = el("div", { class: "wpager-screen" });
+
+    // Slim top bar: name + timer + Finish
     const timeElapsed = Math.floor((Date.now() - w.startedAt) / 1000);
-    view.appendChild(el("div", { class: "workout-header" },
-      el("div", {},
-        el("h1", { style: "font-size: 24px;" }, w.name || "Workout"),
-        el("div", { class: "text-xs text-faint mt-8" }, U.formatDate(w.date, { weekday: "long" }))
+    screen.appendChild(el("div", { class: "wtopbar" },
+      el("div", { class: "wtopbar-main" },
+        el("div", { class: "wtopbar-name" }, w.name || "Workout"),
+        el("div", { class: "workout-timer", id: "workout-elapsed" }, U.formatTime(timeElapsed))
       ),
-      el("div", { class: "row" },
-        el("div", { class: "workout-timer", id: "workout-elapsed" }, U.formatTime(timeElapsed)),
-        el("button", { class: "btn btn-primary", on: { click: finishWorkout } }, "Finish")
-      )
+      el("button", { class: "btn btn-primary btn-sm", on: { click: onFinishWorkout } }, "Finish")
     ));
 
-    // Workout-level notes (collapsed by default)
-    const notesArea = el("textarea", {
-      class: "input workout-notes",
-      placeholder: "Session notes (energy, sleep, how it felt)…",
-      rows: "2"
-    });
-    notesArea.value = w.notes || "";
-    const debouncedNotes = U.debounce(async () => {
-      w.notes = notesArea.value;
-      await Storage.saveWorkout(w);
-    }, 400);
-    notesArea.addEventListener("input", debouncedNotes);
-    view.appendChild(el("div", { class: "workout-notes-wrap" }, notesArea));
+    const pager = el("div", { class: "wpager", "data-testid": "wpager" });
+    const dots = el("div", { class: "wpager-dots" });
+    screen.appendChild(pager);
+    screen.appendChild(dots);
 
-    // Exercises
-    for (const [idx, ex] of (w.exercises || []).entries()) {
-      view.appendChild(await renderExerciseBlock(ex, idx));
+    let activeIdx = 0;
+    function goToPanel(i) {
+      const p = pager.children[i];
+      if (p) { workoutScrollIdx = i; pager.scrollTo({ top: p.offsetTop, behavior: "smooth" }); }
+    }
+    function renderDots() {
+      clear(dots);
+      for (let i = 0; i < panelCount; i++) {
+        const finished = i < totalCards && cards[i].idxs.every(x => exs[x].finished);
+        dots.appendChild(el("button", {
+          class: "wdot" + (i === activeIdx ? " active" : "") + (finished ? " done" : ""),
+          type: "button", "data-idx": String(i), on: { click: () => goToPanel(i) }
+        }));
+      }
+    }
+    function syncDots() {
+      for (const d of Array.from(dots.children)) d.classList.toggle("active", Number(d.getAttribute("data-idx")) === activeIdx);
     }
 
-    // Add exercise
-    view.appendChild(el("button", { class: "btn btn-block mt-16", on: { click: () => openExercisePicker(async (exerciseId, name) => {
-      w.exercises.push(await buildExerciseEntry(exerciseId, name));
+    function finishCard(ci) {
+      for (const i of cards[ci].idxs) exs[i].finished = true;
+      Storage.saveWorkout(w);
+      const cheer = EX_CHEERS[Math.floor(Math.random() * EX_CHEERS.length)];
+      const remaining = cards.filter((c, i) => i !== ci && !c.idxs.every(x => exs[x].finished)).length;
+      showCelebration({
+        emoji: cheer.e,
+        title: cheer.t,
+        message: remaining > 0 ? `${remaining} exercise${remaining === 1 ? "" : "s"} to go` : "Last one done — finish up!",
+        ctaLabel: ci + 1 < totalCards ? "Next exercise" : "Review & finish",
+        onContinue: () => goToPanel(ci + 1)
+      });
+    }
+
+    async function onFinishWorkout() {
+      const doneSets = exs.reduce((s, e) => s + (e.sets || []).filter(x => x.done).length, 0);
+      if (!doneSets) { await finishWorkout(); return; }
+      const volume = Math.round(exs.reduce((s, e) => s + (e.sets || []).filter(x => x.done).reduce((a, x) => a + ((x.weight || 0) * (x.reps || 0)), 0), 0));
+      const kcal = workoutKcalTotal(w);
+      const dur = U.formatDuration(Math.floor((Date.now() - w.startedAt) / 1000));
+      showCelebration({
+        big: true,
+        emoji: "🎉",
+        title: "Workout complete!",
+        message: "Great session — logged and saved.",
+        stats: [
+          { value: String(doneSets), label: "sets" },
+          { value: volume > 0 ? volume.toLocaleString("en-GB") : "—", label: "kg volume" },
+          { value: kcal > 0 ? String(kcal) : "—", label: "kcal" },
+          { value: dur, label: "time" }
+        ],
+        ctaLabel: "Finish workout",
+        onContinue: () => { finishWorkout(); }
+      });
+    }
+
+    // ---- Exercise / superset cards ----
+    for (let ci = 0; ci < cards.length; ci++) {
+      const card = cards[ci];
+      const finished = card.idxs.every(i => exs[i].finished);
+      const panel = el("div", { class: "wpanel" + (finished ? " is-finished" : ""), "data-ci": String(ci) });
+      panel.appendChild(el("div", { class: "wpanel-eyebrow" },
+        card.group ? `SUPERSET · ${ci + 1} of ${totalCards}` : `EXERCISE ${ci + 1} of ${totalCards}`));
+      const bodyWrap = el("div", { class: "wpanel-body" });
+      for (const i of card.idxs) bodyWrap.appendChild(await renderExerciseBlock(exs[i], i));
+      panel.appendChild(bodyWrap);
+      const foot = el("div", { class: "wpanel-foot" });
+      foot.appendChild(el("button", {
+        class: "btn btn-block wfinish-btn" + (finished ? " is-done" : " btn-primary"),
+        on: { click: () => finishCard(ci) }
+      }, finished ? "✓ Done · Next" : (card.group ? "Finish superset" : "Finish exercise")));
+      panel.appendChild(foot);
+      pager.appendChild(panel);
+    }
+
+    // ---- Finish card ----
+    const fin = el("div", { class: "wpanel wpanel-finish" });
+    fin.appendChild(el("div", { class: "wpanel-eyebrow" }, "WRAP UP"));
+    fin.appendChild(el("h2", { class: "wfinish-title" }, "Finish workout"));
+    const finishedCount = cards.filter(c => c.idxs.every(x => exs[x].finished)).length;
+    fin.appendChild(el("div", { class: "wfinish-progress" }, `${finishedCount} of ${totalCards} exercises done`));
+    const notesArea = el("textarea", { class: "input workout-notes", placeholder: "Session notes (energy, sleep, how it felt)…", rows: "2" });
+    notesArea.value = w.notes || "";
+    notesArea.addEventListener("input", U.debounce(async () => { w.notes = notesArea.value; await Storage.saveWorkout(w); }, 400));
+    fin.appendChild(el("div", { class: "workout-notes-wrap" }, notesArea));
+    fin.appendChild(el("button", { class: "btn btn-block mt-8", on: { click: () => openExercisePicker(async (items) => {
+      for (const it of items) w.exercises.push(await buildExerciseEntry(it.id, it.name));
       await Storage.saveWorkout(w);
       renderMain();
-    }) } },
-      el("span", { html: icons.plus }), "Add exercise"
-    ));
+      toast(`Added ${items.length} exercise${items.length === 1 ? "" : "s"}`);
+    }, { existingIds: new Set(exs.map(e => e.exerciseId)), title: "Add exercises" }) } },
+      el("span", { html: icons.plus }), "Add exercise"));
+    fin.appendChild(el("button", { class: "btn btn-primary btn-block mt-8", on: { click: onFinishWorkout } }, "Finish workout"));
+    fin.appendChild(el("button", { class: "btn btn-ghost text-danger btn-block mt-8", on: { click: cancelWorkout } }, "Cancel workout"));
+    pager.appendChild(fin);
 
-    view.appendChild(el("div", { class: "row mt-16", style: "gap: 8px; justify-content: flex-end;" },
-      el("button", { class: "btn btn-ghost text-danger", on: { click: cancelWorkout } }, "Cancel workout")
-    ));
+    // ---- Dots + scroll sync ----
+    renderDots();
+    let sRAF = null;
+    pager.addEventListener("scroll", () => {
+      if (sRAF) return;
+      sRAF = requestAnimationFrame(() => {
+        sRAF = null;
+        const center = pager.scrollTop + pager.clientHeight / 2;
+        let best = 0, bd = Infinity;
+        for (let i = 0; i < pager.children.length; i++) {
+          const cc = pager.children[i].offsetTop + pager.children[i].offsetHeight / 2;
+          const d = Math.abs(cc - center);
+          if (d < bd) { bd = d; best = i; }
+        }
+        if (best !== activeIdx) { activeIdx = best; workoutScrollIdx = best; syncDots(); }
+      });
+    }, { passive: true });
+
+    view.appendChild(screen);
+    // Restore the card after an action re-render.
+    if (workoutScrollIdx > 0 && workoutScrollIdx < panelCount) {
+      const ri = workoutScrollIdx;
+      requestAnimationFrame(() => { if (pager.children[ri]) { pager.scrollTop = pager.children[ri].offsetTop; activeIdx = ri; syncDots(); } });
+    }
   }
 
   function suggestedName() {
@@ -2404,6 +3210,7 @@
   }
 
   async function beginWorkoutSession({ name, exercises, templateId = null, source = "empty", sourceWorkoutId = null }) {
+    workoutScrollIdx = 0;
     const workout = {
       id: U.uid(),
       name: (name || suggestedName()).trim() || suggestedName(),
@@ -2461,45 +3268,33 @@
 
         let fields;
         if (isCardio) {
-          // Cardio targets are minutes + intensity, not sets/reps.
+          // Cardio targets are minutes, not sets/reps.
           delete te.targetSets;
           delete te.targetReps;
           if (te.targetDurationMin == null) te.targetDurationMin = 20;
-          if (!te.targetIntensity) te.targetIntensity = "moderate";
           const minsI = el("input", {
             type: "number", inputmode: "numeric", min: "1", max: "600",
             class: "input input-sm input-num", value: te.targetDurationMin
           });
           minsI.addEventListener("input", () => { te.targetDurationMin = parseInt(minsI.value) || 20; });
-          const intSel = el("select", { class: "input input-sm", style: "width: 84px" });
-          for (const [key, meta] of Object.entries(U.INTENSITY)) {
-            const opt = el("option", { value: key }, meta.label);
-            if (key === te.targetIntensity) opt.selected = true;
-            intSel.appendChild(opt);
-          }
-          intSel.addEventListener("change", () => { te.targetIntensity = intSel.value; });
           fields = [
             el("div", { class: "template-editor-field" },
-              el("label", {}, "Minutes"), minsI),
-            el("div", { class: "template-editor-field" },
-              el("label", {}, "Intensity"), intSel)
+              el("label", {}, "Minutes"), minsI)
           ];
         } else {
-          const setsI = el("input", {
-            type: "number", inputmode: "numeric", min: "1", max: "20",
-            class: "input input-sm input-num", value: te.targetSets ?? 3
+          const setsField = wheelField({
+            value: te.targetSets ?? 3, items: wheelRange(1, 12, 1), title: `${te.name} · sets`,
+            onPick: (v) => { te.targetSets = v; }
           });
-          const repsI = el("input", {
-            type: "number", inputmode: "numeric", min: "1", max: "100",
-            class: "input input-sm input-num", value: te.targetReps ?? 8
+          const repsField = wheelField({
+            value: te.targetReps ?? 8, items: wheelRange(1, 30, 1), title: `${te.name} · reps`,
+            onPick: (v) => { te.targetReps = v; }
           });
-          setsI.addEventListener("input", () => { te.targetSets = parseInt(setsI.value) || 3; });
-          repsI.addEventListener("input", () => { te.targetReps = parseInt(repsI.value) || 8; });
           fields = [
             el("div", { class: "template-editor-field" },
-              el("label", {}, "Sets"), setsI),
+              el("label", {}, "Sets"), setsField),
             el("div", { class: "template-editor-field" },
-              el("label", {}, "Reps"), repsI)
+              el("label", {}, "Reps"), repsField)
           ];
         }
 
@@ -2526,15 +3321,17 @@
       });
     }
 
-    const addBtn = el("button", { class: "btn btn-block mt-8", on: { click: () => openExercisePicker((exerciseId, name) => {
-      const def = all.find(x => x.id === exerciseId);
-      const isCardio = def ? inferExerciseType(def) === "cardio" : looksLikeCardio({ id: exerciseId, name });
-      template.exercises.push(isCardio
-        ? { exerciseId, name, targetDurationMin: 20, targetIntensity: "moderate" }
-        : { exerciseId, name, targetSets: 3, targetReps: 8 });
+    const addBtn = el("button", { class: "btn btn-block mt-8", on: { click: () => openExercisePicker((items) => {
+      for (const it of items) {
+        const def = all.find(x => x.id === it.id);
+        const isCardio = def ? inferExerciseType(def) === "cardio" : looksLikeCardio({ id: it.id, name: it.name });
+        template.exercises.push(isCardio
+          ? { exerciseId: it.id, name: it.name, targetDurationMin: 20, targetIntensity: "moderate" }
+          : { exerciseId: it.id, name: it.name, targetSets: 3, targetReps: 8 });
+      }
       // openExercisePicker closes its own modal; re-open editor
       openTemplateEditor(template);
-    }) } }, el("span", { html: icons.plus }), "Add exercise");
+    }, { existingIds: new Set((template.exercises || []).map(e => e.exerciseId)), title: "Add to template" }) } }, el("span", { html: icons.plus }), "Add exercise");
 
     const body = el("div", {},
       el("label", { class: "label" }, "Template name"),
@@ -2561,6 +3358,205 @@
 
     openModal(existing ? "Edit template" : "New template", body, footer);
     refresh();
+  }
+
+  // Guided, one-day-per-screen weekly plan builder — same stepped feel as the
+  // profile quiz. Assigns a template / Rest / Open to each weekday.
+  async function openWeeklyPlanQuiz() {
+    const templates = (await Storage.getTemplates())
+      .slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    const tplById = new Map(templates.map(t => [t.id, t]));
+    const draft = { ...getWeeklyPlan() };
+    const todayKey = weekdayKeyFor();
+
+    const STEPS = [...WEEKDAY_KEYS, "review"];
+    const LAST_DAY = WEEKDAY_KEYS.length - 1;
+    let idx = 0;
+
+    const overlay = el("div", { class: "pquiz", id: "weekly-plan-quiz", "data-testid": "weekly-plan-quiz" });
+    const bar = el("div", { class: "pquiz-bar-fill" });
+    const backBtn = el("button", {
+      type: "button", class: "pquiz-back", "data-testid": "wplan-back",
+      html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>'
+    });
+    const closeBtn = el("button", {
+      type: "button", class: "pquiz-close", "data-testid": "wplan-close",
+      html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>'
+    });
+    const stage = el("div", { class: "pquiz-stage" });
+    overlay.append(el("div", { class: "pquiz-topbar" }, backBtn, el("div", { class: "pquiz-bar" }, bar), closeBtn), stage);
+
+    const close = () => { overlay.classList.add("is-closing"); setTimeout(() => overlay.remove(), 220); };
+    backBtn.addEventListener("click", () => { if (idx > 0) goto(idx - 1, "back"); });
+    closeBtn.addEventListener("click", close);
+
+    function assignLabel(v) {
+      if (v === "rest") return "Rest day";
+      const f = focusFromValue(v);
+      if (f) return f.label;
+      if (v && tplById.get(v)) return tplById.get(v).name;
+      return "Open";
+    }
+
+    function choiceCard({ label, hint, icon, iconHtml, selected, onPick, testid }) {
+      const card = el("button", {
+        type: "button", class: "pquiz-choice" + (selected ? " is-sel" : ""),
+        "data-testid": testid, on: { click: onPick }
+      });
+      if (iconHtml) card.appendChild(el("div", { class: "pquiz-choice-icon pquiz-choice-icon-svg", html: iconHtml }));
+      else if (icon) card.appendChild(el("div", { class: "pquiz-choice-icon" }, icon));
+      card.appendChild(el("div", { class: "pquiz-choice-main" },
+        el("div", { class: "pquiz-choice-label" }, label),
+        hint ? el("div", { class: "pquiz-choice-hint" }, hint) : null
+      ));
+      if (selected) card.appendChild(el("div", { class: "pquiz-choice-tick",
+        html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>' }));
+      return card;
+    }
+
+    // Choice list for a day, as a scroll picker "wheel" — the centred option
+    // grows and brightens; spin to it and tap (or Continue) to pick.
+    const WHEEL_ITEM_H = 60;
+    const WHEEL_H = 300;
+    function renderDay(key) {
+      const items = [];
+      for (const t of templates) {
+        const n = (t.exercises || []).length;
+        items.push({ value: t.id, label: t.name, hint: `${n} exercise${n === 1 ? "" : "s"} · template`, icon: TEMPLATE_ICON, testid: `wplan-pick-${t.id}` });
+      }
+      for (const f of DAY_FOCUSES) {
+        items.push({ value: "focus:" + f.key, label: f.label, hint: f.desc, icon: f.icon, testid: `wplan-pick-focus-${f.key}` });
+      }
+      items.push({ value: "rest", label: "Rest day", hint: "Recovery — no session", icon: REST_ICON, testid: "wplan-pick-rest" });
+      items.push({ value: null, label: "Open", hint: "Decide at the gym", icon: OPEN_ICON, testid: "wplan-pick-open" });
+
+      const curVal = draft[key] != null ? draft[key] : null;
+      let activeIdx = items.findIndex(it => it.value === curVal);
+      if (activeIdx < 0) activeIdx = items.length - 1; // default to "Open"
+
+      const wheel = el("div", { class: "wheel", "data-testid": "wplan-wheel" });
+      const itemEls = items.map((it, i) => el("button", {
+        type: "button", class: "wheel-item", "data-i": String(i), "data-testid": it.testid,
+        on: { click: () => onTap(i) }
+      },
+        el("span", { class: "wheel-item-icon", html: it.icon }),
+        el("span", { class: "wheel-item-label" }, it.label)
+      ));
+      itemEls.forEach(e => wheel.appendChild(e));
+      const wrap = el("div", { class: "wheel-wrap" }, el("div", { class: "wheel-selection" }), wheel);
+      const caption = el("div", { class: "wheel-caption text-muted" }, items[activeIdx].hint || "");
+
+      function paint() {
+        const center = wheel.scrollTop + WHEEL_H / 2;
+        let best = 0, bd = Infinity;
+        for (let i = 0; i < itemEls.length; i++) {
+          const c = itemEls[i].offsetTop + itemEls[i].offsetHeight / 2;
+          const d = Math.abs(c - center);
+          if (d < bd) { bd = d; best = i; }
+          const dist = Math.min(3, d / WHEEL_ITEM_H);
+          itemEls[i].style.transform = `scale(${(1 - dist * 0.16).toFixed(3)})`;
+          itemEls[i].style.opacity = String(Math.max(0.2, 1 - dist * 0.34).toFixed(3));
+          itemEls[i].classList.toggle("is-active", false);
+        }
+        itemEls[best].classList.add("is-active");
+        activeIdx = best;
+        caption.textContent = items[best].hint || "";
+      }
+      let raf = null;
+      wheel.addEventListener("scroll", () => {
+        if (raf) return;
+        raf = requestAnimationFrame(() => { raf = null; paint(); });
+      }, { passive: true });
+
+      function centerOn(i, smooth) {
+        wheel.scrollTo({ top: i * WHEEL_ITEM_H, behavior: smooth ? "smooth" : "auto" });
+      }
+      function confirm(i) {
+        const v = items[i].value;
+        if (v == null) delete draft[key]; else draft[key] = v;
+        goto(idx + 1, "next");
+      }
+      function onTap(i) {
+        // Tap the centred item to pick it; tap another to spin it to centre.
+        if (i === activeIdx) confirm(i);
+        else { centerOn(i, true); }
+      }
+
+      // Position on the current selection once laid out.
+      requestAnimationFrame(() => {
+        wheel.scrollTop = activeIdx * WHEEL_ITEM_H;
+        paint();
+      });
+
+      return el("div", { class: "pquiz-panel" },
+        el("div", { class: "pquiz-head" },
+          el("div", { class: "pquiz-eyebrow" }, key === todayKey ? "Today" : "Your week"),
+          el("h2", { class: "pquiz-title" }, WEEKDAY_LABELS[key]),
+          el("div", { class: "pquiz-sub" }, "Spin to a focus, then tap it or Continue.")
+        ),
+        el("div", { class: "pquiz-content pquiz-content-wheel" }, wrap, caption),
+        el("div", { class: "pquiz-foot" },
+          el("button", {
+            type: "button", class: "btn btn-primary btn-block pquiz-next", "data-testid": "wplan-continue",
+            on: { click: () => confirm(activeIdx) }
+          }, "Continue"),
+          templates.length ? null : el("button", {
+            type: "button", class: "pquiz-skip", "data-testid": "wplan-new-template",
+            on: { click: () => { close(); openTemplateEditor(null); } }
+          }, "＋ Create a template first")
+        )
+      );
+    }
+
+    function renderReview() {
+      const list = el("div", { class: "pquiz-list" });
+      for (const key of WEEKDAY_KEYS) {
+        const v = draft[key];
+        list.appendChild(el("button", {
+          type: "button", class: "wplan-review-row", "data-testid": `wplan-review-${key}`,
+          on: { click: () => goto(WEEKDAY_KEYS.indexOf(key), "back") }
+        },
+          el("span", { class: "wplan-review-day" }, WEEKDAY_LABELS[key]),
+          el("span", { class: "wplan-review-val" + (v ? " has" : "") }, assignLabel(v))
+        ));
+      }
+      return el("div", { class: "pquiz-panel" },
+        el("div", { class: "pquiz-head" },
+          el("div", { class: "pquiz-eyebrow" }, "Almost done"),
+          el("h2", { class: "pquiz-title" }, "Your week"),
+          el("div", { class: "pquiz-sub" }, "Tap any day to change it.")
+        ),
+        el("div", { class: "pquiz-content" }, list),
+        el("div", { class: "pquiz-foot" },
+          el("button", {
+            type: "button", class: "btn btn-primary btn-block pquiz-next", "data-testid": "wplan-save",
+            on: { click: async () => {
+              const next = {};
+              for (const key of WEEKDAY_KEYS) { if (draft[key]) next[key] = draft[key]; }
+              state.prefs.weeklyPlan = next;
+              await Storage.setPref("weeklyPlan", next);
+              close();
+              renderMain();
+              toast("Weekly plan saved");
+            } }
+          }, "Save plan")
+        )
+      );
+    }
+
+    function goto(next, dir) {
+      idx = Math.max(0, Math.min(STEPS.length - 1, next));
+      const key = STEPS[idx];
+      const node = key === "review" ? renderReview() : renderDay(key);
+      node.classList.add(dir === "back" ? "slide-in-back" : "slide-in-next");
+      clear(stage);
+      stage.appendChild(node);
+      backBtn.style.visibility = idx > 0 ? "visible" : "hidden";
+      bar.style.width = Math.round((Math.min(idx, LAST_DAY + 1) / (LAST_DAY + 1)) * 100) + "%";
+    }
+
+    document.body.appendChild(overlay);
+    goto(0, "next");
   }
 
   async function offerSaveAsTemplate(workout) {
@@ -2624,10 +3620,17 @@
     let autoCommitted = 0;
     for (const ex of (workout.exercises || [])) {
       const isCardio = ex.type === "cardio";
+      const isCustom = ex.type === "custom";
       for (const s of (ex.sets || [])) {
         if (s.done) continue;
         if (!s.touched) continue;
-        if (isCardio) {
+        if (isCustom) {
+          const v = s.value == null || s.value === "" ? NaN : Number(s.value);
+          if (Number.isFinite(v)) {
+            s.done = true;
+            autoCommitted += 1;
+          }
+        } else if (isCardio) {
           const dur = s.durationMin != null ? Number(s.durationMin) : NaN;
           if (dur > 0) {
             s.done = true;
@@ -2756,9 +3759,12 @@
     // Always normalise type from the exercise definition so cardio never shows kg/reps.
     normalizeWorkoutExercise(ex, def);
     if (def?.met != null && ex.met == null) ex.met = def.met;
-    const isCardio = looksLikeCardio(def) || looksLikeCardio(ex) || ex.type === "cardio";
+    const isCustom = (def?.type === "custom") || ex.type === "custom";
+    const isCardio = !isCustom && (looksLikeCardio(def) || looksLikeCardio(ex) || ex.type === "cardio");
     if (isCardio) ex.type = "cardio";
-    const exType = isCardio ? "cardio" : (ex.type || (def ? inferExerciseType(def) : "weighted") || "weighted");
+    const exType = isCustom ? "custom" : (isCardio ? "cardio" : (ex.type || (def ? inferExerciseType(def) : "weighted") || "weighted"));
+    const metric = isCustom ? normalizeMetric(def?.metric || ex.metric) : null;
+    if (isCustom && def?.metric && !ex.metric) ex.metric = def.metric;
     const bwKg = await getBodyweightKg();
     const defForMet = def || { category: isCardio ? "cardio" : "full_body", met: ex.met };
     const exKcal = exerciseKcalTotal(ex);
@@ -2766,7 +3772,7 @@
     // Determine if next exercise exists (for superset link)
     const nextEx = state.activeWorkout.exercises[idx + 1];
 
-    const block = el("div", { class: "exercise-block" });
+    const block = el("div", { class: "exercise-block", "data-ex-idx": String(idx) });
     if (ex.supersetGroup) block.classList.add("in-superset");
 
     // Type menu — only modes that make sense for this exercise. Single-mode
@@ -2775,7 +3781,8 @@
       weighted: "Weighted",
       bodyweight: "Bodyweight",
       weighted_bodyweight: "BW +kg",
-      cardio: "Cardio"
+      cardio: "Cardio",
+      custom: metric ? metric.label : "Custom"
     };
     const allowedTypes = allowedTypesFor(def, ex);
     if (!allowedTypes.includes(exType)) allowedTypes.unshift(exType);
@@ -2879,7 +3886,7 @@
           ex.sets = cloneSetsForReplay(prev.sets, exType);
           await Storage.saveWorkout(state.activeWorkout);
           toast(`Filled ${ex.name} from last time`);
-          renderMainKeepScroll();
+          refreshExerciseBlock(ex);
         } }
       }, "Use last");
       body.appendChild(el("div", { class: "prev-hint-row" },
@@ -2895,20 +3902,20 @@
     // Approx burn rate for this exercise
     const kpm = U.kcalPerMin({ ...defForMet, type: exType, category: def?.category || (isCardio ? "cardio" : defForMet.category) }, bwKg);
     body.appendChild(el("div", { class: "text-xs text-faint", style: "margin-bottom:8px" },
-      `≈ ${kpm} kcal/min at ${bwKg}kg` + (isCardio ? " · intensity adjusts burn" : " · estimate from effort")));
+      `≈ ${kpm} kcal/min at ${bwKg}kg` + (isCardio ? " · type your machine/watch reading to override" : " · estimate from effort")));
 
     if (isCardio) {
-      const header = el("div", { class: "set-row set-row-header type-cardio" },
+      const showDist = cardioTracksDistance(ex);
+      const header = el("div", { class: "set-row set-row-header type-cardio" + (showDist ? "" : " no-dist") },
         el("div", { class: "set-index" }, "#"),
         el("div", {}, "Min"),
-        el("div", {}, "Intensity"),
-        el("div", {}, "km"),
+        showDist ? el("div", {}, "km") : null,
         el("div", {}, "kcal"),
         el("div", { style: "text-align:right" }, "Log")
       );
       body.appendChild(header);
       for (const [si, s] of ex.sets.entries()) {
-        body.appendChild(await renderCardioRow(ex, si, s, prs, prev, defForMet, bwKg));
+        body.appendChild(await renderCardioRow(ex, si, s, prs, prev, defForMet, bwKg, showDist));
       }
       const controls = el("div", { class: "row", style: "gap:12px; align-items:center; margin-top:8px; flex-wrap:wrap;" },
         el("button", { class: "btn btn-ghost btn-sm", on: { click: async () => {
@@ -2920,8 +3927,29 @@
             done: false
           });
           await Storage.saveWorkout(state.activeWorkout);
-          renderMainKeepScroll();
+          refreshExerciseBlock(ex);
         } } }, el("span", { html: icons.plus }), "Add interval"),
+        ex.sets.length > 1 ? el("span", { class: "text-xs text-faint" }, "Double-tap the number to delete") : null
+      );
+      body.appendChild(controls);
+    } else if (isCustom) {
+      const unitLabel = metric.unit ? `${metric.label} (${metric.unit})` : metric.label;
+      const header = el("div", { class: "set-row set-row-header type-custom" },
+        el("div", { class: "set-index" }, "#"),
+        el("div", {}, unitLabel),
+        el("div", { style: "text-align:right" }, "Log")
+      );
+      body.appendChild(header);
+      for (const [si, s] of ex.sets.entries()) {
+        body.appendChild(await renderCustomRow(ex, si, s, prs, prev, metric));
+      }
+      const controls = el("div", { class: "row", style: "gap:12px; align-items:center; margin-top:8px; flex-wrap:wrap;" },
+        el("button", { class: "btn btn-ghost btn-sm", on: { click: async () => {
+          const last = [...ex.sets].reverse().find(x => x.done) || ex.sets[ex.sets.length - 1];
+          ex.sets.push({ value: last?.value ?? null, done: false });
+          await Storage.saveWorkout(state.activeWorkout);
+          refreshExerciseBlock(ex);
+        } } }, el("span", { html: icons.plus }), "Add set"),
         ex.sets.length > 1 ? el("span", { class: "text-xs text-faint" }, "Double-tap the number to delete") : null
       );
       body.appendChild(controls);
@@ -2954,7 +3982,7 @@
             done: false
           });
           await Storage.saveWorkout(state.activeWorkout);
-          renderMainKeepScroll();
+          refreshExerciseBlock(ex);
         } } }, el("span", { html: icons.plus }), "Add set"),
         ex.sets.length > 1 ? el("span", { class: "text-xs text-faint" }, "Double-tap the set number to delete") : null
       );
@@ -2965,7 +3993,7 @@
     return block;
   }
 
-  async function renderCardioRow(ex, si, s, prs, prev, def, bwKg) {
+  async function renderCardioRow(ex, si, s, prs, prev, def, bwKg, showDist = true) {
     const prevSet = prev?.sets[si];
     if (!s.intensity) s.intensity = "moderate";
 
@@ -2977,27 +4005,17 @@
       value: s.durationMin ?? "",
       title: "Duration (minutes)"
     });
-    const intensitySel = el("select", {
-      class: "input input-sm",
-      style: "width:100%",
-      "data-cardio-field": "intensity"
-    });
-    for (const [key, meta] of Object.entries(U.INTENSITY)) {
-      const opt = el("option", { value: key }, meta.label);
-      if (key === (s.intensity || "moderate")) opt.selected = true;
-      intensitySel.appendChild(opt);
-    }
-    const distInput = el("input", {
+    const distInput = showDist ? el("input", {
       type: "number", step: "0.1", inputmode: "decimal", min: "0",
       class: "input input-sm input-num",
       "data-cardio-field": "distanceKm",
       placeholder: prevSet?.distanceKm != null ? String(prevSet.distanceKm) : "—",
       value: s.distanceKm ?? "",
       title: "Distance (km)"
-    });
+    }) : null;
 
-    const metFor = (intensity, durationMin) => {
-      const met = U.getMET({ ...def, category: "cardio", type: "cardio", met: ex.met ?? def.met }, intensity);
+    const metFor = (durationMin) => {
+      const met = U.getMET({ ...def, category: "cardio", type: "cardio", met: ex.met ?? def.met }, s.intensity || "moderate");
       return U.estimateKcal(met, bwKg, durationMin || 0);
     };
 
@@ -3005,8 +4023,7 @@
       const dur = durInput.value === ""
         ? (s.durationMin ?? 0)
         : parseFloat(durInput.value);
-      const intensity = intensitySel.value || s.intensity || "moderate";
-      return metFor(intensity, dur || 0) || 0;
+      return metFor(dur || 0) || 0;
     };
 
     // Manual kcal from machine/watch; placeholder shows MET estimate when empty.
@@ -3064,8 +4081,8 @@
     const mirrorCardioInputs = () => {
       s.touched = true;
       s.durationMin = durInput.value === "" ? null : parseFloat(durInput.value);
-      s.intensity = intensitySel.value || "moderate";
-      s.distanceKm = distInput.value === "" ? null : parseFloat(distInput.value);
+      if (!s.intensity) s.intensity = "moderate";
+      if (distInput) s.distanceKm = distInput.value === "" ? null : parseFloat(distInput.value);
       // Keep manual kcal when the user typed it; otherwise refresh estimate.
       if (kcalInput.value !== "") {
         s.kcalManual = true;
@@ -3084,13 +4101,14 @@
       try { await Storage.saveWorkout(state.activeWorkout); } catch (err) { console.error(err); }
     }, 250);
     durInput.addEventListener("input", () => { mirrorCardioInputs(); debouncedSave(); });
-    attachNumPad(durInput, { label: `${ex.name} \u00b7 interval ${si + 1} \u00b7 minutes`, unit: "min", step: 5, decimals: true });
-    attachNumPad(distInput, { label: `${ex.name} \u00b7 interval ${si + 1} \u00b7 distance`, unit: "km", step: 0.5, decimals: true });
+    attachNumPad(durInput, { label: `${ex.name} \u00b7 interval ${si + 1} \u00b7 minutes`, unit: "min", step: 5, decimals: true, wheel: { min: 1, max: 240 } });
     attachNumPad(kcalInput, { label: `${ex.name} \u00b7 interval ${si + 1} \u00b7 calories`, unit: "kcal", step: 10 });
-    selectOnFocus(distInput);
     selectOnFocus(kcalInput);
-    intensitySel.addEventListener("change", () => { mirrorCardioInputs(); debouncedSave(); });
-    distInput.addEventListener("input", () => { mirrorCardioInputs(); debouncedSave(); });
+    if (distInput) {
+      attachNumPad(distInput, { label: `${ex.name} \u00b7 interval ${si + 1} \u00b7 distance`, unit: "km", step: 0.5, decimals: true, wheel: { min: 0, max: 100, frac: "tenth" } });
+      selectOnFocus(distInput);
+      distInput.addEventListener("input", () => { mirrorCardioInputs(); debouncedSave(); });
+    }
     kcalInput.addEventListener("input", () => {
       if (kcalInput.value === "") {
         s.kcalManual = false;
@@ -3114,8 +4132,8 @@
       on: { click: async () => {
         if (!s.done) {
           s.durationMin = durInput.value === "" ? null : parseFloat(durInput.value);
-          s.intensity = intensitySel.value || "moderate";
-          s.distanceKm = distInput.value === "" ? null : parseFloat(distInput.value);
+          if (!s.intensity) s.intensity = "moderate";
+          if (distInput) s.distanceKm = distInput.value === "" ? null : parseFloat(distInput.value);
           if (!s.durationMin || s.durationMin <= 0) { toast("Enter duration in minutes first"); return; }
           // Prefer typed machine/watch kcal; fall back to MET estimate.
           const kcal = resolveKcal();
@@ -3145,7 +4163,7 @@
           if (!s.kcalManual) s.kcal = null;
           await Storage.saveWorkout(state.activeWorkout);
         }
-        renderMainKeepScroll();
+        refreshExerciseBlock(ex);
       } }
     },
       s.done ? el("span", { html: icons.check }) : null,
@@ -3166,7 +4184,7 @@
             s.note = ta.value.trim() || undefined;
             await Storage.saveWorkout(state.activeWorkout);
             closeModal();
-            renderMainKeepScroll();
+            refreshExerciseBlock(ex);
           } } }, "Save")
         );
         openModal("Interval note", body, footer);
@@ -3174,10 +4192,9 @@
       } }
     });
 
-    const row = el("div", { class: "set-row type-cardio" + (isPR ? " is-pr" : "") + (s.kcalManual ? " has-manual-kcal" : "") },
+    const row = el("div", { class: "set-row type-cardio" + (showDist ? "" : " no-dist") + (isPR ? " is-pr" : "") + (s.kcalManual ? " has-manual-kcal" : "") },
       el("div", { class: "set-index" }, String(si + 1)),
       durInput,
-      intensitySel,
       distInput,
       kcalInput,
       el("div", { class: "set-row-actions" }, noteBtn, doneBtn)
@@ -3192,7 +4209,7 @@
       if (await confirmDialog("Delete this interval?", { title: "Delete interval?", okLabel: "Delete", danger: true })) {
         ex.sets.splice(si, 1);
         await Storage.saveWorkout(state.activeWorkout);
-        renderMainKeepScroll();
+        refreshExerciseBlock(ex);
       }
     };
     row.addEventListener("dblclick", (e) => { e.preventDefault(); tryDelete(); });
@@ -3205,6 +4222,117 @@
     });
     indexCell.style.cursor = "pointer";
     indexCell.title = "Double-tap to delete interval";
+    return row;
+  }
+
+  // Row for a custom-metric exercise — a single numeric value per set.
+  async function renderCustomRow(ex, si, s, prs, prev, metric) {
+    metric = normalizeMetric(metric);
+    const prevSet = prev?.sets[si];
+
+    const valInput = el("input", {
+      type: "number", step: "any", inputmode: "decimal", min: "0",
+      class: "input input-sm input-num",
+      "data-custom-field": "value",
+      placeholder: prevSet?.value != null ? String(prevSet.value) : (metric.unit || metric.label),
+      value: s.value ?? "",
+      title: metric.label + (metric.unit ? ` (${metric.unit})` : "")
+    });
+
+    const mirror = () => {
+      s.touched = true;
+      s.value = valInput.value === "" ? null : parseFloat(valInput.value);
+    };
+    const debouncedSave = U.debounce(async () => {
+      mirror();
+      try { await Storage.saveWorkout(state.activeWorkout); } catch (err) { console.error(err); }
+    }, 250);
+    valInput.addEventListener("input", () => { mirror(); debouncedSave(); });
+    attachNumPad(valInput, { label: `${ex.name} · set ${si + 1} · ${metric.label}`, unit: metric.unit || "", step: 1, decimals: true });
+    selectOnFocus(valInput);
+
+    const isPR = s.done && s.isPR;
+    const doneBtn = el("button", {
+      type: "button",
+      class: "set-done" + (s.done ? " checked" : "") + (isPR ? " pr" : ""),
+      title: s.done ? "Undo set" : "Mark set complete",
+      "aria-label": s.done ? "Undo set" : "Mark set complete",
+      on: { click: async () => {
+        if (!s.done) {
+          s.value = valInput.value === "" ? null : parseFloat(valInput.value);
+          if (s.value == null || !Number.isFinite(s.value)) { toast(`Enter ${metric.label.toLowerCase()} first`); return; }
+          s.done = true;
+          const before = await getPRsFor(ex.exerciseId);
+          const prevMax = before.maxValue || 0;
+          const prevMin = before.minValue || 0;
+          s.isPR = metric.higherIsBetter
+            ? (s.value > prevMax)
+            : (s.value > 0 && (prevMin === 0 || s.value < prevMin));
+          s.prTypes = s.isPR ? ["value"] : [];
+          await Storage.saveWorkout(state.activeWorkout);
+          if (s.isPR) toast(`🏆 New PR on ${ex.name}`);
+        } else {
+          s.done = false;
+          s.isPR = false;
+          s.prTypes = [];
+          await Storage.saveWorkout(state.activeWorkout);
+        }
+        refreshExerciseBlock(ex);
+      } }
+    },
+      s.done ? el("span", { html: icons.check }) : null,
+      el("span", { class: "set-done-label" }, s.done ? "Logged" : "Done")
+    );
+
+    const noteBtn = el("button", {
+      class: "note-btn" + (s.note ? " has-note" : ""),
+      title: s.note ? "Edit note" : "Add note",
+      html: icons.note || "✎",
+      on: { click: async () => {
+        const ta = el("textarea", { class: "input", rows: "3", placeholder: "Notes for this set…" });
+        ta.value = s.note || "";
+        const body = el("div", {}, el("label", { class: "label" }, `Set ${si + 1} note`), ta);
+        const footer = el("div", {},
+          el("button", { class: "btn", on: { click: closeModal } }, "Cancel"),
+          el("button", { class: "btn btn-primary", on: { click: async () => {
+            s.note = ta.value.trim() || undefined;
+            await Storage.saveWorkout(state.activeWorkout);
+            closeModal();
+            refreshExerciseBlock(ex);
+          } } }, "Save")
+        );
+        openModal("Set note", body, footer);
+        setTimeout(() => ta.focus(), 40);
+      } }
+    });
+
+    const row = el("div", { class: "set-row type-custom" + (isPR ? " is-pr" : "") },
+      el("div", { class: "set-index" }, String(si + 1)),
+      valInput,
+      el("div", { class: "set-row-actions" }, noteBtn, doneBtn)
+    );
+    if (isPR) {
+      row.appendChild(el("span", { class: "pr-badge", style: "position:absolute; margin-left: -60px; margin-top: -18px" }, "PR"));
+    }
+
+    const tryDelete = async () => {
+      if (ex.sets.length <= 1) return;
+      if (await confirmDialog("Delete this set?", { title: "Delete set?", okLabel: "Delete", danger: true })) {
+        ex.sets.splice(si, 1);
+        await Storage.saveWorkout(state.activeWorkout);
+        refreshExerciseBlock(ex);
+      }
+    };
+    row.addEventListener("dblclick", (e) => { e.preventDefault(); tryDelete(); });
+    const indexCell = row.firstChild;
+    let lastTap = 0;
+    indexCell.addEventListener("touchend", (e) => {
+      const now = Date.now();
+      if (now - lastTap < 350) { e.preventDefault(); tryDelete(); lastTap = 0; }
+      else { lastTap = now; }
+    });
+    indexCell.style.cursor = "pointer";
+    indexCell.title = "Double-tap to delete set";
     return row;
   }
 
@@ -3280,12 +4408,60 @@
     }, 250);
     if (!isBodyweight) weightInput.addEventListener("input", () => { mirrorStrengthInputs(); debouncedSave(); });
     repsInput.addEventListener("input", () => { mirrorStrengthInputs(); debouncedSave(); });
+    // Quick-fill chips + a last-session hint for faster logging.
+    const prevInSession = si > 0 ? ex.sets[si - 1] : null;
+    const dedupeChips = (arr) => { const seen = new Set(); return arr.filter(c => { const k = String(c.value); if (seen.has(k)) return false; seen.add(k); return true; }); };
+    const weightChips = dedupeChips([
+      prevInSession && prevInSession.weight != null ? { label: `Prev ${prevInSession.weight}`, value: prevInSession.weight } : null,
+      prevSet && prevSet.weight != null ? { label: `Last ${prevSet.weight}`, value: prevSet.weight } : null
+    ].filter(Boolean));
+    const repsChips = dedupeChips([
+      prevInSession && prevInSession.reps != null ? { label: `Prev ${prevInSession.reps}`, value: prevInSession.reps } : null,
+      prevSet && prevSet.reps != null ? { label: `Last ${prevSet.reps}`, value: prevSet.reps } : null
+    ].filter(Boolean));
+    const setHint = prevSet
+      ? (isBodyweight ? `Last: ${prevSet.reps ?? "\u2014"} reps` : `Last: ${prevSet.weight ?? 0} kg \u00d7 ${prevSet.reps ?? "\u2014"}`)
+      : "";
+
+    // Mark this set complete (validate, PR check, save, start rest). Shared by
+    // the row's Done button and the numpad's "Log set" action.
+    async function markSetDone() {
+      if (isBodyweight) s.weight = 0;
+      else s.weight = weightInput.value === "" ? null : parseFloat(weightInput.value);
+      s.reps = repsInput.value === "" ? null : parseInt(repsInput.value, 10);
+      if (!s.reps || (!isBodyweight && !s.weight && exType !== "weighted_bodyweight")) { toast("Enter weight and reps first"); return false; }
+      if (!isBodyweight && !s.weight) s.weight = 0;
+      s.done = true;
+      s.kcal = calcStrengthKcal();
+      const beforePRs = await getPRsFor(ex.exerciseId);
+      const e = U.epley(s.weight, s.reps);
+      const isWeightPR = s.weight > beforePRs.maxWeight;
+      const isE1RMPR = e > beforePRs.maxE1RM;
+      const isRepsPR = s.reps > beforePRs.maxReps;
+      s.isPR = isWeightPR || isE1RMPR;
+      s.prTypes = [];
+      if (isWeightPR) s.prTypes.push("weight");
+      if (isE1RMPR) s.prTypes.push("e1rm");
+      if (isRepsPR) s.prTypes.push("reps");
+      await Storage.saveWorkout(state.activeWorkout);
+      if (s.isPR) toast(`\ud83c\udfc6 New PR on ${ex.name}`);
+      startRestTimer(ex.exerciseId);
+      return true;
+    }
+
     attachNumPad(weightInput, {
       label: `${ex.name} \u00b7 set ${si + 1} \u00b7 ${exType === "weighted_bodyweight" ? "added weight" : "weight"}`,
       unit: "kg", step: 2.5, decimals: exType !== "weighted_bodyweight",
-      allowMinus: exType === "weighted_bodyweight"
+      allowMinus: exType === "weighted_bodyweight",
+      // Added weight can be negative (assisted); plain weight starts at 0.
+      wheel: { min: exType === "weighted_bodyweight" ? -100 : 0, max: 400, frac: "quarter" },
+      chips: weightChips, hint: setHint
     });
-    attachNumPad(repsInput, { label: `${ex.name} \u00b7 set ${si + 1} \u00b7 reps`, unit: "reps", step: 1 });
+    attachNumPad(repsInput, {
+      label: `${ex.name} \u00b7 set ${si + 1} \u00b7 reps`, unit: "reps", step: 1, wheel: { min: 1, max: 60 },
+      chips: repsChips, hint: setHint,
+      onLogSet: async () => { if (await markSetDone()) refreshExerciseBlock(ex); }
+    });
 
     const openPlates = () => openPlateCalculator(parseFloat(weightInput.value) || (prevSet?.weight ?? 60));
     const makePlatesBtn = (extraClass) => {
@@ -3315,32 +4491,7 @@
       "data-testid": `set-done-${si}`,
       on: { click: async () => {
         if (!s.done) {
-          if (isBodyweight) {
-            s.weight = 0;
-          } else {
-            s.weight = weightInput.value === "" ? null : parseFloat(weightInput.value);
-          }
-          s.reps = repsInput.value === "" ? null : parseInt(repsInput.value, 10);
-          if (!s.reps || (!isBodyweight && !s.weight && exType !== "weighted_bodyweight")) {
-            toast("Enter weight and reps first");
-            return;
-          }
-          if (!isBodyweight && !s.weight) s.weight = 0;
-          s.done = true;
-          s.kcal = calcStrengthKcal();
-          const beforePRs = await getPRsFor(ex.exerciseId);
-          const e = U.epley(s.weight, s.reps);
-          const isWeightPR = s.weight > beforePRs.maxWeight;
-          const isE1RMPR = e > beforePRs.maxE1RM;
-          const isRepsPR = s.reps > beforePRs.maxReps;
-          s.isPR = isWeightPR || isE1RMPR;
-          s.prTypes = [];
-          if (isWeightPR) s.prTypes.push("weight");
-          if (isE1RMPR) s.prTypes.push("e1rm");
-          if (isRepsPR) s.prTypes.push("reps");
-          await Storage.saveWorkout(state.activeWorkout);
-          if (s.isPR) toast(`🏆 New PR on ${ex.name}`);
-          startRestTimer(ex.exerciseId);
+          if (!(await markSetDone())) return;
         } else {
           s.done = false;
           s.isPR = false;
@@ -3349,7 +4500,7 @@
           await Storage.saveWorkout(state.activeWorkout);
           stopRestTimer();
         }
-        renderMainKeepScroll();
+        refreshExerciseBlock(ex);
       } }
     },
       s.done ? el("span", { html: icons.check }) : null,
@@ -3368,7 +4519,7 @@
           expandedSetTools.delete(closedKey);
         }
         await Storage.saveWorkout(state.activeWorkout);
-        renderMainKeepScroll();
+        refreshExerciseBlock(ex);
       } }
     }, "D");
 
@@ -3415,7 +4566,7 @@
           expandedSetTools.delete(closedKey);
           expandedSetTools.add(toolsKey);
         }
-        renderMainKeepScroll();
+        refreshExerciseBlock(ex);
       } }
     }, "···");
 
@@ -3465,7 +4616,7 @@
       if (await confirmDialog("Delete this set?", { title: "Delete set?", okLabel: "Delete", danger: true })) {
         ex.sets.splice(si, 1);
         await Storage.saveWorkout(state.activeWorkout);
-        renderMainKeepScroll();
+        refreshExerciseBlock(ex);
       }
     };
     row.addEventListener("dblclick", (e) => {
@@ -3547,6 +4698,9 @@
     document.title = BASE_DOC_TITLE;
     renderRestTimer();
   }
+  // Circumference of the countdown ring (r = 100).
+  const REST_RING_C = 2 * Math.PI * 100;
+
   function renderRestTimer() {
     let el_ = document.getElementById("rest-timer");
     if (!state.restTimer) {
@@ -3554,18 +4708,48 @@
       document.title = BASE_DOC_TITLE;
       return;
     }
+    // Full-screen overlay so the rest window can't be missed mid-session.
     if (!el_) {
-      el_ = el("div", { class: "rest-timer", id: "rest-timer" });
-      el_.appendChild(el("div", {},
-        el("div", { class: "rest-timer-label" }, "Rest"),
-        el("div", { class: "rest-timer-value", id: "rest-value" }, "—")
-      ));
-      el_.appendChild(el("button", { class: "rest-timer-btn", on: { click: () => {
-        if (!state.restTimer) return;
-        state.restTimer.endsAt += 15000;
-        updateRestTimerUI(Math.max(0, Math.round((state.restTimer.endsAt - Date.now()) / 1000)));
-      } } }, "+15"));
-      el_.appendChild(el("button", { class: "rest-timer-btn", on: { click: stopRestTimer } }, "Skip"));
+      let nextName = "";
+      if (state.activeWorkout && state.restTimer.exerciseId) {
+        const ex = state.activeWorkout.exercises.find(e => e.exerciseId === state.restTimer.exerciseId);
+        if (ex) nextName = ex.name;
+      }
+      el_ = el("div", { class: "rest-overlay", id: "rest-timer", role: "dialog", "aria-label": "Rest timer" },
+        el("div", { class: "rest-overlay-inner" },
+          el("div", { class: "rest-eyebrow" }, "Rest"),
+          el("div", { class: "rest-ring-wrap" },
+            (() => {
+              const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+              svg.setAttribute("class", "rest-ring");
+              svg.setAttribute("viewBox", "0 0 220 220");
+              const track = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+              track.setAttribute("class", "rest-ring-track");
+              track.setAttribute("cx", "110"); track.setAttribute("cy", "110"); track.setAttribute("r", "100");
+              const fill = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+              fill.setAttribute("class", "rest-ring-fill"); fill.setAttribute("id", "rest-ring-fill");
+              fill.setAttribute("cx", "110"); fill.setAttribute("cy", "110"); fill.setAttribute("r", "100");
+              fill.setAttribute("stroke-dasharray", String(REST_RING_C));
+              fill.setAttribute("stroke-dashoffset", "0");
+              svg.appendChild(track); svg.appendChild(fill);
+              return svg;
+            })(),
+            el("div", { class: "rest-ring-center" },
+              el("div", { class: "rest-value", id: "rest-value" }, "—"),
+              nextName ? el("div", { class: "rest-next" }, nextName) : null
+            )
+          ),
+          el("div", { class: "rest-actions" },
+            el("button", { class: "rest-btn", type: "button", "data-testid": "rest-add15", on: { click: () => {
+              if (!state.restTimer) return;
+              state.restTimer.endsAt += 15000;
+              state.restTimer.totalSec = (state.restTimer.totalSec || 90) + 15;
+              updateRestTimerUI(Math.max(0, Math.round((state.restTimer.endsAt - Date.now()) / 1000)));
+            } } }, "+15s"),
+            el("button", { class: "rest-btn rest-btn-primary", type: "button", "data-testid": "rest-skip", on: { click: stopRestTimer } }, "Skip rest")
+          )
+        )
+      );
       document.body.appendChild(el_);
     }
     const remaining = Math.max(0, Math.round((state.restTimer.endsAt - Date.now()) / 1000));
@@ -3574,6 +4758,14 @@
   function updateRestTimerUI(remaining) {
     const v = document.getElementById("rest-value");
     if (v) v.textContent = U.formatTime(remaining);
+    const fill = document.getElementById("rest-ring-fill");
+    if (fill && state.restTimer) {
+      const total = Math.max(1, state.restTimer.totalSec || 90);
+      const frac = Math.max(0, Math.min(1, remaining / total));
+      fill.setAttribute("stroke-dashoffset", String(REST_RING_C * (1 - frac)));
+      const overlay = document.getElementById("rest-timer");
+      if (overlay) overlay.classList.toggle("is-ending", remaining <= 10);
+    }
     // Lock-screen / tab switch: remaining rest visible in the browser title.
     if (state.restTimer) {
       document.title = `${U.formatTime(remaining)} rest · FitForge`;
@@ -3886,7 +5078,10 @@
     openModal(ex.name, body, footer);
   }
 
-  function openCustomExerciseForm() {
+  // onCreated(ex): optional. When provided (e.g. from the workout exercise
+  // picker), it fires with the saved exercise so the caller can immediately
+  // select it. Otherwise the library view is just re-rendered.
+  function openCustomExerciseForm(onCreated = null) {
     const nameI = el("input", { class: "input", placeholder: "Exercise name" });
     const catS = el("select", { class: "select" },
       ...Object.entries(EXERCISE_CATEGORIES).map(([k, v]) => el("option", { value: k }, v))
@@ -3896,12 +5091,44 @@
     const metI = el("input", { class: "input input-num", type: "number", step: "0.1", placeholder: "Auto from category" });
     const notesI = el("textarea", { class: "textarea", rows: "3", placeholder: "Notes / technique (optional)" });
 
+    // How is it logged?
+    const logS = el("select", { class: "select" },
+      el("option", { value: "auto" }, "Auto-detect"),
+      el("option", { value: "weighted" }, "Weight × reps"),
+      el("option", { value: "bodyweight" }, "Reps only (bodyweight)"),
+      el("option", { value: "weighted_bodyweight" }, "Bodyweight + added weight"),
+      el("option", { value: "cardio" }, "Time / distance (cardio)"),
+      el("option", { value: "custom" }, "Custom metric…")
+    );
+
+    // Custom-metric fields (shown only when logType = custom)
+    const metricLabelI = el("input", { class: "input", placeholder: "e.g. Skips, Metres, Hold" });
+    const metricUnitI = el("input", { class: "input", placeholder: "e.g. reps, m, sec (optional)" });
+    const betterS = el("select", { class: "select" },
+      el("option", { value: "higher" }, "Higher is better (more = PR)"),
+      el("option", { value: "lower" }, "Lower is better (less = PR, e.g. time)")
+    );
+    const metricWrap = el("div", { style: "display:none" },
+      el("div", { class: "form-row" },
+        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Metric name"), metricLabelI),
+        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Unit"), metricUnitI)
+      ),
+      el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "Personal best"), betterS)),
+      el("div", { class: "text-xs text-faint", style: "margin-top:-4px;margin-bottom:8px" },
+        "Log one number per set for this metric (e.g. skips, metres, seconds held, watts).")
+    );
+    logS.addEventListener("change", () => {
+      metricWrap.style.display = logS.value === "custom" ? "" : "none";
+    });
+
     const body = el("div", {},
       el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "Name"), nameI)),
       el("div", { class: "form-row" },
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Category"), catS),
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Equipment"), equipI)
       ),
+      el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "How it's logged"), logS)),
+      metricWrap,
       el("div", { class: "form-row" },
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Muscles"), musclesI),
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "MET (optional)"), metI)
@@ -3915,6 +5142,10 @@
       el("button", { class: "btn", on: { click: closeModal } }, "Cancel"),
       el("button", { class: "btn btn-primary", on: { click: async () => {
         if (!nameI.value.trim()) return toast("Please give the exercise a name");
+        const logType = logS.value;
+        if (logType === "custom" && !metricLabelI.value.trim()) {
+          return toast("Name the metric (e.g. Skips, Metres)");
+        }
         const metVal = parseFloat(metI.value);
         const ex = {
           id: "custom-" + U.uid(),
@@ -3926,10 +5157,21 @@
           mistakes: [], variations: [], alternatives: [],
           met: (!isNaN(metVal) && metVal > 0) ? metVal : (U.MET_BY_CATEGORY[catS.value] || 5)
         };
+        if (logType === "custom") {
+          ex.type = "custom";
+          ex.metric = normalizeMetric({
+            label: metricLabelI.value,
+            unit: metricUnitI.value,
+            higherIsBetter: betterS.value !== "lower"
+          });
+        } else if (logType !== "auto") {
+          ex.type = logType;
+        }
         await Storage.saveCustomExercise(ex);
         closeModal();
         toast("Custom exercise saved");
-        renderMain();
+        if (onCreated) onCreated(ex);
+        else renderMain();
       } } }, "Save exercise")
     );
 
@@ -3975,85 +5217,351 @@
     }
   }
 
-  // Category-first exercise picker: choose a muscle group (animated tiles) → browse
-  // its exercises. A search box on top jumps straight to any exercise by name.
-  // Reused by both the start-a-workout screen and the in-workout "Add exercise" modal.
-  function buildExercisePickerUI(all, onPick) {
-    const BACK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>`;
-    let mode = "categories"; // "categories" | "exercises"
-    let activeCat = null;
+  // Small per-category figure icon for exercise rows: a simple body silhouette
+  // with the worked region highlighted in accent. Lightweight (inline SVG) so
+  // it scales to long lists.
+  function exerciseFigureIcon(category) {
+    const accent = ({
+      chest: ["torsoU"],
+      back: ["torsoU"],
+      shoulders: ["sh"],
+      arms: ["armL", "armR"],
+      legs: ["legL", "legR"],
+      core: ["torsoL"],
+      full_body: ["torsoU", "torsoL", "armL", "armR", "legL", "legR"],
+      cardio: ["torsoU", "torsoL", "legL", "legR"]
+    })[category] || ["torsoU"];
+    const on = (id) => accent.includes(id) ? " xfig-on" : "";
+    const svg =
+      '<svg viewBox="0 0 44 44" class="xfig-svg" aria-hidden="true">' +
+      '<circle class="xfig-base" cx="22" cy="9" r="4"/>' +
+      '<rect class="xfig-base' + on("sh") + '" x="13" y="14" width="18" height="4" rx="2"/>' +
+      '<rect class="xfig-base' + on("armL") + '" x="9" y="15.5" width="3.5" height="13" rx="1.75"/>' +
+      '<rect class="xfig-base' + on("armR") + '" x="31.5" y="15.5" width="3.5" height="13" rx="1.75"/>' +
+      '<rect class="xfig-base' + on("torsoU") + '" x="15" y="16" width="14" height="8" rx="2"/>' +
+      '<rect class="xfig-base' + on("torsoL") + '" x="15" y="23" width="14" height="7" rx="2"/>' +
+      '<rect class="xfig-base' + on("legL") + '" x="16" y="30" width="4" height="10" rx="2"/>' +
+      '<rect class="xfig-base' + on("legR") + '" x="24" y="30" width="4" height="10" rx="2"/>' +
+      '</svg>';
+    return el("span", { class: "xrow-fig", html: svg });
+  }
+
+  // Multi-select exercise picker: chip filters + a grouped, scrollable list of
+  // exercise cards. Tap cards to add/remove; a sticky CTA confirms the batch.
+  // Reused by the start-a-workout screen, the in-workout "Add exercise" modal,
+  // and the template builder.
+  //   opts.onConfirm(items)   items: [{id, name}] — the batch the user chose
+  //   opts.confirmLabel(n)    CTA label for n selected
+  //   opts.header             { eyebrow, title, subtitle } optional big header
+  //   opts.allowCustom        show the "Add custom exercise" affordance (default true)
+  //   opts.customImmediate    if true, creating a custom exercise confirms it at
+  //                           once (modal contexts); otherwise it joins selection
+  //   opts.existingIds        Set of ids already in the workout/template (shown "Added")
+  function buildExercisePickerUI(all, opts = {}) {
+    const {
+      onConfirm = () => {},
+      confirmLabel = (n) => `Add ${n}`,
+      header = null,
+      allowCustom = true,
+      customImmediate = false
+    } = opts;
+    const existing = opts.existingIds instanceof Set ? opts.existingIds : new Set(opts.existingIds || []);
+    const selected = new Map(); // id -> { id, name }
+
     const searchI = el("input", { class: "input", placeholder: "Search exercises…" });
+    const chipRow = el("div", { class: "xpick-chips", "data-testid": "xpick-chips" });
+    const dotsRow = el("div", { class: "xpick-dots", "data-testid": "xpick-dots" });
     const content = el("div", { class: "xpick-content" });
+    const cta = el("button", { class: "btn btn-primary btn-block xpick-cta-btn", type: "button", "data-testid": "xpick-cta" });
+    const footer = el("div", { class: "xpick-cta", style: "display:none" }, cta);
 
-    const catLabel = (c) => c === "all" ? "All" : EXERCISE_CATEGORIES[c];
-    const countFor = (c) => c === "all" ? all.length : all.filter(e => e.category === c).length;
+    const catLabel = (c) => EXERCISE_CATEGORIES[c] || c;
+    const countFor = (c) => all.filter(e => e.category === c).length;
+    // One card per category that actually has exercises (custom ones included).
+    const known = Object.keys(EXERCISE_CATEGORIES).filter(c => countFor(c) > 0);
+    const extra = [...new Set(all.map(e => e.category).filter(c => c && !EXERCISE_CATEGORIES[c]))]
+      .filter(c => countFor(c) > 0);
+    const cats = [...known, ...extra];
+    let activeCat = cats[0] || null;
+    let pager = null; // the horizontal scroll-snap container (null while searching)
 
-    function exerciseGrid(list) {
-      const grid = el("div", { class: "exercise-grid" });
-      if (!list.length) {
-        grid.appendChild(el("div", { class: "text-sm text-faint", style: "padding: 16px 4px" }, "No exercises found."));
-      }
-      for (const ex of list.slice(0, 150)) {
-        grid.appendChild(el("div", { class: "exercise-card", on: { click: () => onPick(ex.id, ex.name) } },
-          el("div", { class: "exercise-card-name" }, ex.name),
-          el("div", { class: "exercise-card-meta" }, `${EXERCISE_CATEGORIES[ex.category]} · ${ex.equipment || "—"}`)
-        ));
-      }
-      return grid;
+    function onCustomCreated(ex) {
+      if (customImmediate) { onConfirm([{ id: ex.id, name: ex.name }]); return; }
+      all.push({ ...ex, isCustom: true });
+      if (!cats.includes(ex.category) && countFor(ex.category) > 0) cats.push(ex.category);
+      selected.set(ex.id, { id: ex.id, name: ex.name });
+      searchI.value = "";
+      renderChips();
+      renderDots();
+      renderContent();
+      scrollToCat(ex.category);
+      updateCta();
     }
 
-    function showCategories() {
-      clear(content);
-      const grid = el("div", { class: "xcat-grid" });
-      for (const c of ["all", ...Object.keys(EXERCISE_CATEGORIES)]) {
-        grid.appendChild(el("button", {
-          class: `xcat-tile xcat-${c}`, "data-testid": `xcat-${c}`,
-          on: { click: () => { activeCat = c; mode = "exercises"; showExercises(); } }
-        },
-          categoryIconNode(c),
-          el("span", { class: "xcat-name" }, catLabel(c)),
-          el("span", { class: "xcat-count" }, `${countFor(c)}`)
-        ));
+    function renderChips() {
+      clear(chipRow);
+      if (allowCustom) {
+        chipRow.appendChild(el("button", {
+          class: "xpick-chip xpick-chip-custom",
+          type: "button",
+          "data-testid": "xchip-custom",
+          on: { click: () => openCustomExerciseForm(onCustomCreated) }
+        }, el("span", { class: "xpick-chip-plus", html: icons.plus }), "Custom"));
       }
-      content.appendChild(grid);
+      for (const c of cats) {
+        chipRow.appendChild(el("button", {
+          class: "xpick-chip" + (activeCat === c ? " active" : ""),
+          type: "button",
+          "data-cat": c,
+          "data-testid": `xchip-${c}`,
+          on: { click: () => scrollToCat(c) }
+        }, catLabel(c)));
+      }
     }
 
-    function showExercises() {
-      clear(content);
-      content.appendChild(el("button", {
-        class: "xpick-back", "data-testid": "xpick-back",
-        on: { click: () => { mode = "categories"; activeCat = null; showCategories(); } }
-      }, el("span", { class: "xpick-back-ic", html: BACK }), catLabel(activeCat)));
-      const list = all.filter(e => activeCat === "all" || e.category === activeCat);
-      content.appendChild(exerciseGrid(list));
+    function renderDots() {
+      clear(dotsRow);
+      for (const c of cats) {
+        dotsRow.appendChild(el("button", {
+          class: "xpick-dot" + (activeCat === c ? " active" : ""),
+          type: "button",
+          "data-cat": c,
+          "aria-label": catLabel(c),
+          on: { click: () => scrollToCat(c) }
+        }));
+      }
     }
 
-    function showSearch(q) {
-      clear(content);
+    // Glide the chip row (horizontal only) so the active chip stays centred —
+    // avoids the sudden jump scrollIntoView() causes mid-swipe.
+    function centerChip(chip) {
+      const target = chip.offsetLeft - (chipRow.clientWidth - chip.clientWidth) / 2;
+      const max = chipRow.scrollWidth - chipRow.clientWidth;
+      chipRow.scrollTo({ left: Math.max(0, Math.min(max, target)), behavior: "smooth" });
+    }
+
+    function syncActive() {
+      for (const chip of Array.from(chipRow.children)) {
+        const on = chip.getAttribute("data-cat") === activeCat;
+        chip.classList.toggle("active", on);
+        if (on) centerChip(chip);
+      }
+      for (const dot of Array.from(dotsRow.children)) {
+        dot.classList.toggle("active", dot.getAttribute("data-cat") === activeCat);
+      }
+    }
+
+    function panelForCat(c) {
+      if (!pager) return null;
+      const key = (window.CSS && CSS.escape) ? CSS.escape(c) : c;
+      return pager.querySelector('.xpick-panel[data-cat="' + key + '"]');
+    }
+
+    // Index of the panel nearest the pager's viewport centre — robust to
+    // panel padding/margins (don't assume panel width === pager width).
+    function nearestPanelIndex() {
+      if (!pager || !pager.children.length) return Math.max(0, cats.indexOf(activeCat));
+      const center = pager.scrollLeft + pager.clientWidth / 2;
+      let best = 0, bestDist = Infinity;
+      const panels = pager.children;
+      for (let i = 0; i < panels.length; i++) {
+        const c = panels[i].offsetLeft + panels[i].offsetWidth / 2;
+        const d = Math.abs(c - center);
+        if (d < bestDist) { bestDist = d; best = i; }
+      }
+      return best;
+    }
+
+    function scrollToCat(c) {
+      if (!cats.includes(c)) return;
+      activeCat = c;
+      syncActive();
+      const panel = panelForCat(c);
+      if (pager && panel) pager.scrollTo({ left: panel.offsetLeft, behavior: "smooth" });
+    }
+
+    function rowFor(ex) {
+      const isSel = selected.has(ex.id);
+      const isExisting = existing.has(ex.id);
+      const metaBits = [];
+      if (ex.equipment) metaBits.push(el("span", { class: "xrow-equip" }, ex.equipment));
+      const muscles = (ex.muscles || []).slice(0, 2).join(", ");
+      if (muscles) {
+        if (metaBits.length) metaBits.push(el("span", { class: "xrow-sep" }, " · "));
+        metaBits.push(el("span", { class: "xrow-muscles" }, muscles));
+      }
+      const addBtn = el("button", {
+        class: "xrow-add" + (isSel ? " added" : ""),
+        type: "button",
+        tabindex: "-1",
+        "aria-hidden": "true",
+        html: isSel ? icons.check : icons.plus
+      });
+      const row = el("div", {
+        class: "xrow" + (isSel ? " is-selected" : "") + (isExisting ? " is-existing" : ""),
+        "data-testid": `xrow-${ex.id}`
+      },
+        exerciseFigureIcon(ex.category),
+        el("div", { class: "xrow-main" },
+          el("div", { class: "xrow-name" }, ex.name,
+            ex.isCustom ? el("span", { class: "chip chip-accent xrow-custom" }, "Custom") : null),
+          el("div", { class: "xrow-meta" }, ...metaBits)
+        ),
+        isExisting ? el("span", { class: "xrow-added-label" }, "Added") : addBtn
+      );
+      if (!isExisting) {
+        row.addEventListener("click", () => {
+          if (selected.has(ex.id)) selected.delete(ex.id);
+          else selected.set(ex.id, { id: ex.id, name: ex.name });
+          const nowSel = selected.has(ex.id);
+          row.classList.toggle("is-selected", nowSel);
+          addBtn.classList.toggle("added", nowSel);
+          addBtn.innerHTML = nowSel ? icons.check : icons.plus;
+          updateCta();
+        });
+      }
+      return row;
+    }
+
+    // Flat, grouped results while searching (spans every category).
+    function renderSearch(q) {
+      const results = el("div", { class: "xpick-results" });
       const matches = all.filter(ex =>
         ex.name.toLowerCase().includes(q) ||
         (ex.muscles || []).some(m => m.toLowerCase().includes(q)) ||
         (ex.equipment || "").toLowerCase().includes(q));
-      content.appendChild(el("div", { class: "xpick-search-head" }, `${matches.length} result${matches.length === 1 ? "" : "s"}`));
-      content.appendChild(exerciseGrid(matches));
+      if (!matches.length) {
+        results.appendChild(el("div", { class: "text-sm text-faint", style: "padding: 16px 4px" }, "No exercises found."));
+        return results;
+      }
+      const groups = new Map();
+      for (const ex of matches) {
+        const c = ex.category || "other";
+        if (!groups.has(c)) groups.set(c, []);
+        groups.get(c).push(ex);
+      }
+      const ordered = [...cats.filter(c => groups.has(c)), ...[...groups.keys()].filter(c => !cats.includes(c))];
+      for (const c of ordered) {
+        const sec = el("div", { class: "xpick-section" });
+        sec.appendChild(el("div", { class: "xpick-section-head" },
+          el("span", {}, catLabel(c).toUpperCase()),
+          el("span", { class: "xpick-section-count" }, String(groups.get(c).length))
+        ));
+        for (const ex of groups.get(c)) sec.appendChild(rowFor(ex));
+        results.appendChild(sec);
+      }
+      return results;
     }
 
-    function refresh() {
+    // One swipeable card per category, laid out in a horizontal snap pager.
+    function buildPager() {
+      const p = el("div", { class: "xpick-pager", "data-testid": "xpick-pager" });
+      for (const c of cats) {
+        const items = all.filter(e => e.category === c);
+        const panel = el("div", { class: "xpick-panel", "data-cat": c },
+          el("div", { class: "xpick-card" },
+            el("div", { class: "xpick-panel-head" },
+              el("span", { class: "xpick-panel-title" }, catLabel(c)),
+              el("span", { class: "xpick-panel-count" }, `${items.length}`)
+            ),
+            el("div", { class: "xpick-panel-list" }, ...items.map(rowFor))
+          )
+        );
+        p.appendChild(panel);
+      }
+      // Track the swipe in real time (rAF-throttled, not debounced) so the
+      // category highlight follows the finger and flips smoothly at the
+      // midpoint instead of snapping after the scroll settles. Uses actual
+      // panel geometry (nearest to viewport centre) rather than assuming each
+      // panel is exactly the pager width.
+      let scrollRAF = null;
+      p.addEventListener("scroll", () => {
+        if (scrollRAF) return;
+        scrollRAF = requestAnimationFrame(() => {
+          scrollRAF = null;
+          const c = cats[nearestPanelIndex()];
+          if (c && c !== activeCat) { activeCat = c; syncActive(); }
+        });
+      }, { passive: true });
+      return p;
+    }
+
+    function renderContent() {
+      clear(content);
       const q = searchI.value.trim().toLowerCase();
-      if (q) showSearch(q);
-      else if (mode === "exercises" && activeCat) showExercises();
-      else showCategories();
+      if (q) {
+        chipRow.style.display = "none";
+        dotsRow.style.display = "none";
+        pager = null;
+        content.appendChild(renderSearch(q));
+        return;
+      }
+      chipRow.style.display = "";
+      if (!cats.length) {
+        dotsRow.style.display = "none";
+        pager = null;
+        content.appendChild(el("div", { class: "text-sm text-faint", style: "padding: 16px 4px" }, "No exercises found."));
+        return;
+      }
+      dotsRow.style.display = cats.length > 1 ? "" : "none";
+      pager = buildPager();
+      content.appendChild(pager);
+      if (!activeCat || !cats.includes(activeCat)) activeCat = cats[0];
+      syncActive();
+      // Jump (no animation) to the active card once laid out.
+      requestAnimationFrame(() => {
+        const panel = panelForCat(activeCat);
+        if (pager && panel) pager.scrollLeft = panel.offsetLeft;
+      });
     }
 
-    searchI.addEventListener("input", U.debounce(refresh, 120));
-    const body = el("div", { class: "xpick" }, searchI, content);
+    function updateCta() {
+      const n = selected.size;
+      footer.style.display = n > 0 ? "" : "none";
+      if (n > 0) cta.textContent = confirmLabel(n);
+    }
+
+    cta.addEventListener("click", async () => {
+      if (!selected.size) return;
+      await onConfirm([...selected.values()]);
+    });
+    searchI.addEventListener("input", U.debounce(renderContent, 120));
+
+    const headerEl = header ? el("div", { class: "xpick-header" },
+      header.eyebrow ? el("div", { class: "xpick-eyebrow" }, header.eyebrow) : null,
+      header.title ? el("h2", { class: "xpick-title" }, header.title) : null,
+      header.subtitle ? el("div", { class: "xpick-subtitle" }, header.subtitle) : null
+    ) : null;
+
+    const body = el("div", { class: "xpick xpick-multi" },
+      headerEl, searchI, chipRow, content, dotsRow, footer
+    );
+
+    let didInitialScroll = false;
+    function refresh() {
+      renderChips(); renderDots(); renderContent(); updateCta();
+      // Optionally open on a specific category (e.g. a focus day's "Start").
+      if (!didInitialScroll && opts.initialCat && cats.includes(opts.initialCat)) {
+        didInitialScroll = true;
+        requestAnimationFrame(() => requestAnimationFrame(() => scrollToCat(opts.initialCat)));
+      }
+    }
     return { body, refresh, focus: () => searchI.focus() };
   }
 
-  function openExercisePicker(onPick) {
+  // Modal wrapper for the multi-select picker (in-workout add / template builder).
+  //   onConfirm(items)  items: [{id, name}]
+  //   opts.existingIds, opts.title
+  function openExercisePicker(onConfirm, opts = {}) {
     getAllExercises().then(all => {
-      const picker = buildExercisePickerUI(all, (id, name) => { closeModal(); onPick(id, name); });
-      openModal("Add exercise", picker.body, null);
+      const picker = buildExercisePickerUI(all, {
+        existingIds: opts.existingIds,
+        confirmLabel: (n) => `Add ${n} exercise${n === 1 ? "" : "s"}`,
+        allowCustom: true,
+        customImmediate: true,
+        onConfirm: async (items) => { closeModal(); await onConfirm(items); }
+      });
+      openModal(opts.title || "Add exercises", picker.body, null);
       picker.refresh();
       setTimeout(picker.focus, 50);
     });
@@ -4241,6 +5749,41 @@
     } catch (_) {}
     toast(`Logged ${tpl.name}`);
     renderMain();
+  }
+
+  // Saved meals shortcut — quick sheet to re-log a saved meal (optionally into
+  // a specific section) or jump to create/edit one.
+  async function openSavedMealsSheet(sectionHint = null) {
+    const templates = await Storage.getMealTemplates();
+    const body = el("div", {});
+    if (!templates.length) {
+      body.appendChild(el("p", { class: "text-sm text-faint", style: "margin:4px 0 12px" },
+        "No saved meals yet. Log a meal, then tap the bookmark on it to keep it for next time."));
+    } else {
+      const sorted = templates.slice().sort((a, b) => (b.lastUsedAt || b.updatedAt || 0) - (a.lastUsedAt || a.updatedAt || 0));
+      const list = el("div", { class: "saved-sheet-list" });
+      for (const tpl of sorted) {
+        const macroLine = U.formatMacroLine(tpl);
+        list.appendChild(el("div", { class: "saved-sheet-item" },
+          el("button", {
+            class: "saved-sheet-main", type: "button", title: `Log ${tpl.name}`,
+            on: { click: async () => { closeModal(); await logMealFromTemplate(tpl, sectionHint); } }
+          },
+            el("div", { class: "saved-sheet-name" }, tpl.name),
+            el("div", { class: "saved-sheet-meta" }, `${tpl.kcal || 0} kcal${macroLine ? ` · ${macroLine}` : ""}`)
+          ),
+          el("button", { class: "icon-btn", title: "Edit saved meal", html: icons.edit, on: { click: () => { closeModal(); openMealTemplateEditor(tpl); } } })
+        ));
+      }
+      body.appendChild(list);
+    }
+    const footer = el("div", {},
+      el("button", { class: "btn", on: { click: closeModal } }, "Close"),
+      el("button", { class: "btn btn-primary", on: { click: () => { closeModal(); openMealTemplateEditor(null); } } },
+        el("span", { html: icons.plus }), "New saved meal")
+    );
+    const title = sectionHint ? `Saved → ${U.MEAL_SECTIONS[sectionHint].label}` : "Saved meals";
+    openModal(title, body, footer);
   }
 
   // ============ Supplements (manual tracker on Nutrition) ============
@@ -4438,7 +5981,421 @@
     return card;
   }
 
+  // Remembers which nutrition card was active so an action-triggered re-render
+  // returns there instead of snapping back to Overview. Cleared on dock nav.
+  let nutritionScrollKey = null;
+  // Same idea for the active-workout exercise pager (index of the active card).
+  let workoutScrollIdx = 0;
+
+  // Redesigned nutrition tab: a vertical card pager — Overview, then one card
+  // per meal section, then a Trends card. Swipe up/down; dots on the right.
   async function renderNutrition(view) {
+    const NCHEV = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+    const NUP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>';
+    const S = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
+    const NICONS = {
+      overview: `<svg ${S}><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>`,
+      breakfast: `<svg ${S}><path d="M17 18a5 5 0 0 0-10 0"/><line x1="12" y1="2" x2="12" y2="9"/><line x1="4.22" y1="10.22" x2="5.64" y2="11.64"/><line x1="1" y1="18" x2="3" y2="18"/><line x1="21" y1="18" x2="23" y2="18"/><line x1="18.36" y1="11.64" x2="19.78" y2="10.22"/><line x1="23" y1="22" x2="1" y2="22"/><polyline points="8 6 12 2 16 6"/></svg>`,
+      lunch: `<svg ${S}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>`,
+      dinner: `<svg ${S}><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
+      snack: `<svg ${S}><path d="M12 8c-1.6-2.6-4.6-3-6.6-1S3.4 12 5 15c1.2 2.4 2.7 4 4 4 1 0 1.5-.6 3-.6s2 .6 3 .6c1.3 0 2.8-1.6 4-4 .8-1.6 1.1-3.3.5-4.9"/><path d="M12 8c.3-2.3 1.9-3.9 3.9-3.9"/></svg>`,
+      pre_workout: `<svg ${S}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+      post_workout: `<svg ${S}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+      other: `<svg ${S}><path d="M3 2v7a2 2 0 0 0 2 2 2 2 0 0 0 2-2V2"/><path d="M6 2v20"/><path d="M17 2c-1.7 0-3 2-3 5 0 2.5 1 4 2 4v11"/></svg>`,
+      supplements: `<svg ${S}><path d="M10.5 20.5 3.5 13.5a5 5 0 0 1 7-7l7 7a5 5 0 0 1-7 7z"/><line x1="8.5" y1="8.5" x2="15.5" y2="15.5"/></svg>`,
+      trends: `<svg ${S}><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>`
+    };
+    const panelIcon = (key) => el("span", { class: "npanel-icon", html: NICONS[key] || NICONS.other });
+
+    const [meals, supplements, suppLogs] = await Promise.all([
+      Storage.getMeals(), Storage.getSupplements(), Storage.getSupplementLogs()
+    ]);
+    const today = U.todayISO();
+    const todays = meals.filter(m => m.date === today);
+    const energy = await resolveEnergyBudget(today);
+    const macroGoals = await resolveMacroGoals(today, energy);
+    const goal = energy.goal || 2200;
+    const eaten = todays.reduce((s, m) => s + (m.kcal || 0), 0);
+    const remaining = goal - eaten;
+    const over = eaten > goal;
+    const pct = goal > 0 ? Math.min(100, (eaten / goal) * 100) : 0;
+    const dayMacros = U.sumMacros(todays);
+    const groups = U.groupMealsBySection(todays);
+    const isPersonal = targetsArePersonal(energy);
+    const dateEyebrow = U.formatDate(today, { weekday: "short" }).toUpperCase();
+
+    // Supplements are a separate daily "taken" checklist (not calorie foods).
+    const todaySuppLogs = suppLogs.filter(l => l.date === today);
+    const takenSuppIds = new Set(todaySuppLogs.map(l => l.supplementId));
+    const suppSorted = supplements.slice().sort((a, b) =>
+      String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" }));
+
+    // Cards: core meals always, extras only when used, then Supplements, then Trends.
+    const CORE = ["breakfast", "lunch", "dinner", "snack"];
+    const EXTRAS = ["pre_workout", "post_workout", "other"];
+    const mealSections = [
+      ...CORE,
+      ...EXTRAS.filter(k => (groups[k] || []).length)
+    ];
+    // Next meal to nudge: first with nothing logged, else the first card.
+    const nextSection = mealSections.find(k => !(groups[k] || []).length) || mealSections[0];
+
+    const screen = el("div", { class: "npager-screen" });
+    const pager = el("div", { class: "npager", "data-testid": "npager" });
+    const dots = el("div", { class: "npager-dots" });
+    screen.appendChild(pager);
+    screen.appendChild(dots);
+
+    const panelKeys = ["overview", ...mealSections, "supplements", "trends"];
+    let activeIdx = 0;
+
+    function goToPanel(i) {
+      const p = pager.children[i];
+      if (p) { nutritionScrollKey = panelKeys[i]; pager.scrollTo({ top: p.offsetTop, behavior: "smooth" }); }
+    }
+    const idxOf = (key) => panelKeys.indexOf(key);
+    function panelIndexForSection(key) { return idxOf(key); }
+    function nextLabelFor(nk) {
+      if (nk === "trends") return "See trends";
+      if (nk === "supplements") return "Supplements";
+      return `Log ${U.MEAL_SECTIONS[nk].label}`;
+    }
+
+    function renderDots() {
+      clear(dots);
+      panelKeys.forEach((k, i) => {
+        dots.appendChild(el("button", {
+          class: "npager-dot" + (i === activeIdx ? " active" : ""),
+          type: "button", "aria-label": k, "data-idx": String(i),
+          on: { click: () => goToPanel(i) }
+        }));
+      });
+    }
+    function syncDots() {
+      for (const d of Array.from(dots.children)) {
+        d.classList.toggle("active", Number(d.getAttribute("data-idx")) === activeIdx);
+      }
+    }
+
+    // ---- reusable bits ----
+    const macroTxt = (p, c, f) => `${Math.round(p || 0)}P · ${Math.round(c || 0)}C · ${Math.round(f || 0)}F`;
+
+    function macroCard(label, val, goalVal, cls) {
+      const p = goalVal > 0 ? Math.min(100, (val / goalVal) * 100) : 0;
+      return el("div", { class: "nmacro-card" },
+        el("div", { class: "nmacro-label" }, label),
+        el("div", { class: "nmacro-val" }, `${Math.round(val || 0)}`,
+          el("span", { class: "nmacro-goal" }, goalVal > 0 ? `/${Math.round(goalVal)}g` : "g")),
+        el("div", { class: "nmacro-bar" }, el("div", { class: "nmacro-fill " + cls, style: `width:${p}%` }))
+      );
+    }
+
+    function mealsTodayRow(key) {
+      const items = groups[key] || [];
+      const kcal = items.reduce((s, m) => s + (m.kcal || 0), 0);
+      const meta = U.MEAL_SECTIONS[key];
+      return el("button", { class: "nmeal-row", type: "button", on: { click: () => goToPanel(panelIndexForSection(key)) } },
+        el("span", { class: "nmeal-dot", style: `background:${mealColor(key)}` + (kcal > 0 ? "" : ";opacity:.35") }),
+        el("span", { class: "nmeal-badge" }, meta.short),
+        el("div", { class: "nmeal-row-main" },
+          el("div", { class: "nmeal-row-name" }, meta.label),
+          el("div", { class: "nmeal-row-sub" }, items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : "Not logged")
+        ),
+        el("div", { class: "nmeal-row-kcal" }, String(kcal)),
+        el("span", { class: "nmeal-row-chev", html: NCHEV })
+      );
+    }
+
+    function mealPanel(key) {
+      const items = groups[key] || [];
+      const meta = U.MEAL_SECTIONS[key];
+      const kcal = items.reduce((s, m) => s + (m.kcal || 0), 0);
+      const mac = U.sumMacros(items);
+      const panel = el("div", { class: "npanel", "data-key": key });
+      panel.appendChild(el("div", { class: "npanel-head" },
+        panelIcon(key),
+        el("div", { class: "npanel-head-text" },
+          el("div", { class: "npanel-eyebrow" }, dateEyebrow),
+          el("h2", { class: "npanel-title" }, meta.label)
+        ),
+        el("div", { class: "npanel-head-right" },
+          el("div", { class: "npanel-head-kcal" }, String(kcal)),
+          el("div", { class: "npanel-head-sub" }, `${items.length} item${items.length === 1 ? "" : "s"}`)
+        )
+      ));
+      const card = el("div", { class: "ncard" });
+      card.appendChild(el("div", { class: "ncard-head" },
+        el("span", { class: "ncard-badge" }, meta.short),
+        el("div", { class: "ncard-head-main" },
+          el("div", { class: "ncard-head-name" }, meta.label),
+          el("div", { class: "ncard-head-macros" }, mac.hasMacros ? macroTxt(mac.protein, mac.carbs, mac.fat) : "No macros yet")
+        ),
+        el("div", { class: "ncard-head-kcal" }, String(kcal), el("span", { class: "ncard-head-kcal-unit" }, "KCAL"))
+      ));
+      const list = el("div", { class: "ncard-list" });
+      if (!items.length) {
+        list.appendChild(el("div", { class: "ncard-empty" },
+          el("div", { class: "ncard-empty-title" }, "Nothing logged yet"),
+          el("div", { class: "ncard-empty-sub" }, `Add your first item for ${meta.label.toLowerCase()}.`)
+        ));
+      } else {
+        for (const m of items) {
+          const hasMac = (m.protein || m.carbs || m.fat);
+          list.appendChild(el("div", { class: "nfood" },
+            el("button", { class: "nfood-main", type: "button", title: "Edit", on: { click: () => openMealForm(m) } },
+              el("div", { class: "nfood-name" }, m.name),
+              hasMac ? el("div", { class: "nfood-meta" }, `${Math.round(m.protein || 0)}P ${Math.round(m.carbs || 0)}C ${Math.round(m.fat || 0)}F`) : null
+            ),
+            el("div", { class: "nfood-kcal" }, String(m.kcal || 0)),
+            el("button", {
+              class: "nfood-del", type: "button", "aria-label": `Remove ${m.name}`, html: icons.x,
+              on: { click: async () => { await Storage.deleteMeal(m.id); toast(`Removed ${m.name}`); renderMain(); } }
+            })
+          ));
+        }
+      }
+      card.appendChild(list);
+      panel.appendChild(card);
+
+      const foot = el("div", { class: "npanel-foot" });
+      foot.appendChild(el("div", { class: "npanel-foot-row" },
+        el("button", { class: "btn btn-primary btn-block nadd-btn", on: { click: () => openMealFork(key) } },
+          el("span", { html: icons.plus }), "Add food"),
+        el("button", { class: "btn nsaved-btn", title: "Log a saved meal", on: { click: () => openSavedMealsSheet(key) } },
+          el("span", { html: icons.bookmark }), "Saved")
+      ));
+      const ni = panelIndexForSection(key) + 1;
+      if (ni < panelKeys.length) {
+        foot.appendChild(el("button", { class: "btn btn-ghost btn-sm nnext-btn", on: { click: () => goToPanel(ni) } },
+          el("span", { html: NUP }), nextLabelFor(panelKeys[ni])));
+      }
+      panel.appendChild(foot);
+      return panel;
+    }
+
+    // Supplements card — the original daily "taken" checklist (no calories).
+    function supplementsPanel() {
+      const panel = el("div", { class: "npanel", "data-key": "supplements" });
+      const takenCount = takenSuppIds.size;
+      panel.appendChild(el("div", { class: "npanel-head" },
+        panelIcon("supplements"),
+        el("div", { class: "npanel-head-text" },
+          el("div", { class: "npanel-eyebrow" }, dateEyebrow),
+          el("h2", { class: "npanel-title" }, "Supplements")
+        ),
+        el("div", { class: "npanel-head-right" },
+          el("div", { class: "npanel-head-kcal" }, suppSorted.length ? `${takenCount}/${suppSorted.length}` : "0"),
+          el("div", { class: "npanel-head-sub" }, "taken")
+        )
+      ));
+      const card = el("div", { class: "ncard" });
+      card.appendChild(el("div", { class: "ncard-head" },
+        el("span", { class: "ncard-badge" }, "Su"),
+        el("div", { class: "ncard-head-main" },
+          el("div", { class: "ncard-head-name" }, "Supplements"),
+          el("div", { class: "ncard-head-macros" }, suppSorted.length ? `${takenCount} of ${suppSorted.length} taken today` : "Daily checklist · no calories")
+        )
+      ));
+      const list = el("div", { class: "ncard-list" });
+      if (!suppSorted.length) {
+        list.appendChild(el("div", { class: "ncard-empty" },
+          el("div", { class: "ncard-empty-title" }, "No supplements yet"),
+          el("div", { class: "ncard-empty-sub" }, "Add creatine, vitamin D, protein powder — anything you take by hand.")));
+      } else {
+        for (const s of suppSorted) {
+          const taken = takenSuppIds.has(s.id);
+          const log = todaySuppLogs.find(l => l.supplementId === s.id);
+          const doseLine = formatSupplementDose(s) + (log?.time ? ` · ${log.time}` : "") + (s.notes ? ` · ${s.notes}` : "");
+          list.appendChild(el("div", { class: "nfood" },
+            el("button", { class: "nfood-main", type: "button", title: "Edit", on: { click: () => openSupplementForm(s) } },
+              el("div", { class: "nfood-name" }, s.name),
+              el("div", { class: "nfood-meta" }, doseLine)
+            ),
+            el("button", {
+              class: "supp-take" + (taken ? " is-on" : ""), type: "button",
+              on: { click: () => toggleSupplementTaken(s, todaySuppLogs) }
+            }, taken ? "Taken" : "Take"),
+            el("button", {
+              class: "nfood-del", type: "button", "aria-label": `Remove ${s.name}`, html: icons.x,
+              on: { click: async () => {
+                if (!(await confirmDialog(`Remove “${s.name}” from your list?`, { title: "Remove supplement?", okLabel: "Remove", danger: true }))) return;
+                for (const l of todaySuppLogs.filter(x => x.supplementId === s.id)) await Storage.deleteSupplementLog(l.id);
+                await Storage.deleteSupplement(s.id);
+                toast("Supplement removed"); renderMain();
+              } }
+            })
+          ));
+        }
+      }
+      card.appendChild(list);
+      panel.appendChild(card);
+      const foot = el("div", { class: "npanel-foot" });
+      foot.appendChild(el("button", { class: "btn btn-primary btn-block nadd-btn", on: { click: () => openSupplementForm(null) } },
+        el("span", { html: icons.plus }), "Add supplement"));
+      const ni = idxOf("supplements") + 1;
+      if (ni < panelKeys.length) {
+        foot.appendChild(el("button", { class: "btn btn-ghost btn-sm nnext-btn", on: { click: () => goToPanel(ni) } },
+          el("span", { html: NUP }), nextLabelFor(panelKeys[ni])));
+      }
+      panel.appendChild(foot);
+      return panel;
+    }
+
+    // ---- Overview panel ----
+    const ov = el("div", { class: "npanel npanel-overview" });
+    ov.appendChild(el("div", { class: "npanel-head" },
+      panelIcon("overview"),
+      el("div", { class: "npanel-head-text" },
+        el("div", { class: "npanel-eyebrow" }, dateEyebrow),
+        el("h2", { class: "npanel-title" }, "Overview")
+      ),
+      el("div", { class: "npanel-head-right" },
+        el("div", { class: "npanel-head-kcal accent" }, (remaining >= 0 ? remaining : Math.abs(remaining)).toLocaleString("en-GB")),
+        el("div", { class: "npanel-head-sub" }, remaining >= 0 ? "kcal left" : "kcal over")
+      )
+    ));
+    const ringWrap = buildEnergyRing(pct, over);
+    ringWrap.appendChild(el("div", { class: "energy-ring-center" },
+      el("div", { class: "energy-ring-main" + (remaining < 0 ? " over" : "") }, (remaining >= 0 ? remaining : Math.abs(remaining)).toLocaleString("en-GB")),
+      el("div", { class: "energy-ring-sub" }, remaining >= 0 ? "LEFT" : "OVER"),
+      el("div", { class: "nring-detail" }, `${eaten.toLocaleString("en-GB")} / ${goal.toLocaleString("en-GB")} kcal`)
+    ));
+    ov.appendChild(el("div", { class: "nring-block" }, ringWrap));
+    const g = macroGoals.goals || {};
+    ov.appendChild(el("div", { class: "nmacro-row" },
+      macroCard("Protein", dayMacros.protein, g.protein, "is-protein"),
+      macroCard("Carbs", dayMacros.carbs, g.carbs, "is-carbs"),
+      macroCard("Fat", dayMacros.fat, g.fat, "is-fat")
+    ));
+    if (!isPersonal) {
+      const needsProfile = !energy.profileReady;
+      ov.appendChild(el("div", { class: "energy-setup-banner nsetup" },
+        el("div", { class: "text-sm text-muted" },
+          needsProfile
+            ? "These numbers are a starter estimate. Set up your profile to personalise them."
+            : "Log your bodyweight so room and macros use your numbers."),
+        el("button", {
+          class: "btn btn-primary btn-sm mt-8",
+          on: { click: () => { if (needsProfile) openSettings(); else { goTab("home"); setTimeout(scrollToBodyweightCard, 60); } } }
+        }, needsProfile ? "Set up" : "Log bodyweight")
+      ));
+    }
+    const mealsWrap = el("div", { class: "nmeals-today" });
+    mealsWrap.appendChild(el("div", { class: "nmeals-head" },
+      el("div", { class: "nsection-label" }, "MEALS TODAY"),
+      el("button", { class: "nsaved-chip", type: "button", on: { click: () => openSavedMealsSheet() } },
+        el("span", { html: icons.bookmark }), "Saved")
+    ));
+    // Donut: today's calories split by meal.
+    const donutEntries = mealSections.map(key => ({
+      key, label: U.MEAL_SECTIONS[key].label,
+      kcal: (groups[key] || []).reduce((s, m) => s + (m.kcal || 0), 0),
+      color: mealColor(key)
+    }));
+    if (donutEntries.some(e => e.kcal > 0)) {
+      mealsWrap.appendChild(buildMealsDonut(donutEntries, eaten));
+    }
+    for (const key of mealSections) mealsWrap.appendChild(mealsTodayRow(key));
+    // Supplements summary row → jumps to the supplements checklist card.
+    mealsWrap.appendChild(el("button", { class: "nmeal-row", type: "button", on: { click: () => goToPanel(idxOf("supplements")) } },
+      el("span", { class: "nmeal-badge" }, "Su"),
+      el("div", { class: "nmeal-row-main" },
+        el("div", { class: "nmeal-row-name" }, "Supplements"),
+        el("div", { class: "nmeal-row-sub" }, suppSorted.length ? `${takenSuppIds.size} of ${suppSorted.length} taken` : "None added")
+      ),
+      el("span", { class: "nmeal-row-chev", html: NCHEV })
+    ));
+    ov.appendChild(mealsWrap);
+    const ovFoot = el("div", { class: "npanel-foot" });
+    ovFoot.appendChild(el("button", { class: "btn btn-primary btn-block", on: { click: () => goToPanel(panelIndexForSection(nextSection)) } },
+      el("span", { html: NUP }), `Log ${U.MEAL_SECTIONS[nextSection].label}`));
+    ov.appendChild(ovFoot);
+    pager.appendChild(ov);
+
+    // ---- Meal panels ----
+    for (const key of mealSections) pager.appendChild(mealPanel(key));
+
+    // ---- Supplements panel (daily "taken" checklist) ----
+    pager.appendChild(supplementsPanel());
+
+    // ---- Trends panel ----
+    const trends = el("div", { class: "npanel npanel-trends" });
+    trends.appendChild(el("div", { class: "npanel-head" },
+      panelIcon("trends"),
+      el("div", { class: "npanel-head-text" },
+        el("div", { class: "npanel-eyebrow" }, "LAST 14 DAYS"),
+        el("h2", { class: "npanel-title" }, "Trends")
+      )
+    ));
+    const byDate = {};
+    for (const m of meals) { byDate[m.date] = (byDate[m.date] || 0) + (m.kcal || 0); }
+    const tVals = [];
+    for (let i = 13; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); tVals.push(byDate[U.todayISO(d)] ?? null); }
+    const logged = tVals.filter(v => v != null && v > 0);
+    const tcard = el("div", { class: "ncard", style: "padding:16px" });
+    if (logged.length) {
+      const avg = Math.round(logged.reduce((s, v) => s + v, 0) / logged.length);
+      tcard.appendChild(el("div", { class: "row-between", style: "margin-bottom:8px" },
+        el("div", { class: "ncard-head-name" }, "Calorie trend"),
+        el("div", { class: "text-sm text-muted" }, `Avg ${avg} kcal`)));
+      tcard.appendChild(sparkline(tVals, { width: 320, height: 60, goal }));
+      tcard.appendChild(el("div", { class: "text-xs text-faint", style: "margin-top:6px" },
+        `Dashed line = goal (${goal} kcal). Only logged days count toward the average.`));
+    } else {
+      tcard.appendChild(el("div", { class: "ncard-empty" },
+        el("div", { class: "ncard-empty-title" }, "No history yet"),
+        el("div", { class: "ncard-empty-sub" }, "Log meals across a few days to see your calorie trend.")));
+    }
+    trends.appendChild(tcard);
+    // Recent days
+    const past = meals.filter(m => m.date !== today);
+    if (past.length) {
+      const pastBy = {};
+      for (const m of past) { pastBy[m.date] = (pastBy[m.date] || 0) + (m.kcal || 0); }
+      const rows = Object.entries(pastBy).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 14);
+      const rcard = el("div", { class: "ncard", style: "padding:8px 4px; margin-top:12px" });
+      rcard.appendChild(el("div", { class: "nsection-label", style: "padding:8px 12px 4px" }, "RECENT DAYS"));
+      for (const [date, kc] of rows) {
+        rcard.appendChild(el("button", { class: "nfood", type: "button", style: "width:100%; text-align:left", on: { click: () => openNutritionDayDetail(date) } },
+          el("div", { class: "nfood-main" }, el("div", { class: "nfood-name" }, U.formatDate(date, { weekday: "short" }))),
+          el("div", { class: "nfood-kcal" }, `${kc}`),
+          el("span", { class: "nmeal-row-chev", html: NCHEV })
+        ));
+      }
+      trends.appendChild(rcard);
+    }
+    pager.appendChild(trends);
+
+    // ---- Dots + scroll sync ----
+    renderDots();
+    let sRAF = null;
+    pager.addEventListener("scroll", () => {
+      if (sRAF) return;
+      sRAF = requestAnimationFrame(() => {
+        sRAF = null;
+        const center = pager.scrollTop + pager.clientHeight / 2;
+        let best = 0, bd = Infinity;
+        for (let i = 0; i < pager.children.length; i++) {
+          const cc = pager.children[i].offsetTop + pager.children[i].offsetHeight / 2;
+          const d = Math.abs(cc - center);
+          if (d < bd) { bd = d; best = i; }
+        }
+        if (best !== activeIdx) { activeIdx = best; nutritionScrollKey = panelKeys[best]; syncDots(); }
+      });
+    }, { passive: true });
+
+    view.appendChild(screen);
+    // Restore the card the user was on before an action re-rendered the tab.
+    if (nutritionScrollKey && panelKeys.includes(nutritionScrollKey)) {
+      const ri = idxOf(nutritionScrollKey);
+      requestAnimationFrame(() => {
+        if (pager.children[ri]) { pager.scrollTop = pager.children[ri].offsetTop; activeIdx = ri; syncDots(); }
+      });
+    }
+    return;
+  }
+
+  async function renderNutritionLegacy(view) {
     const [meals, mealTemplates] = await Promise.all([
       Storage.getMeals(),
       Storage.getMealTemplates()
@@ -4838,7 +6795,7 @@
         compact: true,
         body: "No meals logged on this day.",
         primaryLabel: "Log meal",
-        onPrimary: () => openQuickAdd("breakfast", dayIso),
+        onPrimary: () => openMealFork("breakfast", dayIso),
         primaryTestId: "empty-day-log-meal"
       }));
     } else {
@@ -4891,7 +6848,7 @@
       el("button", { class: "btn", on: { click: closeModal } }, "Close"),
       el("button", { class: "btn btn-primary", on: { click: () => {
         closeModal();
-        openQuickAdd("snack", date);
+        openMealFork("snack", date);
       } } }, el("span", { html: icons.plus }), "Add meal")
     );
 
@@ -4928,6 +6885,47 @@
     await Storage.saveMeal(meal);
     toast(`Logged ${name} · about ${meal.kcal} kcal`);
     renderMain();
+  }
+
+  // Full-screen "fork in the road" for logging a meal — mirrors the + button.
+  // Two paths: Quick Meal (search common meals) or Create meal (custom entry).
+  function openMealFork(sectionHint = null, dateHint = null) {
+    const overlay = el("div", {
+      class: "qa-fork-overlay", "data-testid": "meal-fork",
+      role: "dialog", "aria-label": "Log a meal"
+    });
+    function onKey(e) { if (e.key === "Escape") { e.preventDefault(); close(); } }
+    const close = () => { document.removeEventListener("keydown", onKey, true); overlay.remove(); };
+    document.addEventListener("keydown", onKey, true);
+
+    // Lightning bolt (fast) for Quick; bowl + plus (build your own) for Create.
+    const BOLT_ART = `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><path class="qa2-bolt" d="M28 5 13 27h9l-3 16 16-23H25z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/></svg>`;
+    const CREATE_ART = `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><g class="qa2-plus"><path d="M9 28h30a15 15 0 0 1-30 0z" fill="currentColor" fill-opacity="0.16"/><path d="M9 28h30a15 15 0 0 1-30 0z" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><line x1="7" y1="28" x2="41" y2="28" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></g><g class="qa2-plusmark" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><line x1="24" y1="7" x2="24" y2="19"/><line x1="18" y1="13" x2="30" y2="13"/></g></svg>`;
+    const CLOSE_ART = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>`;
+
+    const quickPanel = el("button", {
+      class: "qa-fork-panel qa2-workout", "data-testid": "meal-fork-quick",
+      on: { click: () => { close(); openQuickAdd(sectionHint, dateHint); } }
+    },
+      el("span", { class: "qa2-art", html: BOLT_ART }),
+      el("span", { class: "qa2-label" }, "Quick Meal"),
+      el("span", { class: "qa2-sub" }, "Search common meals and log fast")
+    );
+    const createPanel = el("button", {
+      class: "qa-fork-panel qa2-meal", "data-testid": "meal-fork-create",
+      on: { click: () => { close(); openMealForm(null, sectionHint || qaSectionForNow(), dateHint); } }
+    },
+      el("span", { class: "qa2-art", html: CREATE_ART }),
+      el("span", { class: "qa2-label" }, "Create meal"),
+      el("span", { class: "qa2-sub" }, "Enter your own calories and macros")
+    );
+    overlay.appendChild(quickPanel);
+    overlay.appendChild(createPanel);
+    overlay.appendChild(el("button", {
+      class: "qa-fork-close", "aria-label": "Close", title: "Close",
+      html: CLOSE_ART, on: { click: close }
+    }));
+    document.body.appendChild(overlay);
   }
 
   function openQuickAdd(sectionHint = null, dateHint = null) {
@@ -5316,7 +7314,7 @@
         for (const s of (ex.sets || [])) {
           sessionSetsTotal += 1;
           if (s.done) sessionSetsDone += 1;
-          if (ex.type !== "cardio" && s.durationMin == null) {
+          if (ex.type !== "cardio" && ex.type !== "custom" && s.durationMin == null && s.value == null) {
             const target = Number(s.reps) || 0;
             // Target from planned reps field; done sets count actual reps
             sessionRepsTarget += target || 0;
@@ -5464,9 +7462,11 @@
         filter === "strength" ? strengthRecords :
         filter === "cardio" ? cardioRecords :
         records.filter(r =>
-          r.isCardio
-            ? (r.maxDuration > 0 || r.maxDistance > 0)
-            : (r.maxWeight > 0 || r.maxE1RM > 0 || r.maxReps > 0)
+          r.isCustom
+            ? (r.maxValue > 0)
+            : r.isCardio
+              ? (r.maxDuration > 0 || r.maxDistance > 0)
+              : (r.maxWeight > 0 || r.maxE1RM > 0 || r.maxReps > 0)
         );
 
       const card = el("div", { class: "card" });
@@ -5498,7 +7498,29 @@
       }
 
       for (const rec of list) {
-        if (rec.isCardio) {
+        if (rec.isCustom) {
+          const m = normalizeMetric(rec.metric);
+          const best = m.higherIsBetter ? rec.maxValue : (rec.minValue || rec.maxValue);
+          card.appendChild(el("button", {
+            type: "button",
+            class: "stats-record-row",
+            on: { click: () => openExerciseDetail(rec.exerciseId, rec) }
+          },
+            el("div", { class: "stats-record-main" },
+              el("div", { class: "stats-record-name" }, shortLabel(rec.name)),
+              el("div", { class: "stats-record-meta" },
+                [
+                  m.label + (m.higherIsBetter ? " · best" : " · fastest"),
+                  rec.sessionCount ? `${rec.sessionCount} session${rec.sessionCount === 1 ? "" : "s"}` : null
+                ].filter(Boolean).join(" · ")
+              )
+            ),
+            el("div", { class: "stats-record-value" },
+              best != null ? String(best) : "—",
+              m.unit ? el("span", { class: "stats-record-unit" }, m.unit) : null
+            )
+          ));
+        } else if (rec.isCardio) {
           card.appendChild(el("button", {
             type: "button",
             class: "stats-record-row",
@@ -5647,13 +7669,24 @@
             exerciseKcalTotal(ex) > 0 ? el("span", { class: "chip chip-sm", style: "margin-left:8px" }, `≈ ${exerciseKcalTotal(ex)} kcal`) : null)),
           el("div", { class: "exercise-block-body" },
             ...ex.sets.map((s, i) => {
+              if (ex.type === "custom" || s.value != null) {
+                const m = normalizeMetric(ex.metric);
+                const valTxt = s.value != null ? `${s.value}${m.unit ? " " + m.unit : ""}` : "—";
+                return el("div", { class: "set-row type-custom", style: "grid-template-columns: 40px 1fr 1fr" },
+                  el("div", { class: "set-index" }, String(i + 1)),
+                  el("div", { class: "mono", style: "text-align:center" }, valTxt),
+                  el("div", { class: "mono text-muted", style: "text-align:center" },
+                    s.isPR ? el("span", { class: "pr-badge" }, "PR") : "—",
+                    s.note ? el("span", { class: "text-xs text-faint", style: "display:block" }, s.note) : null)
+                );
+              }
               if (ex.type === "cardio" || s.durationMin != null) {
-                const dist = s.distanceKm != null ? `${s.distanceKm} km` : "—";
-                return el("div", { class: "set-row type-cardio", style: "grid-template-columns: 40px 1fr 1fr 1fr 1fr" },
+                const showDist = cardioTracksDistance(ex) && s.distanceKm != null;
+                const cols = showDist ? "40px 1fr 1fr 1fr" : "40px 1fr 1fr";
+                return el("div", { class: "set-row type-cardio", style: `grid-template-columns: ${cols}` },
                   el("div", { class: "set-index" }, String(i + 1)),
                   el("div", { class: "mono", style: "text-align:center" }, `${s.durationMin || 0} min`),
-                  el("div", { class: "mono", style: "text-align:center" }, U.intensityLabel(s.intensity)),
-                  el("div", { class: "mono", style: "text-align:center" }, dist),
+                  showDist ? el("div", { class: "mono", style: "text-align:center" }, `${s.distanceKm} km`) : null,
                   el("div", { class: "mono text-muted", style: "text-align:center" },
                     s.kcal ? `≈ ${s.kcal} kcal` : "—",
                     s.isPR ? el("span", { class: "pr-badge" }, "PR") : null,
@@ -5690,6 +7723,459 @@
   }
 
   // ============ SETTINGS / EXPORT / IMPORT ============
+  // ============ Guided profile setup (quiz) ============
+  // A friendly, one-question-per-screen alternative to the dense settings form.
+  // Auto-opens on first run; also reachable from Settings → "Guided setup".
+  async function openProfileQuiz(opts = {}) {
+    const firstRun = !!opts.firstRun;
+    const startWeight = await getBodyweightKg();
+    const bwLogged = await hasLoggedBodyweight();
+
+    const draft = {
+      profileName: state.prefs.profileName || "",
+      sex: (state.prefs.sex === "male" || state.prefs.sex === "female") ? state.prefs.sex : null,
+      age: (state.prefs.age != null && Number(state.prefs.age) >= 13) ? Number(state.prefs.age) : 25,
+      heightCm: (state.prefs.heightCm != null && Number(state.prefs.heightCm) >= 100) ? Number(state.prefs.heightCm) : 175,
+      weightKg: startWeight > 0 ? startWeight : U.DEFAULT_BW_KG,
+      activityLevel: U.ACTIVITY_LEVELS[state.prefs.activityLevel] ? state.prefs.activityLevel : "light",
+      goalIntent: U.normalizeGoalIntent(state.prefs.goalIntent)
+    };
+
+    const STEPS = ["name", "sex", "age", "height", "weight", "activity", "goal", "reveal"];
+    const LAST_INPUT = STEPS.indexOf("goal"); // progress bar tops out here; reveal is the payoff
+    let idx = 0;
+
+    const overlay = el("div", { class: "pquiz", id: "profile-quiz", "data-testid": "profile-quiz" });
+
+    const bar = el("div", { class: "pquiz-bar-fill" });
+    const progress = el("div", { class: "pquiz-bar" }, bar);
+    const backBtn = el("button", {
+      type: "button", class: "pquiz-back", "data-testid": "pquiz-back",
+      html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>'
+    });
+    const closeBtn = el("button", {
+      type: "button", class: "pquiz-close", "data-testid": "pquiz-close",
+      html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>'
+    });
+    const topbar = el("div", { class: "pquiz-topbar" }, backBtn, progress, closeBtn);
+    const stage = el("div", { class: "pquiz-stage" });
+    overlay.append(topbar, stage);
+
+    function finishAndClose() {
+      overlay.classList.add("is-closing");
+      setTimeout(() => overlay.remove(), 220);
+    }
+
+    async function markSkipped() {
+      if (!state.prefs.onboarded) {
+        state.prefs.onboarded = true;
+        await Storage.setPref("onboarded", true);
+      }
+    }
+
+    backBtn.addEventListener("click", () => { if (idx > 0) goto(idx - 1, "back"); });
+    closeBtn.addEventListener("click", async () => {
+      if (firstRun) await markSkipped();
+      finishAndClose();
+    });
+
+    // ---- small builders ----
+    function choiceCard({ label, hint, icon, iconHtml, selected, onPick, testid }) {
+      const card = el("button", {
+        type: "button",
+        class: "pquiz-choice" + (selected ? " is-sel" : ""),
+        "data-testid": testid,
+        on: { click: onPick }
+      });
+      if (iconHtml) card.appendChild(el("div", { class: "pquiz-choice-icon", html: iconHtml }));
+      else if (icon) card.appendChild(el("div", { class: "pquiz-choice-icon" }, icon));
+      card.appendChild(el("div", { class: "pquiz-choice-main" },
+        el("div", { class: "pquiz-choice-label" }, label),
+        hint ? el("div", { class: "pquiz-choice-hint" }, hint) : null
+      ));
+      if (selected) card.appendChild(el("div", {
+        class: "pquiz-choice-tick",
+        html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'
+      }));
+      return card;
+    }
+
+
+    function stepShell({ eyebrow, title, subtitle, content, footer }) {
+      return el("div", { class: "pquiz-panel" },
+        el("div", { class: "pquiz-head" },
+          eyebrow ? el("div", { class: "pquiz-eyebrow" }, eyebrow) : null,
+          el("h2", { class: "pquiz-title" }, title),
+          subtitle ? el("div", { class: "pquiz-sub" }, subtitle) : null
+        ),
+        el("div", { class: "pquiz-content" }, content),
+        footer ? el("div", { class: "pquiz-foot" }, footer) : null
+      );
+    }
+
+    function primaryBtn(label, onClick, testid) {
+      return el("button", {
+        type: "button", class: "btn btn-primary btn-block pquiz-next", "data-testid": testid || "pquiz-next",
+        on: { click: onClick }
+      }, label);
+    }
+
+    // ---- step renderers ----
+    function renderName() {
+      const input = el("input", {
+        class: "input pquiz-text", type: "text", maxlength: "40",
+        placeholder: "Your name", value: draft.profileName,
+        "data-testid": "pquiz-name"
+      });
+      input.addEventListener("input", () => { draft.profileName = input.value; });
+      const go = () => { draft.profileName = input.value.trim(); goto(idx + 1, "next"); };
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+      return stepShell({
+        eyebrow: firstRun ? "Welcome to FitForge" : "Profile",
+        title: "First — what should we call you?",
+        subtitle: "Just for your home greeting. You can skip this.",
+        content: el("div", { class: "pquiz-textwrap" }, input),
+        footer: el("div", { class: "pquiz-footcol" },
+          primaryBtn("Continue", go),
+          el("button", { type: "button", class: "pquiz-skip", on: { click: () => goto(idx + 1, "next") } }, "Skip")
+        )
+      });
+    }
+
+    function renderSex() {
+      const grid = el("div", { class: "pquiz-grid-2" });
+      const opts = [
+        { key: "male", label: "Male", icon: "♂" },
+        { key: "female", label: "Female", icon: "♀" }
+      ];
+      for (const o of opts) {
+        grid.appendChild(choiceCard({
+          label: o.label, icon: o.icon,
+          selected: draft.sex === o.key,
+          testid: "pquiz-sex-" + o.key,
+          onPick: () => { draft.sex = o.key; goto(idx + 1, "next"); }
+        }));
+      }
+      return stepShell({
+        eyebrow: "About you",
+        title: "What's your biological sex?",
+        subtitle: "Used to estimate how many calories your body burns.",
+        content: grid
+      });
+    }
+
+    function cmToFtIn(cm) {
+      const totalIn = cm / 2.54;
+      const ft = Math.floor(totalIn / 12);
+      const inch = Math.round(totalIn - ft * 12);
+      return `${ft}′${inch}″`;
+    }
+
+    function renderAge() {
+      const wheelC = buildWheel({
+        items: wheelRange(13, 100, 1), value: draft.age,
+        variant: "wheel-quiz", itemHeight: 54, testid: "quiz-wheel-age",
+        onChange: (v) => { draft.age = v; }
+      });
+      return stepShell({
+        eyebrow: "About you",
+        title: "How old are you?",
+        content: el("div", { class: "quiz-wheel" }, wheelC.el, el("div", { class: "quiz-wheel-unit text-faint" }, "years")),
+        footer: primaryBtn("Continue", () => { draft.age = wheelC.getValue(); goto(idx + 1, "next"); })
+      });
+    }
+
+    function renderHeight() {
+      const cap = el("div", { class: "quiz-wheel-unit text-faint" }, `${cmToFtIn(draft.heightCm)} · cm`);
+      const wheelC = buildWheel({
+        items: wheelRange(120, 220, 1), value: Math.round(draft.heightCm),
+        variant: "wheel-quiz", itemHeight: 54, testid: "quiz-wheel-height",
+        onChange: (v) => { draft.heightCm = v; cap.textContent = `${cmToFtIn(v)} · cm`; }
+      });
+      return stepShell({
+        eyebrow: "About you",
+        title: "How tall are you?",
+        content: el("div", { class: "quiz-wheel" }, wheelC.el, cap),
+        footer: primaryBtn("Continue", () => { draft.heightCm = wheelC.getValue(); goto(idx + 1, "next"); })
+      });
+    }
+
+    function renderWeight() {
+      const wheelC = buildWheel({
+        items: wheelRange(30, 200, 0.5, v => String(v)), value: Math.round(draft.weightKg * 2) / 2,
+        variant: "wheel-quiz", itemHeight: 54, testid: "quiz-wheel-weight",
+        onChange: (v) => { draft.weightKg = v; }
+      });
+      return stepShell({
+        eyebrow: "About you",
+        title: "What's your current weight?",
+        subtitle: "You can update this any time from Home.",
+        content: el("div", { class: "quiz-wheel" }, wheelC.el, el("div", { class: "quiz-wheel-unit text-faint" }, "kg")),
+        footer: primaryBtn("Continue", () => { draft.weightKg = wheelC.getValue(); goto(idx + 1, "next"); })
+      });
+    }
+
+    function renderActivity() {
+      const list = el("div", { class: "pquiz-list" });
+      for (const [key, meta] of Object.entries(U.ACTIVITY_LEVELS)) {
+        list.appendChild(choiceCard({
+          label: meta.label, hint: meta.hint,
+          selected: draft.activityLevel === key,
+          testid: "pquiz-activity-" + key,
+          onPick: () => { draft.activityLevel = key; goto(idx + 1, "next"); }
+        }));
+      }
+      return stepShell({
+        eyebrow: "Your day",
+        title: "How active is a normal day?",
+        subtitle: "Outside the gym — gym sessions are tracked separately.",
+        content: list
+      });
+    }
+
+    function renderGoal() {
+      const list = el("div", { class: "pquiz-list" });
+      const goalIcon = { maintain: "⚖️", cut: "📉", cut_hard: "🔥", bulk: "📈", bulk_hard: "💪" };
+      for (const [key, meta] of Object.entries(U.GOAL_INTENTS)) {
+        list.appendChild(choiceCard({
+          label: meta.label, hint: meta.hint, icon: goalIcon[key] || "🎯",
+          selected: draft.goalIntent === key,
+          testid: "pquiz-goal-" + key,
+          onPick: () => { draft.goalIntent = key; goto(idx + 1, "next"); }
+        }));
+      }
+      return stepShell({
+        eyebrow: "Your goal",
+        title: "What are you aiming for?",
+        content: list
+      });
+    }
+
+    function computeTargets() {
+      const calc = U.computeEnergyBudget({
+        sex: draft.sex, age: draft.age, heightCm: draft.heightCm,
+        activityLevel: draft.activityLevel, weightKg: draft.weightKg,
+        workoutKcal: 0, goalIntent: draft.goalIntent,
+        kcalOffset: state.prefs.kcalOffset || 0
+      });
+      const manualKcal = state.prefs.kcalGoalMode === "manual";
+      const budget = manualKcal
+        ? (state.prefs.kcalGoal || calc.budget || 2200)
+        : (calc.complete ? calc.budget : (state.prefs.kcalGoal || 2200));
+      const macros = U.computeMacroGoals({
+        weightKg: draft.weightKg,
+        kcalBudget: budget,
+        proteinPerKg: state.prefs.proteinPerKg || U.DEFAULT_PROTEIN_PER_KG,
+        fatPercent: state.prefs.fatPercent || U.DEFAULT_FAT_PERCENT
+      });
+      return { calc, budget, macros, manualKcal };
+    }
+
+    function renderReveal() {
+      const { budget, macros } = computeTargets();
+      const name = (draft.profileName || "").trim();
+      const macroRow = el("div", { class: "pquiz-macros" },
+        el("div", { class: "pquiz-macro" },
+          el("div", { class: "pquiz-macro-v", "data-testid": "pquiz-protein" }, `${macros.protein}g`),
+          el("div", { class: "pquiz-macro-k" }, "Protein")),
+        el("div", { class: "pquiz-macro" },
+          el("div", { class: "pquiz-macro-v" }, `${macros.carbs}g`),
+          el("div", { class: "pquiz-macro-k" }, "Carbs")),
+        el("div", { class: "pquiz-macro" },
+          el("div", { class: "pquiz-macro-v" }, `${macros.fat}g`),
+          el("div", { class: "pquiz-macro-k" }, "Fat"))
+      );
+      const content = el("div", { class: "pquiz-reveal" },
+        el("div", { class: "pquiz-reveal-badge" }, "Your daily target"),
+        el("div", { class: "pquiz-reveal-kcal", "data-testid": "pquiz-reveal-kcal" },
+          el("span", { class: "pquiz-reveal-num" }, String(budget).replace(/\B(?=(\d{3})+(?!\d))/g, ",")),
+          el("span", { class: "pquiz-reveal-unit" }, "kcal")
+        ),
+        macroRow,
+        el("div", { class: "pquiz-reveal-note text-faint" },
+          "Suggested from your profile — you can fine-tune everything in Settings.")
+      );
+      return stepShell({
+        eyebrow: name ? `You're all set, ${name}` : "You're all set",
+        title: "Here's your starting plan",
+        content,
+        footer: primaryBtn(firstRun ? "Start training" : "Save my profile", saveQuiz, "pquiz-finish")
+      });
+    }
+
+    const RENDERERS = {
+      name: renderName, sex: renderSex, age: renderAge, height: renderHeight,
+      weight: renderWeight, activity: renderActivity, goal: renderGoal, reveal: renderReveal
+    };
+
+    async function saveQuiz() {
+      const { budget, macros, manualKcal } = computeTargets();
+      const manualMacros = state.prefs.macroGoalMode === "manual";
+
+      // Persist profile basics
+      state.prefs.profileName = (draft.profileName || "").trim();
+      state.prefs.sex = draft.sex;
+      state.prefs.age = draft.age;
+      state.prefs.heightCm = draft.heightCm;
+      state.prefs.activityLevel = draft.activityLevel;
+      state.prefs.goalIntent = draft.goalIntent;
+      state.prefs.onboarded = true;
+
+      await Storage.setPref("profileName", state.prefs.profileName);
+      await Storage.setPref("sex", draft.sex);
+      await Storage.setPref("age", draft.age);
+      await Storage.setPref("heightCm", draft.heightCm);
+      await Storage.setPref("activityLevel", draft.activityLevel);
+      await Storage.setPref("goalIntent", draft.goalIntent);
+      await Storage.setPref("onboarded", true);
+
+      // Log today's bodyweight if new or changed (never clobber an identical entry silently)
+      if (!bwLogged || Math.abs(draft.weightKg - startWeight) > 0.01) {
+        try {
+          await Storage.saveBodyweight({ date: U.todayISO(), kg: draft.weightKg });
+        } catch (_) { /* non-fatal */ }
+      }
+
+      // Auto modes: let the quiz set sensible calorie + macro targets. Manual
+      // overrides set in Settings are left untouched.
+      if (!manualKcal) {
+        state.prefs.kcalGoalMode = "auto";
+        state.prefs.kcalGoal = budget;
+        await Storage.setPref("kcalGoalMode", "auto");
+        await Storage.setPref("kcalGoal", budget);
+      }
+      if (!manualMacros) {
+        state.prefs.macroGoalMode = "auto";
+        state.prefs.proteinGoal = macros.protein;
+        state.prefs.carbsGoal = macros.carbs;
+        state.prefs.fatGoal = macros.fat;
+        await Storage.setPref("macroGoalMode", "auto");
+        await Storage.setPref("proteinGoal", macros.protein);
+        await Storage.setPref("carbsGoal", macros.carbs);
+        await Storage.setPref("fatGoal", macros.fat);
+      }
+
+      finishAndClose();
+      renderMain();
+      toast(`You're set — ${budget} kcal a day`);
+    }
+
+    function goto(next, dir) {
+      idx = Math.max(0, Math.min(STEPS.length - 1, next));
+      const stepId = STEPS[idx];
+      const node = RENDERERS[stepId]();
+      node.classList.add(dir === "back" ? "slide-in-back" : "slide-in-next");
+      clear(stage);
+      stage.appendChild(node);
+
+      backBtn.style.visibility = idx > 0 ? "visible" : "hidden";
+      const pct = Math.min(100, Math.round((Math.min(idx, LAST_INPUT) / LAST_INPUT) * 100));
+      bar.style.width = pct + "%";
+    }
+
+    document.body.appendChild(overlay);
+    goto(0, "next");
+  }
+
+  // ============ Reusable picker wheel ============
+  // A vertical scroll picker: the centred item scales up + brightens.
+  // Returns { el, getValue, setValue }. Used inline (setup quiz) and inside
+  // openWheelSheet (tap-to-open bottom sheet for compact forms).
+  function buildWheel({ items, value, onChange, itemHeight = 44, visibleCount = 5, variant = "", testid }) {
+    const H = itemHeight * visibleCount;
+    const pad = (H - itemHeight) / 2;
+    const wheel = el("div", { class: "wheel" + (variant ? " " + variant : ""), "data-testid": testid || "wheel" });
+    wheel.style.height = H + "px";
+    wheel.style.padding = pad + "px 0";
+    const itemEls = items.map((it, i) => {
+      const b = el("button", { type: "button", class: "wheel-item", "data-i": String(i),
+        on: { click: () => centerOn(i, true) } }, el("span", { class: "wheel-item-label" }, it.label));
+      b.style.height = itemHeight + "px";
+      return b;
+    });
+    itemEls.forEach(e => wheel.appendChild(e));
+    const sel = el("div", { class: "wheel-selection" }); sel.style.height = itemHeight + "px";
+    const wrap = el("div", { class: "wheel-wrap" }, sel, wheel);
+    wrap.style.height = H + "px";
+
+    let activeIdx = items.findIndex(it => String(it.value) === String(value));
+    if (activeIdx < 0) activeIdx = 0;
+
+    function paint() {
+      const center = wheel.scrollTop + H / 2;
+      let best = 0, bd = Infinity;
+      for (let i = 0; i < itemEls.length; i++) {
+        const c = itemEls[i].offsetTop + itemHeight / 2;
+        const d = Math.abs(c - center);
+        if (d < bd) { bd = d; best = i; }
+        const dist = Math.min(3, d / itemHeight);
+        itemEls[i].style.transform = `scale(${(1 - dist * 0.16).toFixed(3)})`;
+        itemEls[i].style.opacity = String(Math.max(0.2, 1 - dist * 0.34).toFixed(3));
+        itemEls[i].classList.remove("is-active");
+      }
+      itemEls[best].classList.add("is-active");
+      if (best !== activeIdx) { activeIdx = best; onChange && onChange(items[best].value, items[best]); }
+    }
+    let raf = null;
+    wheel.addEventListener("scroll", () => { if (!raf) raf = requestAnimationFrame(() => { raf = null; paint(); }); }, { passive: true });
+    function centerOn(i, smooth) { wheel.scrollTo({ top: i * itemHeight, behavior: smooth ? "smooth" : "auto" }); }
+    requestAnimationFrame(() => { wheel.scrollTop = activeIdx * itemHeight; paint(); });
+
+    return {
+      el: wrap,
+      getValue: () => items[activeIdx].value,
+      setValue: (v) => { const i = items.findIndex(it => String(it.value) === String(v)); if (i >= 0) { activeIdx = i; centerOn(i, false); requestAnimationFrame(paint); } }
+    };
+  }
+
+  // Build {value,label} items for a numeric range (inclusive).
+  function wheelRange(min, max, step = 1, fmt) {
+    const out = [];
+    const n = Math.round((max - min) / step);
+    for (let k = 0; k <= n; k++) {
+      const v = Math.round((min + k * step) * 1000) / 1000;
+      out.push({ value: v, label: fmt ? fmt(v) : String(v) });
+    }
+    return out;
+  }
+
+  // Bottom sheet with a wheel + Done — for compact fields.
+  function openWheelSheet({ title, items, value, unit, onPick }) {
+    const overlay = el("div", { class: "wsheet-overlay", "data-testid": "wheel-sheet",
+      on: { click: (e) => { if (e.target === overlay) close(); } } });
+    function onKey(e) { if (e.key === "Escape") { e.preventDefault(); close(); } }
+    const close = () => { document.removeEventListener("keydown", onKey); overlay.remove(); };
+    document.addEventListener("keydown", onKey);
+    const wheelC = buildWheel({ items, value, itemHeight: 44, visibleCount: 5, variant: "wheel-sheet" });
+    const sheet = el("div", { class: "wsheet" },
+      el("div", { class: "wsheet-title" }, title || "Choose"),
+      el("div", { class: "wsheet-wheel" }, wheelC.el, unit ? el("div", { class: "wsheet-unit" }, unit) : null),
+      el("div", { class: "wsheet-actions" },
+        el("button", { class: "btn", on: { click: close } }, "Cancel"),
+        el("button", { class: "btn btn-primary", "data-testid": "wheel-sheet-done",
+          on: { click: () => { const v = wheelC.getValue(); close(); onPick && onPick(v); } } }, "Done")
+      )
+    );
+    overlay.appendChild(sheet);
+    document.body.appendChild(overlay);
+  }
+
+  // A field-style button showing the current value; tap opens a wheel sheet.
+  function wheelField({ value, items, unit, title, testid, onPick }) {
+    const btn = el("button", { type: "button", class: "wheel-field", "data-testid": testid });
+    let cur = value;
+    const render = () => {
+      const item = items.find(it => String(it.value) === String(cur));
+      btn.textContent = (item ? item.label : String(cur)) + (unit ? ` ${unit}` : "");
+    };
+    btn.addEventListener("click", () => openWheelSheet({
+      title, items, value: cur, unit,
+      onPick: (v) => { cur = v; render(); onPick && onPick(v); }
+    }));
+    render();
+    return btn;
+  }
+
   async function openSettings(opts = {}) {
     const weightKg = await getBodyweightKg();
     const restI = el("input", { class: "input input-num", type: "number", value: state.prefs.defaultRestSec });
@@ -5698,6 +8184,22 @@
       min: "1", max: "14", step: "1",
       value: state.prefs.weeklyWorkoutGoal || 4
     });
+
+    // Wrap a hidden input/select with a tap-to-open wheel field. The original
+    // control stays in the DOM (hidden) so existing preview/save reads and
+    // change listeners keep working unchanged.
+    function wheelWrap(inputEl, { title, items, unit, testid }) {
+      inputEl.style.display = "none";
+      const field = wheelField({
+        value: inputEl.value, items, unit, title, testid,
+        onPick: (v) => {
+          inputEl.value = String(v);
+          inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+          inputEl.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      });
+      return el("div", { class: "wheel-field-wrap" }, field, inputEl);
+    }
 
     const nameI = el("input", {
       class: "input", type: "text", maxlength: "40", placeholder: "e.g. Takis",
@@ -6070,11 +8572,17 @@
       el("div", { class: "form-row" },
         el("div", { style: "flex:1" },
           el("label", { class: "label" }, "Protein target"),
-          proteinPerKgS
+          wheelWrap(proteinPerKgS, {
+            title: "Protein per kg",
+            items: U.PROTEIN_PER_KG_OPTIONS.map(o => ({ value: String(o.value), label: `${o.value} g/kg` })),
+            testid: "wheel-proteinperkg"
+          })
         ),
         el("div", { style: "flex:1" },
           el("label", { class: "label" }, "Fat (% of kcal)"),
-          fatPctI
+          wheelWrap(fatPctI, {
+            title: "Fat % of kcal", items: wheelRange(15, 45, 1), unit: "%", testid: "wheel-fatpct"
+          })
         )
       )
     );
@@ -6089,6 +8597,19 @@
     const body = el("div", { class: "settings-body" },
       // Hero — always first so setup feels outcome-led
       settingsHero,
+
+      // Friendly path: relaunch the guided quiz instead of editing the dense form.
+      el("button", {
+        class: "btn pquiz-launch", type: "button",
+        "data-testid": "open-guided-setup",
+        on: { click: () => { closeModal(); openProfileQuiz({ firstRun: false }); } }
+      },
+        el("span", { class: "pquiz-launch-emoji" }, "✨"),
+        el("span", {},
+          el("span", { class: "pquiz-launch-title" }, "Guided setup"),
+          el("span", { class: "pquiz-launch-sub" }, "Redo your profile as a quick quiz")
+        )
+      ),
 
       el("div", { class: "settings-section-title mt-16", "data-step": "1" }, "1 · Body"),
       el("div", { class: "text-xs text-faint", style: "margin: -4px 0 10px" },
@@ -6157,8 +8678,10 @@
 
       el("div", { class: "settings-section-title mt-16" }, "Training"),
       el("div", { class: "form-row" },
-        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Default rest timer (seconds)"), restI),
-        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Weekly workout goal"), weeklyGoalI)
+        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Default rest timer"),
+          wheelWrap(restI, { title: "Default rest", items: wheelRange(15, 300, 15, s => U.formatTime(s)), testid: "wheel-rest" })),
+        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Weekly workout goal"),
+          wheelWrap(weeklyGoalI, { title: "Weekly goal", items: wheelRange(1, 14, 1), unit: "workouts", testid: "wheel-weeklygoal" }))
       ),
 
       el("div", { class: "form-row mt-16" }, el("div", { style: "flex:1" },
