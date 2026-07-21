@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=95").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=96").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -6090,20 +6090,32 @@
       );
     }
 
-    function mealsTodayRow(key) {
+    // One node on the meals timeline rail.
+    function timelineNode({ badge, color, name, sub, kcal, logged, onClick }) {
+      return el("button", { class: "ntl-item", type: "button", on: { click: onClick } },
+        el("div", { class: "ntl-rail" },
+          el("div", { class: "ntl-node" + (logged ? " is-logged" : ""), style: "--meal-color:" + color }, badge)
+        ),
+        el("div", { class: "ntl-content" },
+          el("div", { class: "ntl-main" },
+            el("div", { class: "ntl-name" }, name),
+            el("div", { class: "ntl-sub" }, sub)
+          ),
+          kcal != null ? el("div", { class: "ntl-kcal" + (logged ? "" : " is-zero") }, String(kcal)) : null,
+          el("span", { class: "ntl-chev", html: NCHEV })
+        )
+      );
+    }
+    function mealTimelineItem(key) {
       const items = groups[key] || [];
       const kcal = items.reduce((s, m) => s + (m.kcal || 0), 0);
       const meta = U.MEAL_SECTIONS[key];
-      return el("button", { class: "nmeal-row", type: "button", on: { click: () => goToPanel(panelIndexForSection(key)) } },
-        el("span", { class: "nmeal-dot", style: `background:${mealColor(key)}` + (kcal > 0 ? "" : ";opacity:.35") }),
-        el("span", { class: "nmeal-badge" }, meta.short),
-        el("div", { class: "nmeal-row-main" },
-          el("div", { class: "nmeal-row-name" }, meta.label),
-          el("div", { class: "nmeal-row-sub" }, items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : "Not logged")
-        ),
-        el("div", { class: "nmeal-row-kcal" }, String(kcal)),
-        el("span", { class: "nmeal-row-chev", html: NCHEV })
-      );
+      return timelineNode({
+        badge: meta.short, color: mealColor(key), name: meta.label,
+        sub: items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : "Not logged",
+        kcal, logged: kcal > 0,
+        onClick: () => goToPanel(panelIndexForSection(key))
+      });
     }
 
     function mealPanel(key) {
@@ -6295,16 +6307,16 @@
     if (donutEntries.some(e => e.kcal > 0)) {
       mealsWrap.appendChild(buildMealsDonut(donutEntries, eaten));
     }
-    for (const key of mealSections) mealsWrap.appendChild(mealsTodayRow(key));
-    // Supplements summary row → jumps to the supplements checklist card.
-    mealsWrap.appendChild(el("button", { class: "nmeal-row", type: "button", on: { click: () => goToPanel(idxOf("supplements")) } },
-      el("span", { class: "nmeal-badge" }, "Su"),
-      el("div", { class: "nmeal-row-main" },
-        el("div", { class: "nmeal-row-name" }, "Supplements"),
-        el("div", { class: "nmeal-row-sub" }, suppSorted.length ? `${takenSuppIds.size} of ${suppSorted.length} taken` : "None added")
-      ),
-      el("span", { class: "nmeal-row-chev", html: NCHEV })
-    ));
+    // Vertical timeline rail — meals flow down the day, colour-keyed to the donut.
+    const timeline = el("div", { class: "nmeal-timeline" });
+    for (const key of mealSections) timeline.appendChild(mealTimelineItem(key));
+    timeline.appendChild(timelineNode({
+      badge: "Su", color: mealColor("supplements"), name: "Supplements",
+      sub: suppSorted.length ? `${takenSuppIds.size} of ${suppSorted.length} taken` : "None added",
+      kcal: null, logged: suppSorted.length > 0 && takenSuppIds.size > 0,
+      onClick: () => goToPanel(idxOf("supplements"))
+    }));
+    mealsWrap.appendChild(timeline);
     ov.appendChild(mealsWrap);
     const ovFoot = el("div", { class: "npanel-foot" });
     ovFoot.appendChild(el("button", { class: "btn btn-primary btn-block", on: { click: () => goToPanel(panelIndexForSection(nextSection)) } },
