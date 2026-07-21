@@ -3920,3 +3920,45 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .numpad-wheel-fracw { width: 76px; }
 .numpad-wheel-unit { font-size: 16px; font-weight: 700; color: var(--text-muted); margin-left: 4px; }
 .numpad-sheet-wheel .wheel { margin: 0 auto; }
+
+/* ============ Ring polish (F1) ============ */
+.energy-ring-fg { filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 55%, transparent)); }
+.energy-ring-dot { opacity: 0; transform-origin: center; transition: opacity 400ms ease 500ms;
+  filter: drop-shadow(0 0 4px rgba(255,255,255,0.85)); }
+.energy-ring-dot.is-in { opacity: 1; }
+
+/* ============ Stacked macro balance bar (F3) ============ */
+.macro-stack-card { padding: 14px 16px; }
+.macro-stack-title { font-size: 13px; font-weight: 700; letter-spacing: 0.02em; }
+.macro-stack-bar {
+  display: flex; height: 16px; border-radius: 999px; overflow: hidden;
+  background: var(--bg-sunken); margin: 12px 0 12px; gap: 2px;
+}
+.macro-stack-seg { height: 100%; min-width: 3px; transition: width 500ms cubic-bezier(.2,.8,.2,1); }
+.macro-stack-seg:first-child { border-top-left-radius: 999px; border-bottom-left-radius: 999px; }
+.macro-stack-seg:last-child { border-top-right-radius: 999px; border-bottom-right-radius: 999px; }
+.macro-stack-empty { width: 100%; }
+.macro-stack-seg.is-protein, .macro-stack-dot.is-protein { background: #5b8def; }
+.macro-stack-seg.is-carbs,   .macro-stack-dot.is-carbs   { background: #d4a017; }
+.macro-stack-seg.is-fat,     .macro-stack-dot.is-fat     { background: #57c9d6; }
+.macro-stack-legend { display: flex; gap: 14px; flex-wrap: wrap; }
+.macro-stack-item { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.macro-stack-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.macro-stack-name { color: var(--text-muted); }
+.macro-stack-val { font-weight: 700; font-variant-numeric: tabular-nums; }
+.macro-stack-goal { color: var(--text-faint); font-size: 12px; }
+
+/* ============ Meals-today donut (C1) ============ */
+.nmeals-donut-wrap {
+  position: relative; width: 168px; height: 168px; margin: 6px auto 14px;
+  animation: fadeScale 420ms cubic-bezier(.2,.9,.3,1) both;
+}
+.nmeals-donut { display: block; }
+.nmeals-donut circle { transition: stroke-dasharray 500ms ease; }
+.nmeals-donut-center {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; pointer-events: none;
+}
+.nmeals-donut-num { font-family: var(--font-numeric, inherit); font-size: 30px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.nmeals-donut-sub { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); margin-top: 3px; }
+.nmeal-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }

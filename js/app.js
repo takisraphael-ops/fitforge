@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=94").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=95").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1706,46 +1706,133 @@
     return { className: "energy-status-maintain", label: "About right" };
   }
 
+  let ringSeq = 0;
+  const SVGNS = "http://www.w3.org/2000/svg";
   function buildEnergyRing(pct, overBudget) {
     const size = 176;
-    const stroke = 12;
+    const stroke = 13;
+    const cx = size / 2;
     const r = (size - stroke) / 2;
     const c = 2 * Math.PI * r;
     const fillPct = Math.max(0, Math.min(100, pct));
     const dashOffset = c * (1 - fillPct / 100);
-    const strokeColor = overBudget ? "var(--danger)" : (fillPct >= 85 ? "var(--warning, #c48a2a)" : "var(--accent)");
+    const near = fillPct >= 85 && !overBudget;
+    const endColor = overBudget ? "var(--danger, #e5484d)" : (near ? "var(--warning, #c48a2a)" : "var(--accent)");
+    const startColor = overBudget ? "#f0883e" : (near ? "#e0b04a" : "var(--accent-hover, #74d6e1)");
+    const gid = "ering-" + (++ringSeq);
 
     const wrap = el("div", { class: "energy-ring-wrap" });
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const svg = document.createElementNS(SVGNS, "svg");
     svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
     svg.setAttribute("class", "energy-ring");
     svg.setAttribute("width", String(size));
     svg.setAttribute("height", String(size));
     svg.setAttribute("aria-hidden", "true");
 
-    const bg = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    bg.setAttribute("cx", String(size / 2));
-    bg.setAttribute("cy", String(size / 2));
-    bg.setAttribute("r", String(r));
-    bg.setAttribute("fill", "none");
-    bg.setAttribute("stroke", "var(--border)");
-    bg.setAttribute("stroke-width", String(stroke));
+    // Gradient so the arc shades from bright to accent as it sweeps.
+    const defs = document.createElementNS(SVGNS, "defs");
+    const grad = document.createElementNS(SVGNS, "linearGradient");
+    grad.setAttribute("id", gid);
+    grad.setAttribute("x1", "0%"); grad.setAttribute("y1", "0%");
+    grad.setAttribute("x2", "100%"); grad.setAttribute("y2", "100%");
+    const s1 = document.createElementNS(SVGNS, "stop");
+    s1.setAttribute("offset", "0%"); s1.setAttribute("stop-color", startColor);
+    const s2 = document.createElementNS(SVGNS, "stop");
+    s2.setAttribute("offset", "100%"); s2.setAttribute("stop-color", endColor);
+    grad.appendChild(s1); grad.appendChild(s2);
+    defs.appendChild(grad);
+    svg.appendChild(defs);
 
-    const fg = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    fg.setAttribute("cx", String(size / 2));
-    fg.setAttribute("cy", String(size / 2));
-    fg.setAttribute("r", String(r));
-    fg.setAttribute("fill", "none");
-    fg.setAttribute("stroke", strokeColor);
+    const bg = document.createElementNS(SVGNS, "circle");
+    bg.setAttribute("cx", String(cx)); bg.setAttribute("cy", String(cx)); bg.setAttribute("r", String(r));
+    bg.setAttribute("fill", "none"); bg.setAttribute("stroke", "var(--bg-sunken)"); bg.setAttribute("stroke-width", String(stroke));
+    svg.appendChild(bg);
+
+    const fg = document.createElementNS(SVGNS, "circle");
+    fg.setAttribute("cx", String(cx)); fg.setAttribute("cy", String(cx)); fg.setAttribute("r", String(r));
+    fg.setAttribute("fill", "none"); fg.setAttribute("stroke", `url(#${gid})`);
     fg.setAttribute("stroke-width", String(stroke));
     fg.setAttribute("stroke-linecap", "round");
     fg.setAttribute("stroke-dasharray", String(c));
-    fg.setAttribute("stroke-dashoffset", String(dashOffset));
-    fg.setAttribute("transform", `rotate(-90 ${size / 2} ${size / 2})`);
-
-    svg.appendChild(bg);
+    fg.setAttribute("stroke-dashoffset", String(c)); // start empty, animate to target
+    fg.setAttribute("transform", `rotate(-90 ${cx} ${cx})`);
+    fg.setAttribute("class", "energy-ring-fg");
     svg.appendChild(fg);
+
+    // Glowing dot at the leading edge of the arc.
+    let dot = null;
+    if (fillPct > 1 && fillPct < 99.5) {
+      const ang = (-90 + 360 * fillPct / 100) * Math.PI / 180;
+      dot = document.createElementNS(SVGNS, "circle");
+      dot.setAttribute("cx", String(cx + r * Math.cos(ang)));
+      dot.setAttribute("cy", String(cx + r * Math.sin(ang)));
+      dot.setAttribute("r", String(stroke / 2 - 1));
+      dot.setAttribute("fill", "#fff");
+      dot.setAttribute("class", "energy-ring-dot");
+      svg.appendChild(dot);
+    }
+
     wrap.appendChild(svg);
+    // Animate the sweep on mount.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      fg.style.transition = "stroke-dashoffset 900ms cubic-bezier(.2,.8,.2,1)";
+      fg.setAttribute("stroke-dashoffset", String(dashOffset));
+      if (dot) dot.classList.add("is-in");
+    }));
+    return wrap;
+  }
+
+  // Distinct colours per meal section for the meals-today donut + legend.
+  const MEAL_COLORS = {
+    breakfast: "#f0a35e",
+    lunch: "#57c9d6",
+    dinner: "#7c8cff",
+    snack: "#58c07f",
+    pre_workout: "#d98cff",
+    post_workout: "#ffce54",
+    other: "#8a94a4"
+  };
+  const mealColor = (key) => MEAL_COLORS[key] || "#8a94a4";
+
+  // Donut of today's calories split by meal. entries: [{key,label,kcal,color}].
+  function buildMealsDonut(entries, totalEaten) {
+    const size = 168, stroke = 20, cx = size / 2, r = (size - stroke) / 2, c = 2 * Math.PI * r;
+    const wrap = el("div", { class: "nmeals-donut-wrap", "data-testid": "meals-donut" });
+    const svg = document.createElementNS(SVGNS, "svg");
+    svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
+    svg.setAttribute("class", "nmeals-donut");
+    svg.setAttribute("width", String(size)); svg.setAttribute("height", String(size));
+    svg.setAttribute("aria-hidden", "true");
+
+    const track = document.createElementNS(SVGNS, "circle");
+    track.setAttribute("cx", String(cx)); track.setAttribute("cy", String(cx)); track.setAttribute("r", String(r));
+    track.setAttribute("fill", "none"); track.setAttribute("stroke", "var(--bg-sunken)"); track.setAttribute("stroke-width", String(stroke));
+    svg.appendChild(track);
+
+    const slices = (entries || []).filter(e => e.kcal > 0);
+    const total = slices.reduce((s, e) => s + e.kcal, 0);
+    if (total > 0) {
+      const gap = slices.length > 1 ? 3 : 0;
+      let accum = 0;
+      for (const e of slices) {
+        const frac = e.kcal / total;
+        const len = Math.max(1, frac * c - gap);
+        const seg = document.createElementNS(SVGNS, "circle");
+        seg.setAttribute("cx", String(cx)); seg.setAttribute("cy", String(cx)); seg.setAttribute("r", String(r));
+        seg.setAttribute("fill", "none"); seg.setAttribute("stroke", e.color);
+        seg.setAttribute("stroke-width", String(stroke));
+        seg.setAttribute("stroke-dasharray", `${len} ${c - len}`);
+        seg.setAttribute("stroke-dashoffset", String(-accum));
+        seg.setAttribute("transform", `rotate(-90 ${cx} ${cx})`);
+        svg.appendChild(seg);
+        accum += frac * c;
+      }
+    }
+    wrap.appendChild(svg);
+    wrap.appendChild(el("div", { class: "nmeals-donut-center" },
+      el("div", { class: "nmeals-donut-num" }, Math.round(totalEaten || 0).toLocaleString("en-GB")),
+      el("div", { class: "nmeals-donut-sub" }, total > 0 ? "eaten" : "no meals yet")
+    ));
     return wrap;
   }
 
@@ -2340,12 +2427,12 @@
       view.appendChild(buildTodayWorkoutHero({ plan, tplById, exById }));
     }
 
-    // 3) Today — food room hero + macro tiles
+    // 3) Today — food room hero + stacked macro balance bar
     const todayBlock = homeSection(
       "Today",
       "home-section-today",
       renderEnergyBudgetCard(energy, todaysKcal),
-      renderMacroTiles(todayMacros, macroGoals, energy)
+      renderMacroStackBar(todayMacros, macroGoals, energy)
     );
     view.appendChild(todayBlock);
 
@@ -2446,6 +2533,52 @@
       row.appendChild(tile);
     }
     return row;
+  }
+
+  // Single stacked bar showing macro *balance* (share of eaten calories) plus a
+  // compact grams-vs-goal legend. Replaces the 3 flat tiles on Home.
+  function renderMacroStackBar(totals, macroGoals, energy) {
+    const t = totals || { protein: 0, carbs: 0, fat: 0 };
+    const goals = macroGoals?.hasGoals ? macroGoals.goals : null;
+    const estimate = !macrosArePersonal(macroGoals, energy);
+    const defs = [
+      { key: "protein", label: "Protein", cls: "is-protein", perG: 4 },
+      { key: "carbs", label: "Carbs", cls: "is-carbs", perG: 4 },
+      { key: "fat", label: "Fat", cls: "is-fat", perG: 9 }
+    ];
+    const kcals = defs.map(d => Math.max(0, (t[d.key] || 0)) * d.perG);
+    const totalKcal = kcals.reduce((a, b) => a + b, 0);
+
+    const card = el("div", { class: "card macro-stack-card", "data-testid": "home-today-macros" });
+    card.appendChild(el("div", { class: "row-between", style: "align-items:baseline" },
+      el("div", { class: "macro-stack-title" }, "Macros"),
+      el("div", { class: "text-xs text-faint" }, totalKcal > 0 ? "share of calories eaten" : (estimate ? "targets are estimates" : ""))
+    ));
+
+    const bar = el("div", { class: "macro-stack-bar" });
+    if (totalKcal > 0) {
+      defs.forEach((d, i) => {
+        const w = (kcals[i] / totalKcal) * 100;
+        if (w > 0) bar.appendChild(el("div", { class: "macro-stack-seg " + d.cls, style: `width:${w}%`, title: d.label }));
+      });
+    } else {
+      bar.appendChild(el("div", { class: "macro-stack-empty" }));
+    }
+    card.appendChild(bar);
+
+    const legend = el("div", { class: "macro-stack-legend" });
+    for (const d of defs) {
+      const val = Math.round(t[d.key] || 0);
+      const goal = goals ? Math.round(goals[d.key] || 0) : 0;
+      legend.appendChild(el("div", { class: "macro-stack-item", "data-testid": "macro-tile-" + d.key },
+        el("span", { class: "macro-stack-dot " + d.cls }),
+        el("span", { class: "macro-stack-name" }, d.label),
+        el("span", { class: "macro-stack-val" }, `${val}g`),
+        goal > 0 ? el("span", { class: "macro-stack-goal" }, `/ ${goal}${estimate ? " est" : ""}`) : null
+      ));
+    }
+    card.appendChild(legend);
+    return card;
   }
 
   function miniBars(values, opts = {}) {
@@ -5962,6 +6095,7 @@
       const kcal = items.reduce((s, m) => s + (m.kcal || 0), 0);
       const meta = U.MEAL_SECTIONS[key];
       return el("button", { class: "nmeal-row", type: "button", on: { click: () => goToPanel(panelIndexForSection(key)) } },
+        el("span", { class: "nmeal-dot", style: `background:${mealColor(key)}` + (kcal > 0 ? "" : ";opacity:.35") }),
         el("span", { class: "nmeal-badge" }, meta.short),
         el("div", { class: "nmeal-row-main" },
           el("div", { class: "nmeal-row-name" }, meta.label),
@@ -6152,6 +6286,15 @@
       el("button", { class: "nsaved-chip", type: "button", on: { click: () => openSavedMealsSheet() } },
         el("span", { html: icons.bookmark }), "Saved")
     ));
+    // Donut: today's calories split by meal.
+    const donutEntries = mealSections.map(key => ({
+      key, label: U.MEAL_SECTIONS[key].label,
+      kcal: (groups[key] || []).reduce((s, m) => s + (m.kcal || 0), 0),
+      color: mealColor(key)
+    }));
+    if (donutEntries.some(e => e.kcal > 0)) {
+      mealsWrap.appendChild(buildMealsDonut(donutEntries, eaten));
+    }
     for (const key of mealSections) mealsWrap.appendChild(mealsTodayRow(key));
     // Supplements summary row → jumps to the supplements checklist card.
     mealsWrap.appendChild(el("button", { class: "nmeal-row", type: "button", on: { click: () => goToPanel(idxOf("supplements")) } },
