@@ -3861,3 +3861,38 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .wheel-item.is-active .wheel-item-icon { color: var(--accent); }
 .wheel-item.is-active .wheel-item-label { font-size: 23px; }
 .wheel-caption { text-align: center; font-size: 13px; min-height: 18px; }
+
+/* ============ Reusable wheel: field, sheet, variants ============ */
+.wheel-field {
+  width: 100%; text-align: center; padding: 11px 12px; border-radius: 12px;
+  background: var(--bg-elev); border: 1px solid var(--border); color: var(--text);
+  font-size: 16px; font-weight: 700; cursor: pointer; font-variant-numeric: tabular-nums;
+  -webkit-tap-highlight-color: transparent;
+}
+.wheel-field:active { transform: scale(0.99); }
+.template-editor-field .wheel-field { min-width: 60px; padding: 8px 8px; font-size: 15px; }
+
+.wsheet-overlay {
+  position: fixed; inset: 0; z-index: 260; display: flex;
+  align-items: flex-end; justify-content: center;
+  background: rgba(0,0,0,0.45); animation: rest-in 200ms ease;
+}
+.wsheet {
+  width: 100%; max-width: 480px; background: var(--bg-elev);
+  border-top-left-radius: 20px; border-top-right-radius: 20px;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  box-shadow: var(--shadow-md); animation: sheetUp 260ms cubic-bezier(.2,.9,.3,1);
+}
+.wsheet-title { text-align: center; font-size: 15px; font-weight: 700; margin-bottom: 2px; }
+.wsheet-wheel { position: relative; display: flex; flex-direction: column; align-items: center; }
+.wsheet-unit { font-size: 13px; color: var(--text-faint); margin-top: 4px; }
+.wsheet-actions { display: flex; gap: 10px; margin-top: 12px; }
+.wsheet-actions .btn { flex: 1; }
+
+/* Variants (base .wheel styles come from the weekly-plan wheel) */
+.wheel-sheet .wheel-item-label { font-size: 18px; }
+.wheel-sheet .wheel-item.is-active .wheel-item-label { font-size: 22px; }
+.wheel-quiz .wheel-item-label { font-size: 22px; font-weight: 700; }
+.wheel-quiz .wheel-item.is-active .wheel-item-label { font-size: 34px; font-weight: 800; }
+.quiz-wheel { display: flex; flex-direction: column; align-items: center; }
+.quiz-wheel-unit { font-size: 14px; margin-top: 6px; }

@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=90").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=91").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -3069,21 +3069,19 @@
               el("label", {}, "Minutes"), minsI)
           ];
         } else {
-          const setsI = el("input", {
-            type: "number", inputmode: "numeric", min: "1", max: "20",
-            class: "input input-sm input-num", value: te.targetSets ?? 3
+          const setsField = wheelField({
+            value: te.targetSets ?? 3, items: wheelRange(1, 12, 1), title: `${te.name} · sets`,
+            onPick: (v) => { te.targetSets = v; }
           });
-          const repsI = el("input", {
-            type: "number", inputmode: "numeric", min: "1", max: "100",
-            class: "input input-sm input-num", value: te.targetReps ?? 8
+          const repsField = wheelField({
+            value: te.targetReps ?? 8, items: wheelRange(1, 30, 1), title: `${te.name} · reps`,
+            onPick: (v) => { te.targetReps = v; }
           });
-          setsI.addEventListener("input", () => { te.targetSets = parseInt(setsI.value) || 3; });
-          repsI.addEventListener("input", () => { te.targetReps = parseInt(repsI.value) || 8; });
           fields = [
             el("div", { class: "template-editor-field" },
-              el("label", {}, "Sets"), setsI),
+              el("label", {}, "Sets"), setsField),
             el("div", { class: "template-editor-field" },
-              el("label", {}, "Reps"), repsI)
+              el("label", {}, "Reps"), repsField)
           ];
         }
 
@@ -7556,32 +7554,6 @@
       return card;
     }
 
-    function bigSlider({ min, max, step, value, unit, fmt, sub, onInput }) {
-      const num = el("div", { class: "pquiz-bignum", "data-testid": "pquiz-bignum" });
-      const unitEl = unit ? el("span", { class: "pquiz-bigunit" }, unit) : null;
-      const subEl = el("div", { class: "pquiz-bigsub text-faint" });
-      const range = el("input", {
-        type: "range", class: "pquiz-range", "data-testid": "pquiz-range"
-      });
-      // Set min/max/step first, THEN value — otherwise the browser clamps the
-      // value attribute to the default 0–100 range (age showed 13, height 120).
-      range.min = String(min); range.max = String(max); range.step = String(step);
-      range.value = String(value);
-      const paint = () => {
-        const v = parseFloat(range.value);
-        num.textContent = fmt ? fmt(v) : String(v);
-        subEl.textContent = sub ? sub(v) : "";
-        const pct = ((v - min) / (max - min)) * 100;
-        range.style.setProperty("--pct", pct + "%");
-      };
-      range.addEventListener("input", () => { paint(); onInput && onInput(parseFloat(range.value)); });
-      paint();
-      return el("div", { class: "pquiz-slider" },
-        el("div", { class: "pquiz-bigwrap" }, num, unitEl),
-        subEl,
-        range
-      );
-    }
 
     function stepShell({ eyebrow, title, subtitle, content, footer }) {
       return el("div", { class: "pquiz-panel" },
@@ -7654,44 +7626,46 @@
     }
 
     function renderAge() {
-      const slider = bigSlider({
-        min: 13, max: 100, step: 1, value: draft.age, unit: "yrs",
-        onInput: (v) => { draft.age = Math.round(v); }
+      const wheelC = buildWheel({
+        items: wheelRange(13, 100, 1), value: draft.age,
+        variant: "wheel-quiz", itemHeight: 54, testid: "quiz-wheel-age",
+        onChange: (v) => { draft.age = v; }
       });
       return stepShell({
         eyebrow: "About you",
         title: "How old are you?",
-        content: slider,
-        footer: primaryBtn("Continue", () => goto(idx + 1, "next"))
+        content: el("div", { class: "quiz-wheel" }, wheelC.el, el("div", { class: "quiz-wheel-unit text-faint" }, "years")),
+        footer: primaryBtn("Continue", () => { draft.age = wheelC.getValue(); goto(idx + 1, "next"); })
       });
     }
 
     function renderHeight() {
-      const slider = bigSlider({
-        min: 120, max: 220, step: 1, value: Math.round(draft.heightCm), unit: "cm",
-        sub: (v) => cmToFtIn(v),
-        onInput: (v) => { draft.heightCm = Math.round(v); }
+      const cap = el("div", { class: "quiz-wheel-unit text-faint" }, `${cmToFtIn(draft.heightCm)} · cm`);
+      const wheelC = buildWheel({
+        items: wheelRange(120, 220, 1), value: Math.round(draft.heightCm),
+        variant: "wheel-quiz", itemHeight: 54, testid: "quiz-wheel-height",
+        onChange: (v) => { draft.heightCm = v; cap.textContent = `${cmToFtIn(v)} · cm`; }
       });
       return stepShell({
         eyebrow: "About you",
         title: "How tall are you?",
-        content: slider,
-        footer: primaryBtn("Continue", () => goto(idx + 1, "next"))
+        content: el("div", { class: "quiz-wheel" }, wheelC.el, cap),
+        footer: primaryBtn("Continue", () => { draft.heightCm = wheelC.getValue(); goto(idx + 1, "next"); })
       });
     }
 
     function renderWeight() {
-      const slider = bigSlider({
-        min: 35, max: 200, step: 0.5, value: draft.weightKg, unit: "kg",
-        fmt: (v) => (Math.round(v * 10) / 10).toString(),
-        onInput: (v) => { draft.weightKg = Math.round(v * 10) / 10; }
+      const wheelC = buildWheel({
+        items: wheelRange(30, 200, 0.5, v => String(v)), value: Math.round(draft.weightKg * 2) / 2,
+        variant: "wheel-quiz", itemHeight: 54, testid: "quiz-wheel-weight",
+        onChange: (v) => { draft.weightKg = v; }
       });
       return stepShell({
         eyebrow: "About you",
         title: "What's your current weight?",
         subtitle: "You can update this any time from Home.",
-        content: slider,
-        footer: primaryBtn("Continue", () => goto(idx + 1, "next"))
+        content: el("div", { class: "quiz-wheel" }, wheelC.el, el("div", { class: "quiz-wheel-unit text-faint" }, "kg")),
+        footer: primaryBtn("Continue", () => { draft.weightKg = wheelC.getValue(); goto(idx + 1, "next"); })
       });
     }
 
@@ -7857,6 +7831,105 @@
     goto(0, "next");
   }
 
+  // ============ Reusable picker wheel ============
+  // A vertical scroll picker: the centred item scales up + brightens.
+  // Returns { el, getValue, setValue }. Used inline (setup quiz) and inside
+  // openWheelSheet (tap-to-open bottom sheet for compact forms).
+  function buildWheel({ items, value, onChange, itemHeight = 44, visibleCount = 5, variant = "", testid }) {
+    const H = itemHeight * visibleCount;
+    const pad = (H - itemHeight) / 2;
+    const wheel = el("div", { class: "wheel" + (variant ? " " + variant : ""), "data-testid": testid || "wheel" });
+    wheel.style.height = H + "px";
+    wheel.style.padding = pad + "px 0";
+    const itemEls = items.map((it, i) => {
+      const b = el("button", { type: "button", class: "wheel-item", "data-i": String(i),
+        on: { click: () => centerOn(i, true) } }, el("span", { class: "wheel-item-label" }, it.label));
+      b.style.height = itemHeight + "px";
+      return b;
+    });
+    itemEls.forEach(e => wheel.appendChild(e));
+    const sel = el("div", { class: "wheel-selection" }); sel.style.height = itemHeight + "px";
+    const wrap = el("div", { class: "wheel-wrap" }, sel, wheel);
+    wrap.style.height = H + "px";
+
+    let activeIdx = items.findIndex(it => String(it.value) === String(value));
+    if (activeIdx < 0) activeIdx = 0;
+
+    function paint() {
+      const center = wheel.scrollTop + H / 2;
+      let best = 0, bd = Infinity;
+      for (let i = 0; i < itemEls.length; i++) {
+        const c = itemEls[i].offsetTop + itemHeight / 2;
+        const d = Math.abs(c - center);
+        if (d < bd) { bd = d; best = i; }
+        const dist = Math.min(3, d / itemHeight);
+        itemEls[i].style.transform = `scale(${(1 - dist * 0.16).toFixed(3)})`;
+        itemEls[i].style.opacity = String(Math.max(0.2, 1 - dist * 0.34).toFixed(3));
+        itemEls[i].classList.remove("is-active");
+      }
+      itemEls[best].classList.add("is-active");
+      if (best !== activeIdx) { activeIdx = best; onChange && onChange(items[best].value, items[best]); }
+    }
+    let raf = null;
+    wheel.addEventListener("scroll", () => { if (!raf) raf = requestAnimationFrame(() => { raf = null; paint(); }); }, { passive: true });
+    function centerOn(i, smooth) { wheel.scrollTo({ top: i * itemHeight, behavior: smooth ? "smooth" : "auto" }); }
+    requestAnimationFrame(() => { wheel.scrollTop = activeIdx * itemHeight; paint(); });
+
+    return {
+      el: wrap,
+      getValue: () => items[activeIdx].value,
+      setValue: (v) => { const i = items.findIndex(it => String(it.value) === String(v)); if (i >= 0) { activeIdx = i; centerOn(i, false); requestAnimationFrame(paint); } }
+    };
+  }
+
+  // Build {value,label} items for a numeric range (inclusive).
+  function wheelRange(min, max, step = 1, fmt) {
+    const out = [];
+    const n = Math.round((max - min) / step);
+    for (let k = 0; k <= n; k++) {
+      const v = Math.round((min + k * step) * 1000) / 1000;
+      out.push({ value: v, label: fmt ? fmt(v) : String(v) });
+    }
+    return out;
+  }
+
+  // Bottom sheet with a wheel + Done — for compact fields.
+  function openWheelSheet({ title, items, value, unit, onPick }) {
+    const overlay = el("div", { class: "wsheet-overlay", "data-testid": "wheel-sheet",
+      on: { click: (e) => { if (e.target === overlay) close(); } } });
+    function onKey(e) { if (e.key === "Escape") { e.preventDefault(); close(); } }
+    const close = () => { document.removeEventListener("keydown", onKey); overlay.remove(); };
+    document.addEventListener("keydown", onKey);
+    const wheelC = buildWheel({ items, value, itemHeight: 44, visibleCount: 5, variant: "wheel-sheet" });
+    const sheet = el("div", { class: "wsheet" },
+      el("div", { class: "wsheet-title" }, title || "Choose"),
+      el("div", { class: "wsheet-wheel" }, wheelC.el, unit ? el("div", { class: "wsheet-unit" }, unit) : null),
+      el("div", { class: "wsheet-actions" },
+        el("button", { class: "btn", on: { click: close } }, "Cancel"),
+        el("button", { class: "btn btn-primary", "data-testid": "wheel-sheet-done",
+          on: { click: () => { const v = wheelC.getValue(); close(); onPick && onPick(v); } } }, "Done")
+      )
+    );
+    overlay.appendChild(sheet);
+    document.body.appendChild(overlay);
+  }
+
+  // A field-style button showing the current value; tap opens a wheel sheet.
+  function wheelField({ value, items, unit, title, testid, onPick }) {
+    const btn = el("button", { type: "button", class: "wheel-field", "data-testid": testid });
+    let cur = value;
+    const render = () => {
+      const item = items.find(it => String(it.value) === String(cur));
+      btn.textContent = (item ? item.label : String(cur)) + (unit ? ` ${unit}` : "");
+    };
+    btn.addEventListener("click", () => openWheelSheet({
+      title, items, value: cur, unit,
+      onPick: (v) => { cur = v; render(); onPick && onPick(v); }
+    }));
+    render();
+    return btn;
+  }
+
   async function openSettings(opts = {}) {
     const weightKg = await getBodyweightKg();
     const restI = el("input", { class: "input input-num", type: "number", value: state.prefs.defaultRestSec });
@@ -7865,6 +7938,22 @@
       min: "1", max: "14", step: "1",
       value: state.prefs.weeklyWorkoutGoal || 4
     });
+
+    // Wrap a hidden input/select with a tap-to-open wheel field. The original
+    // control stays in the DOM (hidden) so existing preview/save reads and
+    // change listeners keep working unchanged.
+    function wheelWrap(inputEl, { title, items, unit, testid }) {
+      inputEl.style.display = "none";
+      const field = wheelField({
+        value: inputEl.value, items, unit, title, testid,
+        onPick: (v) => {
+          inputEl.value = String(v);
+          inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+          inputEl.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      });
+      return el("div", { class: "wheel-field-wrap" }, field, inputEl);
+    }
 
     const nameI = el("input", {
       class: "input", type: "text", maxlength: "40", placeholder: "e.g. Takis",
@@ -8237,11 +8326,17 @@
       el("div", { class: "form-row" },
         el("div", { style: "flex:1" },
           el("label", { class: "label" }, "Protein target"),
-          proteinPerKgS
+          wheelWrap(proteinPerKgS, {
+            title: "Protein per kg",
+            items: U.PROTEIN_PER_KG_OPTIONS.map(o => ({ value: String(o.value), label: `${o.value} g/kg` })),
+            testid: "wheel-proteinperkg"
+          })
         ),
         el("div", { style: "flex:1" },
           el("label", { class: "label" }, "Fat (% of kcal)"),
-          fatPctI
+          wheelWrap(fatPctI, {
+            title: "Fat % of kcal", items: wheelRange(15, 45, 1), unit: "%", testid: "wheel-fatpct"
+          })
         )
       )
     );
@@ -8337,8 +8432,10 @@
 
       el("div", { class: "settings-section-title mt-16" }, "Training"),
       el("div", { class: "form-row" },
-        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Default rest timer (seconds)"), restI),
-        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Weekly workout goal"), weeklyGoalI)
+        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Default rest timer"),
+          wheelWrap(restI, { title: "Default rest", items: wheelRange(15, 300, 15, s => U.formatTime(s)), testid: "wheel-rest" })),
+        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Weekly workout goal"),
+          wheelWrap(weeklyGoalI, { title: "Weekly goal", items: wheelRange(1, 14, 1), unit: "workouts", testid: "wheel-weeklygoal" }))
       ),
 
       el("div", { class: "form-row mt-16" }, el("div", { style: "flex:1" },
