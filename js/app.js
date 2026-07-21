@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=88").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=89").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -2060,8 +2060,11 @@
             el("div", { class: "today-hero-eyebrow" }, `Today · ${WEEKDAY_LABELS[todayKey]}`),
             editLink()
           ),
-          el("div", { class: "row-between", style: "align-items:baseline;gap:12px;margin-top:4px" },
-            el("div", { class: "today-hero-title" }, `${focusDay.emoji} ${focusDay.label}`),
+          el("div", { class: "row-between", style: "align-items:center;gap:12px;margin-top:4px" },
+            el("div", { class: "today-hero-title today-hero-focus-title" },
+              el("span", { class: "today-hero-ficon", html: focusDay.icon }),
+              focusDay.label
+            ),
             el("div", { class: "today-hero-focus" }, "Focus")
           ),
           el("div", { class: "today-hero-sub" }, focusDay.desc),
@@ -2430,20 +2433,37 @@
   // Preset day focuses — assignable without a full template. `cat` pre-scopes
   // the exercise picker to that category when the session is started (null =
   // no scope). Stored on a day as "focus:<key>".
+  const focusSvg = (inner) =>
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + inner + '</svg>';
   const DAY_FOCUSES = [
-    { key: "push", label: "Push", emoji: "🤜", cat: "chest", desc: "Chest, shoulders & triceps" },
-    { key: "pull", label: "Pull", emoji: "🤛", cat: "back", desc: "Back & biceps" },
-    { key: "legs", label: "Legs", emoji: "🦵", cat: "legs", desc: "Quads, hamstrings & glutes" },
-    { key: "upper", label: "Upper body", emoji: "⬆️", cat: "chest", desc: "Chest, back, shoulders & arms" },
-    { key: "lower", label: "Lower body", emoji: "⬇️", cat: "legs", desc: "Legs & glutes" },
-    { key: "full", label: "Full body", emoji: "🧍", cat: null, desc: "A bit of everything" },
-    { key: "arms", label: "Arms", emoji: "💪", cat: "arms", desc: "Biceps & triceps" },
-    { key: "chest", label: "Chest", emoji: "🎽", cat: "chest", desc: "Chest focus" },
-    { key: "back", label: "Back", emoji: "🧗", cat: "back", desc: "Back focus" },
-    { key: "shoulders", label: "Shoulders", emoji: "🤸", cat: "shoulders", desc: "Delts" },
-    { key: "core", label: "Core", emoji: "🧘", cat: "core", desc: "Abs & core" },
-    { key: "cardio", label: "Cardio", emoji: "🏃", cat: "cardio", desc: "Conditioning" }
+    { key: "push", label: "Push", cat: "chest", desc: "Chest, shoulders & triceps",
+      icon: focusSvg('<path d="M4 12h9"/><path d="M10 8l4 4-4 4"/><path d="M18 4v16"/>') },
+    { key: "pull", label: "Pull", cat: "back", desc: "Back & biceps",
+      icon: focusSvg('<path d="M20 12h-9"/><path d="M14 8l-4 4 4 4"/><path d="M6 4v16"/>') },
+    { key: "legs", label: "Legs", cat: "legs", desc: "Quads, hamstrings & glutes",
+      icon: focusSvg('<path d="M9 3l-1 9-2 9"/><path d="M15 3l1 9 2 9"/><path d="M8.5 12h7"/>') },
+    { key: "upper", label: "Upper body", cat: "chest", desc: "Chest, back, shoulders & arms",
+      icon: focusSvg('<path d="M6 8l2.5-3h7L18 8"/><path d="M8 5v6a4 4 0 008 0V5"/>') },
+    { key: "lower", label: "Lower body", cat: "legs", desc: "Legs & glutes",
+      icon: focusSvg('<path d="M6 6h12l-1 6H7z"/><path d="M8.5 12l-1.5 9M15.5 12l1.5 9"/>') },
+    { key: "full", label: "Full body", cat: null, desc: "A bit of everything",
+      icon: focusSvg('<circle cx="12" cy="4.5" r="2"/><path d="M12 7v7"/><path d="M6.5 9.5l5.5 2 5.5-2"/><path d="M12 14l-3.5 6M12 14l3.5 6"/>') },
+    { key: "arms", label: "Arms", cat: "arms", desc: "Biceps & triceps",
+      icon: focusSvg('<path d="M7 21v-6a3 3 0 013-3h1"/><path d="M11 12V6a2.5 2.5 0 015 0c0 3 2 4 2 7a4 4 0 01-8 .5"/>') },
+    { key: "chest", label: "Chest", cat: "chest", desc: "Chest focus",
+      icon: focusSvg('<path d="M4 8h16v3a4 4 0 01-4 4h-2a2 2 0 01-4 0H8a4 4 0 01-4-4z"/><path d="M12 8v7"/>') },
+    { key: "back", label: "Back", cat: "back", desc: "Back focus",
+      icon: focusSvg('<path d="M12 3v18"/><path d="M12 7L6 9v4M12 7l6 2v4"/>') },
+    { key: "shoulders", label: "Shoulders", cat: "shoulders", desc: "Delts",
+      icon: focusSvg('<circle cx="6.5" cy="12" r="3.5"/><circle cx="17.5" cy="12" r="3.5"/><path d="M10 12h4"/>') },
+    { key: "core", label: "Core", cat: "core", desc: "Abs & core",
+      icon: focusSvg('<rect x="8.5" y="4" width="7" height="16" rx="2"/><path d="M8.5 9.5h7M8.5 14.5h7"/>') },
+    { key: "cardio", label: "Cardio", cat: "cardio", desc: "Conditioning",
+      icon: focusSvg('<path d="M3 12h4l2-6 4 13 2.5-7H21"/>') }
   ];
+  const REST_ICON = focusSvg('<path d="M20.5 14.5A8 8 0 1110.2 3.6a6 6 0 0010.3 10.9z"/>');
+  const OPEN_ICON = focusSvg('<circle cx="12" cy="12" r="8" stroke-dasharray="3 3"/><path d="M12 8v4l3 2"/>');
+  const TEMPLATE_ICON = focusSvg('<rect x="6" y="3.5" width="12" height="17" rx="2"/><path d="M9.5 9h5M9.5 13h5M9.5 17h3"/>');
   const DAY_FOCUS_BY_KEY = Object.fromEntries(DAY_FOCUSES.map(f => [f.key, f]));
   // Resolve a stored day value to a focus preset (or null).
   function focusFromValue(v) {
@@ -3167,12 +3187,13 @@
       return "Open";
     }
 
-    function choiceCard({ label, hint, icon, selected, onPick, testid }) {
+    function choiceCard({ label, hint, icon, iconHtml, selected, onPick, testid }) {
       const card = el("button", {
         type: "button", class: "pquiz-choice" + (selected ? " is-sel" : ""),
         "data-testid": testid, on: { click: onPick }
       });
-      if (icon) card.appendChild(el("div", { class: "pquiz-choice-icon" }, icon));
+      if (iconHtml) card.appendChild(el("div", { class: "pquiz-choice-icon pquiz-choice-icon-svg", html: iconHtml }));
+      else if (icon) card.appendChild(el("div", { class: "pquiz-choice-icon" }, icon));
       card.appendChild(el("div", { class: "pquiz-choice-main" },
         el("div", { class: "pquiz-choice-label" }, label),
         hint ? el("div", { class: "pquiz-choice-hint" }, hint) : null
@@ -3188,7 +3209,7 @@
       for (const t of templates) {
         const n = (t.exercises || []).length;
         list.appendChild(choiceCard({
-          label: t.name, hint: `${n} exercise${n === 1 ? "" : "s"} · template`, icon: "🏋️",
+          label: t.name, hint: `${n} exercise${n === 1 ? "" : "s"} · template`, iconHtml: TEMPLATE_ICON,
           selected: draft[key] === t.id, testid: `wplan-pick-${t.id}`,
           onPick: () => { draft[key] = t.id; goto(idx + 1, "next"); }
         }));
@@ -3200,18 +3221,18 @@
       for (const f of DAY_FOCUSES) {
         const val = "focus:" + f.key;
         list.appendChild(choiceCard({
-          label: f.label, hint: f.desc, icon: f.emoji,
+          label: f.label, hint: f.desc, iconHtml: f.icon,
           selected: draft[key] === val, testid: `wplan-pick-focus-${f.key}`,
           onPick: () => { draft[key] = val; goto(idx + 1, "next"); }
         }));
       }
       list.appendChild(choiceCard({
-        label: "Rest day", hint: "Recovery — no session", icon: "🛌",
+        label: "Rest day", hint: "Recovery — no session", iconHtml: REST_ICON,
         selected: draft[key] === "rest", testid: "wplan-pick-rest",
         onPick: () => { draft[key] = "rest"; goto(idx + 1, "next"); }
       }));
       list.appendChild(choiceCard({
-        label: "Open", hint: "Decide at the gym", icon: "🎲",
+        label: "Open", hint: "Decide at the gym", iconHtml: OPEN_ICON,
         selected: !draft[key], testid: "wplan-pick-open",
         onPick: () => { delete draft[key]; goto(idx + 1, "next"); }
       }));
