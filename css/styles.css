@@ -4348,8 +4348,26 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .tabload-text { display: flex; flex-direction: column; align-items: center; gap: 13px; }
 .tabload-word { font-size: 26px; font-weight: 800; letter-spacing: .28em; padding-left: .28em; color: var(--text); animation: tlTrack 1s cubic-bezier(.22,1,.36,1) .45s both; }
 .tabload-sub { font-size: 11px; letter-spacing: .4em; font-weight: 700; color: color-mix(in srgb, var(--accent) 82%, var(--text-faint)); font-family: var(--font-mono, inherit); animation: tlFadeUp .7s ease .7s both; }
-.tabload-bar { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); width: 150px; height: 3px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--text) 10%, transparent); }
-.tabload-bar > i { display: block; width: 44px; height: 100%; border-radius: 999px; background: var(--accent); animation: tlLoad 1.4s ease-in-out infinite; }
+.tabload-bar {
+  position: absolute; left: 50%; bottom: 94px; transform: translateX(-50%);
+  width: 170px; height: 5px; border-radius: 999px; overflow: hidden;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+/* Determinate fill — grows left→right over the loader's dwell, leading edge glows. */
+.tabload-bar > i {
+  display: block; position: relative; width: 0; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 45%, transparent), var(--accent));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 75%, transparent);
+  animation: tlFill 1.35s cubic-bezier(.5,.02,.28,1) forwards;
+}
+/* Bright cap riding the leading edge for the video-game vibe. */
+.tabload-bar > i::after {
+  content: ""; position: absolute; top: -1px; bottom: -1px; right: -2px; width: 8px; border-radius: 999px;
+  background: color-mix(in srgb, #fff 55%, var(--accent));
+  box-shadow: 0 0 12px 2px color-mix(in srgb, var(--accent) 85%, transparent);
+  opacity: .9;
+}
 
 @keyframes tlRingDraw { from { opacity: 0; transform: scale(.35) rotate(-140deg); } to { opacity: 1; transform: scale(1) rotate(0); } }
 @keyframes tlFadeScale { from { opacity: 0; transform: scale(.5); } to { opacity: 1; transform: scale(1); } }
@@ -4359,7 +4377,7 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 @keyframes tlFadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes tlTrack { from { opacity: 0; letter-spacing: .72em; } to { opacity: 1; letter-spacing: .28em; } }
 @keyframes tlDash { to { stroke-dashoffset: 0; } }
-@keyframes tlLoad { 0% { transform: translateX(-44px); } 100% { transform: translateX(150px); } }
+@keyframes tlFill { from { width: 0; } to { width: 100%; } }
 @keyframes tlBarUp { from { opacity: 0; transform: scaleY(0); } to { opacity: 1; transform: scaleY(1); } }
 @keyframes tlBreathe { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
 @keyframes tlBarGrow { from { opacity: 0; transform: scaleX(0); } to { opacity: 1; transform: scaleX(1); } }
