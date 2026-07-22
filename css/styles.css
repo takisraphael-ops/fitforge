@@ -4043,6 +4043,7 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 }
 /* Donut flanked by remove (−, left) and log (+, right) — prominent but subordinate. */
 .ndonut-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 6px 0 14px; }
+.ndonut-row.nmeals-hub { margin: 2px 0 18px; }
 .ndonut-row .nmeals-donut-wrap { margin: 0; flex: none; }
 .ndonut-fab-wrap { flex: none; display: flex; flex-direction: column; align-items: center; gap: 7px; }
 .ndonut-fab {

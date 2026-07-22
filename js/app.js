@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=104").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=105").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -6608,6 +6608,28 @@
     refreshRemindersCard();
     ov.appendChild(remindersCard);
 
+    // Meals hub — the donut flanked by log (+) / remove (−), lifted above the
+    // ring so logging is reachable in the first screenful. Captions + a pulse
+    // on + make the actions legible; − is disabled until there's a meal to remove.
+    const donutEntries = mealSections.map(key => ({
+      key, label: U.MEAL_SECTIONS[key].label,
+      kcal: (groups[key] || []).reduce((s, m) => s + (m.kcal || 0), 0),
+      color: mealColor(key)
+    }));
+    const anyLogged = donutEntries.some(e => e.kcal > 0);
+    const MINUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="6" y1="12" x2="18" y2="12"/></svg>';
+    const PLUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="12" y1="6" x2="12" y2="18"/><line x1="6" y1="12" x2="18" y2="12"/></svg>';
+    const fab = (side, label, svg, testid, opts) => el("div", { class: "ndonut-fab-wrap" },
+      el("button", Object.assign({ class: "ndonut-fab ndonut-" + side, type: "button", "aria-label": label, title: label, "data-testid": testid }, opts),
+        el("span", { class: "ndonut-fab-ic", html: svg })),
+      el("span", { class: "ndonut-fab-cap" }, label.split(" ")[0])
+    );
+    const minusBtn = fab("minus", "Remove a meal", MINUS_SVG, "donut-remove",
+      anyLogged ? { on: { click: () => openRemoveMealSheet() } } : { disabled: "", "aria-disabled": "true" });
+    const plusBtn = fab("plus" + (anyLogged ? "" : " is-pulsing"), "Log a meal", PLUS_SVG, "donut-add",
+      { on: { click: () => openMealFork(nextSection) } });
+    ov.appendChild(el("div", { class: "ndonut-row nmeals-hub" }, minusBtn, buildMealsDonut(donutEntries, eaten), plusBtn));
+
     const ringWrap = buildEnergyRing(pct, over);
     ringWrap.appendChild(el("div", { class: "energy-ring-center" },
       el("div", { class: "energy-ring-main" + (remaining < 0 ? " over" : "") }, (remaining >= 0 ? remaining : Math.abs(remaining)).toLocaleString("en-GB")),
@@ -6638,28 +6660,7 @@
     mealsWrap.appendChild(el("div", { class: "nmeals-head" },
       el("div", { class: "nsection-label" }, "MEALS TODAY")
     ));
-    // Donut: today's calories split by meal, always flanked by log (+, right)
-    // and remove (−, left). Captions + a gentle pulse on + make the actions
-    // legible; − is disabled until there's something to remove.
-    const donutEntries = mealSections.map(key => ({
-      key, label: U.MEAL_SECTIONS[key].label,
-      kcal: (groups[key] || []).reduce((s, m) => s + (m.kcal || 0), 0),
-      color: mealColor(key)
-    }));
-    const anyLogged = donutEntries.some(e => e.kcal > 0);
-    const MINUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="6" y1="12" x2="18" y2="12"/></svg>';
-    const PLUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="12" y1="6" x2="12" y2="18"/><line x1="6" y1="12" x2="18" y2="12"/></svg>';
-    const fab = (side, label, svg, testid, opts) => el("div", { class: "ndonut-fab-wrap" },
-      el("button", Object.assign({ class: "ndonut-fab ndonut-" + side, type: "button", "aria-label": label, title: label, "data-testid": testid }, opts),
-        el("span", { class: "ndonut-fab-ic", html: svg })),
-      el("span", { class: "ndonut-fab-cap" }, label.split(" ")[0])
-    );
-    const minusBtn = fab("minus", "Remove a meal", MINUS_SVG, "donut-remove",
-      anyLogged ? { on: { click: () => openRemoveMealSheet() } } : { disabled: "", "aria-disabled": "true" });
-    const plusBtn = fab("plus" + (anyLogged ? "" : " is-pulsing"), "Log a meal", PLUS_SVG, "donut-add",
-      { on: { click: () => openMealFork(nextSection) } });
-    mealsWrap.appendChild(el("div", { class: "ndonut-row" }, minusBtn, buildMealsDonut(donutEntries, eaten), plusBtn));
-    // Vertical timeline rail — meals flow down the day, colour-keyed to the donut.
+    // Vertical timeline rail — meals flow down the day, colour-keyed to the donut hub above.
     const timeline = el("div", { class: "nmeal-timeline" });
     for (const key of mealSections) timeline.appendChild(mealTimelineItem(key));
     timeline.appendChild(timelineNode({
