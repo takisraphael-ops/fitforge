@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=109").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=110").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -6740,8 +6740,6 @@
       const foot = el("div", { class: "npanel-foot" });
       foot.appendChild(el("button", { class: "btn btn-primary btn-block nadd-btn", on: { click: () => openSupplementForm(null) } },
         el("span", { html: icons.plus }), "Add supplement"));
-      foot.appendChild(el("button", { class: "btn btn-ghost btn-sm", on: { click: () => openReminderSettings() } },
-        el("span", { html: bellIcon }), "Meal reminder times"));
       const ni = idxOf("supplements") + 1;
       if (ni < panelKeys.length) {
         foot.appendChild(el("button", { class: "btn btn-ghost btn-sm nnext-btn", on: { click: () => goToPanel(ni) } },
@@ -6769,17 +6767,25 @@
     // now lives on the donut's + control below.
     const savedHeroIc = el("span", { class: "nsaved-hero-ic" + (pulseSavedHero ? " save-pulse" : ""), html: icons.bookmark });
     pulseSavedHero = false;
-    ov.appendChild(el("button", {
-      class: "nsaved-hero", type: "button", "data-testid": "saved-hero",
-      title: "Log a saved meal", on: { click: () => openSavedMealsSheet() }
-    },
-      el("span", { class: "nsaved-hero-shine" }),
-      savedHeroIc,
-      el("span", { class: "nsaved-hero-text" },
-        el("span", { class: "nsaved-hero-title" }, "Saved meals"),
-        el("span", { class: "nsaved-hero-sub" }, savedCount ? `${savedCount} saved · tap to re-log` : "Bookmark a meal to re-log it fast")
+    ov.appendChild(el("div", { class: "nsaved-row" },
+      el("button", {
+        class: "nsaved-hero", type: "button", "data-testid": "saved-hero",
+        title: "Log a saved meal", on: { click: () => openSavedMealsSheet() }
+      },
+        el("span", { class: "nsaved-hero-shine" }),
+        savedHeroIc,
+        el("span", { class: "nsaved-hero-text" },
+          el("span", { class: "nsaved-hero-title" }, "Saved meals"),
+          el("span", { class: "nsaved-hero-sub" }, savedCount ? `${savedCount} saved · tap to re-log` : "Bookmark a meal to re-log it fast")
+        ),
+        savedCount ? el("span", { class: "nsaved-hero-count" }, String(savedCount)) : el("span", { class: "nsaved-hero-chev", html: NCHEV })
       ),
-      savedCount ? el("span", { class: "nsaved-hero-count" }, String(savedCount)) : el("span", { class: "nsaved-hero-chev", html: NCHEV })
+      // Compact secondary control — set meal reminder times (low-frequency config).
+      el("button", {
+        class: "nsaved-remind", type: "button", title: "Meal reminder times",
+        "aria-label": "Meal reminder times", "data-testid": "reminder-times-btn",
+        on: { click: () => openReminderSettings() }
+      }, el("span", { class: "nsaved-remind-ic", html: bellIcon }))
     ));
 
     // Reminders nudge — what's still to do today whose time has arrived. Rebuilt in place.

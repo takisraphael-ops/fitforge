@@ -4087,10 +4087,25 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .remove-meal-list { display: flex; flex-direction: column; gap: 8px; }
 
 /* Saved-meals hero — top slot vacated by the old log button, with a soft shine. */
+/* Saved-meals hero shares its row with a compact reminder-times button. */
+.nsaved-row { display: flex; gap: 8px; align-items: stretch; margin: 2px 0 14px; }
+.nsaved-row .nsaved-hero { margin: 0; }
+.nsaved-remind {
+  flex: none; width: 56px; border-radius: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--bg-elev); border: 1px solid var(--border); color: var(--accent);
+  cursor: pointer;
+  transition: transform .12s var(--ease-spring), border-color .18s ease, background .18s ease;
+}
+.nsaved-remind:active { transform: scale(.95); }
+.nsaved-remind:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: color-mix(in srgb, var(--accent) 8%, var(--bg-elev)); }
+.nsaved-remind-ic { width: 22px; height: 22px; display: inline-flex; }
+.nsaved-remind-ic svg { width: 100%; height: 100%; }
+
 .nsaved-hero {
-  position: relative; overflow: hidden; width: 100%;
+  position: relative; overflow: hidden; flex: 1; min-width: 0;
   display: flex; align-items: center; gap: 12px;
-  padding: 13px 15px; margin: 2px 0 14px; border-radius: 16px;
+  padding: 13px 15px; border-radius: 16px;
   background: var(--bg-elev); border: 1px solid var(--border);
   cursor: pointer; text-align: left;
   transition: transform 120ms ease, border-color 120ms ease;
