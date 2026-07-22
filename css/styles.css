@@ -4039,10 +4039,11 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   animation: fadeScale 420ms cubic-bezier(.2,.9,.3,1) both;
 }
 /* Donut flanked by remove (−, left) and log (+, right) — prominent but subordinate. */
-.ndonut-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 6px 0 14px; }
+.ndonut-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 6px 0 14px; }
 .ndonut-row .nmeals-donut-wrap { margin: 0; flex: none; }
+.ndonut-fab-wrap { flex: none; display: flex; flex-direction: column; align-items: center; gap: 7px; }
 .ndonut-fab {
-  flex: none; width: 50px; height: 50px; border-radius: 50%;
+  flex: none; width: 52px; height: 52px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
   background: var(--bg-elev); border: 1px solid var(--border); cursor: pointer;
   transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
@@ -4050,15 +4051,66 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .ndonut-fab:active { transform: scale(0.9); }
 .ndonut-fab-ic { width: 22px; height: 22px; display: inline-flex; }
 .ndonut-fab-ic svg { width: 100%; height: 100%; }
+.ndonut-fab-cap {
+  font-size: 11px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--text-faint);
+}
 .ndonut-plus {
   color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg-elev));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-elev));
 }
-.ndonut-plus:hover { background: color-mix(in srgb, var(--accent) 20%, var(--bg-elev)); }
+.ndonut-plus:hover { background: color-mix(in srgb, var(--accent) 22%, var(--bg-elev)); }
+.ndonut-fab-wrap:has(.ndonut-plus) .ndonut-fab-cap { color: var(--accent); }
 .ndonut-minus { color: var(--text-muted); }
 .ndonut-minus:hover { color: var(--text); border-color: var(--text-faint); }
+.ndonut-fab:disabled, .ndonut-fab[disabled] { opacity: 0.35; cursor: default; pointer-events: none; }
+.ndonut-fab-wrap:has(.ndonut-fab:disabled) .ndonut-fab-cap { opacity: 0.4; }
+/* Gentle pulse invites the first tap when nothing's logged yet. */
+@keyframes ndonutPulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); }
+  70% { box-shadow: 0 0 0 13px color-mix(in srgb, var(--accent) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
+}
+.ndonut-plus.is-pulsing { animation: ndonutPulse 1.9s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) { .ndonut-plus.is-pulsing { animation: none; } }
 .remove-meal-list { display: flex; flex-direction: column; gap: 8px; }
+
+/* Saved-meals hero — top slot vacated by the old log button, with a soft shine. */
+.nsaved-hero {
+  position: relative; overflow: hidden; width: 100%;
+  display: flex; align-items: center; gap: 12px;
+  padding: 13px 15px; margin: 2px 0 14px; border-radius: 16px;
+  background: var(--bg-elev); border: 1px solid var(--border);
+  cursor: pointer; text-align: left;
+  transition: transform 120ms ease, border-color 120ms ease;
+}
+.nsaved-hero:active { transform: scale(0.99); }
+.nsaved-hero:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.nsaved-hero-ic {
+  flex: none; width: 40px; height: 40px; border-radius: 12px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.nsaved-hero-ic svg { width: 20px; height: 20px; }
+.nsaved-hero-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.nsaved-hero-title { font-weight: 800; font-size: 16px; color: var(--text); }
+.nsaved-hero-sub { font-size: 12.5px; color: var(--text-faint); }
+.nsaved-hero-count {
+  flex: none; min-width: 26px; height: 26px; padding: 0 8px; border-radius: 100px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800; color: #05242a; background: var(--accent);
+}
+.nsaved-hero-chev { flex: none; width: 20px; height: 20px; color: var(--text-faint); display: inline-flex; }
+.nsaved-hero-chev svg { width: 100%; height: 100%; }
+.nsaved-hero-shine {
+  position: absolute; top: 0; left: -60%; width: 45%; height: 100%;
+  background: linear-gradient(100deg, transparent, color-mix(in srgb, var(--accent) 16%, transparent), transparent);
+  transform: skewX(-18deg); pointer-events: none;
+  animation: nsavedShine 6s ease-in-out infinite;
+}
+@keyframes nsavedShine { 0%, 20% { left: -60%; } 45% { left: 130%; } 100% { left: 130%; } }
+@media (prefers-reduced-motion: reduce) { .nsaved-hero-shine { display: none; } }
 .nmeals-donut { display: block; }
 .nmeals-donut circle { transition: stroke-dasharray 500ms ease; }
 .nmeals-donut-center {

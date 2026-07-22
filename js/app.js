@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=102").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=103").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -6192,9 +6192,10 @@
     };
     const panelIcon = (key) => el("span", { class: "npanel-icon", html: NICONS[key] || NICONS.other });
 
-    const [meals, supplements, suppLogs] = await Promise.all([
-      Storage.getMeals(), Storage.getSupplements(), Storage.getSupplementLogs()
+    const [meals, supplements, suppLogs, savedMeals] = await Promise.all([
+      Storage.getMeals(), Storage.getSupplements(), Storage.getSupplementLogs(), Storage.getMealTemplates()
     ]);
+    const savedCount = (savedMeals || []).length;
     const today = U.todayISO();
     const todays = meals.filter(m => m.date === today);
     const energy = await resolveEnergyBudget(today);
@@ -6524,12 +6525,19 @@
       )
     ));
 
-    // Always-reachable log action near the top (no scrolling to the panel foot).
-    ov.appendChild(el("div", { class: "nquick-row" },
-      el("button", { class: "btn btn-primary nquick-log", "data-testid": "quick-log-meal-top", on: { click: () => openMealFork(nextSection) } },
-        el("span", { html: icons.plus }), "Log a meal"),
-      el("button", { class: "btn nquick-saved", title: "Log a saved meal", on: { click: () => openSavedMealsSheet() } },
-        el("span", { html: icons.bookmark }), "Saved")
+    // Saved meals — quick re-log, given the prominent top spot. Logging itself
+    // now lives on the donut's + control below.
+    ov.appendChild(el("button", {
+      class: "nsaved-hero", type: "button", "data-testid": "saved-hero",
+      title: "Log a saved meal", on: { click: () => openSavedMealsSheet() }
+    },
+      el("span", { class: "nsaved-hero-shine" }),
+      el("span", { class: "nsaved-hero-ic", html: icons.bookmark }),
+      el("span", { class: "nsaved-hero-text" },
+        el("span", { class: "nsaved-hero-title" }, "Saved meals"),
+        el("span", { class: "nsaved-hero-sub" }, savedCount ? `${savedCount} saved · tap to re-log` : "Bookmark a meal to re-log it fast")
+      ),
+      savedCount ? el("span", { class: "nsaved-hero-count" }, String(savedCount)) : el("span", { class: "nsaved-hero-chev", html: NCHEV })
     ));
 
     // Reminders nudge — what's still to do today whose time has arrived. Rebuilt in place.
@@ -6590,25 +6598,29 @@
     }
     const mealsWrap = el("div", { class: "nmeals-today" });
     mealsWrap.appendChild(el("div", { class: "nmeals-head" },
-      el("div", { class: "nsection-label" }, "MEALS TODAY"),
-      el("button", { class: "nsaved-chip", type: "button", on: { click: () => openSavedMealsSheet() } },
-        el("span", { html: icons.bookmark }), "Saved")
+      el("div", { class: "nsection-label" }, "MEALS TODAY")
     ));
-    // Donut: today's calories split by meal, flanked by log (+) and remove (−).
+    // Donut: today's calories split by meal, always flanked by log (+, right)
+    // and remove (−, left). Captions + a gentle pulse on + make the actions
+    // legible; − is disabled until there's something to remove.
     const donutEntries = mealSections.map(key => ({
       key, label: U.MEAL_SECTIONS[key].label,
       kcal: (groups[key] || []).reduce((s, m) => s + (m.kcal || 0), 0),
       color: mealColor(key)
     }));
-    if (donutEntries.some(e => e.kcal > 0)) {
-      const MINUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="6" y1="12" x2="18" y2="12"/></svg>';
-      const PLUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="12" y1="6" x2="12" y2="18"/><line x1="6" y1="12" x2="18" y2="12"/></svg>';
-      const minusBtn = el("button", { class: "ndonut-fab ndonut-minus", type: "button", "aria-label": "Remove a meal", title: "Remove a meal", "data-testid": "donut-remove", on: { click: () => openRemoveMealSheet() } },
-        el("span", { class: "ndonut-fab-ic", html: MINUS_SVG }));
-      const plusBtn = el("button", { class: "ndonut-fab ndonut-plus", type: "button", "aria-label": "Log a meal", title: "Log a meal", "data-testid": "donut-add", on: { click: () => openMealFork(nextSection) } },
-        el("span", { class: "ndonut-fab-ic", html: PLUS_SVG }));
-      mealsWrap.appendChild(el("div", { class: "ndonut-row" }, minusBtn, buildMealsDonut(donutEntries, eaten), plusBtn));
-    }
+    const anyLogged = donutEntries.some(e => e.kcal > 0);
+    const MINUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="6" y1="12" x2="18" y2="12"/></svg>';
+    const PLUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="12" y1="6" x2="12" y2="18"/><line x1="6" y1="12" x2="18" y2="12"/></svg>';
+    const fab = (side, label, svg, testid, opts) => el("div", { class: "ndonut-fab-wrap" },
+      el("button", Object.assign({ class: "ndonut-fab ndonut-" + side, type: "button", "aria-label": label, title: label, "data-testid": testid }, opts),
+        el("span", { class: "ndonut-fab-ic", html: svg })),
+      el("span", { class: "ndonut-fab-cap" }, label.split(" ")[0])
+    );
+    const minusBtn = fab("minus", "Remove a meal", MINUS_SVG, "donut-remove",
+      anyLogged ? { on: { click: () => openRemoveMealSheet() } } : { disabled: "", "aria-disabled": "true" });
+    const plusBtn = fab("plus" + (anyLogged ? "" : " is-pulsing"), "Log a meal", PLUS_SVG, "donut-add",
+      { on: { click: () => openMealFork(nextSection) } });
+    mealsWrap.appendChild(el("div", { class: "ndonut-row" }, minusBtn, buildMealsDonut(donutEntries, eaten), plusBtn));
     // Vertical timeline rail — meals flow down the day, colour-keyed to the donut.
     const timeline = el("div", { class: "nmeal-timeline" });
     for (const key of mealSections) timeline.appendChild(mealTimelineItem(key));
