@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=105").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=106").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -97,6 +97,7 @@
       navigator.serviceWorker.getRegistration().then(reg => reg && reg.update().catch(() => {})).catch(() => {});
     }
     render();
+    initTabSwipe();
     if (!Storage.isPersistent()) {
       setTimeout(() => toast("Storage is temporary in this browser — export a backup after workouts"), 600);
     }
@@ -1201,10 +1202,61 @@
         title: it.label,
         "data-testid": "dock-" + it.id,
         html: it.icon,
-        on: { click: () => { nutritionScrollKey = null; nutritionScrollTop = 0; workoutScrollIdx = 0; workoutScrollTop = 0; state.tab = it.id; renderMain(); window.scrollTo(0, 0); } }
+        on: { click: () => switchTab(it.id) }
       }));
     }
     document.body.appendChild(dock);
+  }
+
+  // Switch to a top-level tab, resetting remembered pager scroll so it opens fresh.
+  function switchTab(id) {
+    if (id === state.tab) return;
+    nutritionScrollKey = null; nutritionScrollTop = 0;
+    workoutScrollIdx = 0; workoutScrollTop = 0;
+    state.tab = id;
+    renderMain();
+    window.scrollTo(0, 0);
+  }
+
+  // Horizontal swipe anywhere moves between the main tabs (in dock order).
+  const SWIPE_TABS = ["home", "nutrition", "stats", "library"];
+  function initTabSwipe() {
+    // Sheets/modals/quizzes that should own the gesture while open.
+    const BLOCKING = ".modal-overlay, .qa-fork-overlay, .qa-overlay, .numpad-overlay, .rest-overlay, .wsheet-overlay, .pquiz";
+    // Walk up from the touch target: if something scrolls horizontally itself
+    // (category pager, week strip, a wheel, a range slider), let it have the swipe.
+    function ownsHorizontal(node) {
+      for (let n = node; n && n !== document.body; n = n.parentNode) {
+        if (n.nodeType !== 1) continue;
+        if (n.classList && (n.classList.contains("wheel") || n.classList.contains("xpick-pager"))) return true;
+        if (n.tagName === "INPUT" && n.type === "range") return true;
+        const ox = getComputedStyle(n).overflowX;
+        if ((ox === "auto" || ox === "scroll") && n.scrollWidth > n.clientWidth + 4) return true;
+      }
+      return false;
+    }
+    let sx = 0, sy = 0, tracking = false, skip = false;
+    document.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1) { tracking = false; return; }
+      const t = e.touches[0];
+      sx = t.clientX; sy = t.clientY; tracking = true;
+      skip = !!document.querySelector(BLOCKING) || ownsHorizontal(e.target);
+    }, { passive: true });
+    document.addEventListener("touchend", (e) => {
+      const go = tracking && !skip;
+      tracking = false;
+      if (!go) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - sx, dy = t.clientY - sy;
+      // Require a clean, mostly-horizontal swipe so vertical scrolls never trigger it.
+      if (Math.abs(dx) < 64 || Math.abs(dx) < Math.abs(dy) * 1.7) return;
+      const cur = state.tab === "history" ? "stats" : state.tab;
+      const i = SWIPE_TABS.indexOf(cur);
+      if (i < 0) return; // e.g. mid-workout — don't swipe out of a session
+      const ni = dx < 0 ? i + 1 : i - 1; // swipe left → next tab, right → previous
+      if (ni < 0 || ni >= SWIPE_TABS.length) return; // clamp at the ends
+      switchTab(SWIPE_TABS[ni]);
+    }, { passive: true });
   }
 
   // ============ Numeric keypad (tap-first input for weights, reps, cardio) ============
