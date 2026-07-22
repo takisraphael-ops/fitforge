@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=118").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=119").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1780,6 +1780,35 @@
     overlay.appendChild(workoutPanel);
     overlay.appendChild(mealPanel);
     overlay.appendChild(el("button", { class: "qa-fork-close", "aria-label": "Close", title: "Close", html: CLOSE_ART, on: { click: close } }));
+
+    // Subtle hint that you can swipe to choose (chevrons breathe outward).
+    const CHEV_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
+    const CHEV_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+    overlay.appendChild(el("div", { class: "qa-fork-hint", "aria-hidden": "true" },
+      el("span", { class: "qa-fork-chev qa-fork-chev-l", html: CHEV_L }),
+      el("span", { class: "qa-fork-hint-text" }, "Swipe or tap"),
+      el("span", { class: "qa-fork-chev qa-fork-chev-r", html: CHEV_R })
+    ));
+
+    // Swipe toward the side you want: left → Workout (left), right → Log meal (right).
+    let sx = 0, sy = 0, swiping = false, didSwipe = false;
+    overlay.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1) { swiping = false; return; }
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY; swiping = true; didSwipe = false;
+    }, { passive: true });
+    overlay.addEventListener("touchend", (e) => {
+      if (!swiping) return; swiping = false;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - sx, dy = t.clientY - sy;
+      if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      didSwipe = true;
+      const panel = dx < 0 ? workoutPanel : mealPanel;
+      panel.classList.add("qa2-chosen");
+      setTimeout(() => go(dx < 0 ? "workout" : "nutrition"), 140);
+    }, { passive: true });
+    // A swipe that ends on a panel shouldn't also fire its tap.
+    [workoutPanel, mealPanel].forEach(p => p.addEventListener("click", (e) => { if (didSwipe) { e.preventDefault(); e.stopPropagation(); } }, true));
+
     document.body.appendChild(overlay);
   }
 
@@ -3146,6 +3175,7 @@
         confirmLabel: (n) => `Start workout · ${n} exercise${n === 1 ? "" : "s"}`,
         allowCustom: true,
         customImmediate: false,
+        wheel: true,
         initialCat,
         onConfirm: async (items) => {
           const exercises = [];
@@ -5840,7 +5870,8 @@
       confirmLabel = (n) => `Add ${n}`,
       header = null,
       allowCustom = true,
-      customImmediate = false
+      customImmediate = false,
+      wheel: isWheel = false
     } = opts;
     const existing = opts.existingIds instanceof Set ? opts.existingIds : new Set(opts.existingIds || []);
     const selected = new Map(); // id -> { id, name }
@@ -5962,6 +5993,31 @@
       syncActive();
       const panel = panelForCat(c);
       if (pager && panel) pager.scrollTo({ left: panel.offsetLeft, behavior: "smooth" });
+      if (isWheel) setTimeout(magnifyActive, 60);
+    }
+
+    // Magnify wheel for the exercise list (start-workout only): the row nearest
+    // the list's centre grows and brightens; the + on each row still selects.
+    function magnifyList(listEl) {
+      if (!listEl) return;
+      const rect = listEl.getBoundingClientRect();
+      if (!rect.height) return;
+      const mid = rect.top + rect.height / 2, half = rect.height / 2;
+      let closest = null, cd = Infinity;
+      const rows = listEl.querySelectorAll(".xrow");
+      rows.forEach(r => {
+        const b = r.getBoundingClientRect();
+        const d = Math.abs((b.top + b.height / 2) - mid);
+        const t = Math.min(1, d / half);
+        r.style.transform = `scale(${(1 - t * 0.13).toFixed(3)})`;
+        r.style.opacity = (1 - t * 0.5).toFixed(2);
+        if (d < cd) { cd = d; closest = r; }
+      });
+      rows.forEach(r => r.classList.toggle("is-center", r === closest));
+    }
+    function magnifyActive() {
+      const panel = panelForCat(activeCat);
+      if (panel) magnifyList(panel.querySelector(".xpick-panel-list"));
     }
 
     function rowFor(ex) {
@@ -6042,13 +6098,18 @@
       const p = el("div", { class: "xpick-pager", "data-testid": "xpick-pager" });
       for (const c of cats) {
         const items = all.filter(e => e.category === c);
+        const list = el("div", { class: "xpick-panel-list" + (isWheel ? " is-wheel" : "") }, ...items.map(rowFor));
+        if (isWheel) {
+          let lraf = null;
+          list.addEventListener("scroll", () => { if (lraf) return; lraf = requestAnimationFrame(() => { lraf = null; magnifyList(list); }); }, { passive: true });
+        }
         const panel = el("div", { class: "xpick-panel", "data-cat": c },
           el("div", { class: "xpick-card" },
             el("div", { class: "xpick-panel-head" },
               el("span", { class: "xpick-panel-title" }, catLabel(c)),
               el("span", { class: "xpick-panel-count" }, `${items.length}`)
             ),
-            el("div", { class: "xpick-panel-list" }, ...items.map(rowFor))
+            list
           )
         );
         p.appendChild(panel);
@@ -6064,7 +6125,7 @@
         scrollRAF = requestAnimationFrame(() => {
           scrollRAF = null;
           const c = cats[nearestPanelIndex()];
-          if (c && c !== activeCat) { activeCat = c; syncActive(); }
+          if (c && c !== activeCat) { activeCat = c; syncActive(); if (isWheel) magnifyActive(); }
         });
       }, { passive: true });
       return p;
@@ -6098,6 +6159,14 @@
       requestAnimationFrame(() => {
         const panel = panelForCat(activeCat);
         if (pager && panel) pager.scrollLeft = panel.offsetLeft;
+        if (isWheel) {
+          // Centre the first row of each list, then apply the magnify pass.
+          pager.querySelectorAll(".xpick-panel-list.is-wheel").forEach(list => {
+            const first = list.querySelector(".xrow");
+            if (first) list.scrollTop = Math.max(0, first.offsetTop - list.clientHeight / 2 + first.offsetHeight / 2);
+            magnifyList(list);
+          });
+        }
       });
     }
 

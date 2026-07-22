@@ -4486,3 +4486,47 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 @media (prefers-reduced-motion: reduce) {
   .exercise-wheel { scroll-snap-type: y proximity; }
 }
+
+/* Quick-fork · swipe hint + chosen feedback */
+.qa-fork-hint {
+  position: absolute; left: 50%; bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%); z-index: 3;
+  display: flex; align-items: center; gap: 9px; padding: 8px 15px; border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+  color: var(--text-muted); font-size: 12px; font-weight: 800; letter-spacing: .06em;
+  pointer-events: none; backdrop-filter: blur(6px);
+  animation: qaHintIn .5s ease .25s both;
+}
+@keyframes qaHintIn { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.qa-fork-chev { width: 15px; height: 15px; display: inline-flex; color: var(--accent); }
+.qa-fork-chev svg { width: 100%; height: 100%; }
+.qa-fork-chev-l { animation: qaChevL 1.5s ease-in-out infinite; }
+.qa-fork-chev-r { animation: qaChevR 1.5s ease-in-out infinite; }
+@keyframes qaChevL { 0%, 100% { transform: translateX(0); opacity: .45; } 50% { transform: translateX(-4px); opacity: 1; } }
+@keyframes qaChevR { 0%, 100% { transform: translateX(0); opacity: .45; } 50% { transform: translateX(4px); opacity: 1; } }
+.qa-fork-panel.qa2-chosen { background: var(--accent-soft); flex-grow: 2.2; }
+@media (prefers-reduced-motion: reduce) { .qa-fork-chev-l, .qa-fork-chev-r { animation: none; } }
+
+/* Exercise picker · magnify-wheel list (start-workout only) */
+.xpick-panel-list.is-wheel {
+  scroll-snap-type: y mandatory; scroll-padding: 0;
+  padding-top: 34%; padding-bottom: 34%;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18%, #000 82%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 18%, #000 82%, transparent);
+}
+.xpick-panel-list.is-wheel .xrow {
+  scroll-snap-align: center; scroll-snap-stop: always;
+  transform-origin: center; will-change: transform, opacity;
+  transition: background 160ms ease, border-color 160ms ease;
+  border-bottom: none; margin-bottom: 6px;
+  border-radius: var(--radius-md, 14px);
+}
+.xpick-panel-list.is-wheel .xrow.is-center {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: 0 8px 26px -12px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.xpick-panel-list.is-wheel .xrow.is-center .xrow-add {
+  color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+@media (prefers-reduced-motion: reduce) { .xpick-panel-list.is-wheel { scroll-snap-type: y proximity; } }
