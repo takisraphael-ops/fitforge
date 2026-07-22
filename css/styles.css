@@ -4299,3 +4299,76 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   .card:active, .nfood:active, .xrow:active, .ntl-item:active, .nremind-item:active,
   .saved-sheet-item:active, .meal-item:active, .template-card:active { transform: none; }
 }
+
+/* ================= Tab loading screens (first visit per tab) ================= */
+.tabload {
+  position: fixed; inset: 0; z-index: 9000; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 30px;
+  background: var(--bg);
+}
+.tabload::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 62%);
+}
+.tabload.tabload-out { animation: tlFadeOut .42s ease forwards; }
+@keyframes tlFadeOut { to { opacity: 0; visibility: hidden; } }
+
+.tabload-mark { position: relative; width: 148px; height: 148px; }
+.tl-ring0 { position: absolute; inset: 0; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--accent) 22%, transparent); animation: tlRingDraw .9s cubic-bezier(.22,1,.36,1) both; }
+.tl-spin { position: absolute; inset: 0; animation: tlSpin 9s linear infinite .9s both; }
+.tl-arc-top { position: absolute; inset: 0; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--accent); border-right-color: var(--accent); animation: tlFadeScale .9s cubic-bezier(.22,1,.36,1) .2s both; }
+.tl-spinrev { position: absolute; inset: 28px; animation: tlSpinRev 13s linear infinite 1s both; }
+.tl-arc-bot { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid transparent; border-bottom-color: color-mix(in srgb, var(--accent) 55%, transparent); border-left-color: color-mix(in srgb, var(--accent) 55%, transparent); animation: tlFadeScale .9s cubic-bezier(.22,1,.36,1) .4s both; }
+.tl-core { position: absolute; left: 50%; top: 50%; width: 15px; height: 15px; margin: -7.5px 0 0 -7.5px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 80%, transparent); animation: tlFadeScale .6s ease .7s both, tlDotPulse 2.6s ease-in-out infinite 1.2s; }
+
+/* Nutrition · macro ring */
+.tl-macro { position: absolute; inset: 8px; animation: tlSpin 30s linear infinite 1.2s both; }
+.tl-macro svg { display: block; }
+.tl-arc1 { stroke-dasharray: 136 327; stroke-dashoffset: 136; animation: tlDash 1s cubic-bezier(.4,0,.2,1) .3s both; }
+.tl-arc2 { stroke-dasharray: 91 327; stroke-dashoffset: 91; animation: tlDash 1s cubic-bezier(.4,0,.2,1) .55s both; }
+.tl-arc3 { stroke-dasharray: 60 327; stroke-dashoffset: 60; animation: tlDash 1s cubic-bezier(.4,0,.2,1) .8s both; }
+
+/* You · progress bars */
+.tl-bars { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center; gap: 11px; padding-bottom: 44px; }
+.tl-bar { width: 11px; border-radius: 4px; transform-origin: bottom; }
+.tl-bar1 { height: 28px; background: color-mix(in srgb, var(--accent) 50%, transparent); animation: tlBarUp .7s cubic-bezier(.22,1,.36,1) .5s both, tlBreathe 3.2s ease-in-out infinite 1.5s; }
+.tl-bar2 { height: 42px; background: color-mix(in srgb, var(--accent) 75%, transparent); animation: tlBarUp .7s cubic-bezier(.22,1,.36,1) .65s both, tlBreathe 3.2s ease-in-out infinite 1.7s; }
+.tl-bar3 { height: 57px; background: var(--accent); box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 60%, transparent); animation: tlBarUp .7s cubic-bezier(.22,1,.36,1) .8s both, tlBreathe 3.2s ease-in-out infinite 1.9s; }
+
+/* Exercises · dumbbell */
+.tl-db { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; animation: tlRep 3.2s ease-in-out infinite 1.7s; }
+.tl-db-inner { position: relative; width: 100px; height: 38px; }
+.tl-db-bar { position: absolute; left: 16px; right: 16px; top: 16px; height: 6px; border-radius: 999px; background: var(--accent); box-shadow: 0 0 20px color-mix(in srgb, var(--accent) 65%, transparent); animation: tlBarGrow .7s cubic-bezier(.22,1,.36,1) .5s both; }
+.tl-plate { position: absolute; border-radius: 4px; }
+.tl-plate-l1 { left: 14px; top: 4px; width: 9px; height: 30px; background: var(--accent); animation: tlPlateInL .6s cubic-bezier(.22,1,.36,1) .8s both; }
+.tl-plate-r1 { right: 14px; top: 4px; width: 9px; height: 30px; background: var(--accent); animation: tlPlateInR .6s cubic-bezier(.22,1,.36,1) .8s both; }
+.tl-plate-l2 { left: 3px; top: 8px; width: 7px; height: 22px; background: color-mix(in srgb, var(--accent) 70%, transparent); animation: tlPlateInL .6s cubic-bezier(.22,1,.36,1) .95s both; }
+.tl-plate-r2 { right: 3px; top: 8px; width: 7px; height: 22px; background: color-mix(in srgb, var(--accent) 70%, transparent); animation: tlPlateInR .6s cubic-bezier(.22,1,.36,1) .95s both; }
+
+.tabload-text { display: flex; flex-direction: column; align-items: center; gap: 13px; }
+.tabload-word { font-size: 26px; font-weight: 800; letter-spacing: .28em; padding-left: .28em; color: var(--text); animation: tlTrack 1s cubic-bezier(.22,1,.36,1) .45s both; }
+.tabload-sub { font-size: 11px; letter-spacing: .4em; font-weight: 700; color: color-mix(in srgb, var(--accent) 82%, var(--text-faint)); font-family: var(--font-mono, inherit); animation: tlFadeUp .7s ease .7s both; }
+.tabload-bar { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); width: 150px; height: 3px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--text) 10%, transparent); }
+.tabload-bar > i { display: block; width: 44px; height: 100%; border-radius: 999px; background: var(--accent); animation: tlLoad 1.4s ease-in-out infinite; }
+
+@keyframes tlRingDraw { from { opacity: 0; transform: scale(.35) rotate(-140deg); } to { opacity: 1; transform: scale(1) rotate(0); } }
+@keyframes tlFadeScale { from { opacity: 0; transform: scale(.5); } to { opacity: 1; transform: scale(1); } }
+@keyframes tlSpin { to { transform: rotate(360deg); } }
+@keyframes tlSpinRev { to { transform: rotate(-360deg); } }
+@keyframes tlDotPulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.3); opacity: .65; } }
+@keyframes tlFadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes tlTrack { from { opacity: 0; letter-spacing: .72em; } to { opacity: 1; letter-spacing: .28em; } }
+@keyframes tlDash { to { stroke-dashoffset: 0; } }
+@keyframes tlLoad { 0% { transform: translateX(-44px); } 100% { transform: translateX(150px); } }
+@keyframes tlBarUp { from { opacity: 0; transform: scaleY(0); } to { opacity: 1; transform: scaleY(1); } }
+@keyframes tlBreathe { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+@keyframes tlBarGrow { from { opacity: 0; transform: scaleX(0); } to { opacity: 1; transform: scaleX(1); } }
+@keyframes tlPlateInL { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes tlPlateInR { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes tlRep { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+/* macro-ring strokes come from CSS (var() doesn't resolve in SVG attributes) */
+.tl-track { stroke: color-mix(in srgb, var(--accent) 14%, transparent); }
+.tl-macro .tl-arc1 { stroke: var(--accent); }
+.tl-macro .tl-arc2 { stroke: var(--accent); opacity: .6; }
+.tl-macro .tl-arc3 { stroke: var(--accent); opacity: .32; }
+@media (prefers-reduced-motion: reduce) { .tabload { display: none !important; } }

@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=111").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=112").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1272,7 +1272,66 @@
       renderMain();
       window.scrollTo(0, 0);
     };
+    // First time this tab is opened this session, play its tailored loader.
+    const firstVisit = TAB_LOADERS[id] && !seenTabLoaders.has(id);
     animateTabSwitch(dir, doRender);
+    if (firstVisit) { seenTabLoaders.add(id); showTabLoader(id); }
+  }
+
+  // ============ Tab loading screens (first visit per tab, per session) ============
+  // Built on the brand orbit; each tab gets a motif matching its function.
+  const TAB_LOADERS = {
+    home:      { word: "FitForge", sub: "SYNCING · YOUR DAY",   motif: "orbit" },
+    nutrition: { word: "FitForge", sub: "LOADING · MACROS",     motif: "macro" },
+    stats:     { word: "FitForge", sub: "LOADING · YOUR STATS", motif: "bars" },
+    library:   { word: "FitForge", sub: "LOADING · WORKOUTS",   motif: "dumbbell" }
+  };
+  // Home is already covered by the launch splash, so don't replay it on nav.
+  const seenTabLoaders = new Set(["home"]);
+
+  function tabLoaderMark(motif) {
+    const mark = el("div", { class: "tabload-mark" });
+    mark.appendChild(el("div", { class: "tl-ring0" }));
+    if (motif === "macro") {
+      mark.appendChild(el("div", { class: "tl-macro", html:
+        '<svg width="132" height="132" viewBox="0 0 132 132">'
+        + '<circle class="tl-track" cx="66" cy="66" r="52" fill="none" stroke-width="7"/>'
+        + '<circle class="tl-arc1" cx="66" cy="66" r="52" fill="none" stroke-width="7" stroke-linecap="round" transform="rotate(-90 66 66)"/>'
+        + '<circle class="tl-arc2" cx="66" cy="66" r="52" fill="none" stroke-width="7" stroke-linecap="round" transform="rotate(68 66 66)"/>'
+        + '<circle class="tl-arc3" cx="66" cy="66" r="52" fill="none" stroke-width="7" stroke-linecap="round" transform="rotate(176 66 66)"/>'
+        + '</svg>' }));
+      mark.appendChild(el("div", { class: "tl-core" }));
+    } else if (motif === "bars") {
+      mark.appendChild(el("div", { class: "tl-spin" }, el("div", { class: "tl-arc-top" })));
+      mark.appendChild(el("div", { class: "tl-bars" },
+        el("div", { class: "tl-bar tl-bar1" }), el("div", { class: "tl-bar tl-bar2" }), el("div", { class: "tl-bar tl-bar3" })));
+    } else if (motif === "dumbbell") {
+      mark.appendChild(el("div", { class: "tl-spin" }, el("div", { class: "tl-arc-top" })));
+      mark.appendChild(el("div", { class: "tl-db" }, el("div", { class: "tl-db-inner", html:
+        '<div class="tl-db-bar"></div><div class="tl-plate tl-plate-l1"></div><div class="tl-plate tl-plate-r1"></div><div class="tl-plate tl-plate-l2"></div><div class="tl-plate tl-plate-r2"></div>' })));
+    } else {
+      mark.appendChild(el("div", { class: "tl-spin" }, el("div", { class: "tl-arc-top" })));
+      mark.appendChild(el("div", { class: "tl-spinrev" }, el("div", { class: "tl-arc-bot" })));
+      mark.appendChild(el("div", { class: "tl-core" }));
+    }
+    return mark;
+  }
+
+  function showTabLoader(tabId) {
+    const cfg = TAB_LOADERS[tabId];
+    if (!cfg || reduceMotion()) return;
+    const overlay = el("div", { class: "tabload", "data-testid": "tab-loader", "data-tab": tabId },
+      tabLoaderMark(cfg.motif),
+      el("div", { class: "tabload-text" },
+        el("div", { class: "tabload-word" }, cfg.word),
+        el("div", { class: "tabload-sub" }, cfg.sub)),
+      el("div", { class: "tabload-bar" }, el("i", {}))
+    );
+    document.body.appendChild(overlay);
+    setTimeout(() => {
+      overlay.classList.add("tabload-out");
+      setTimeout(() => overlay.remove(), 430);
+    }, 1050);
   }
 
   // Slide the outgoing view off in the travel direction while the incoming one
