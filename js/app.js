@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=114").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=115").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -5112,6 +5112,52 @@
     const bwKg = await getBodyweightKg();
     const workouts = await Storage.getWorkouts();
 
+    // Per-exercise personal stats from completed sessions: how often, how
+    // recently, your best, and an estimated-1RM trend for the mini sparkline.
+    const exStats = {};
+    const doneWorkouts = workouts.filter(w => w.completedAt).sort((a, b) => a.startedAt - b.startedAt);
+    for (const w of doneWorkouts) {
+      const seen = new Set();
+      for (const entry of (w.exercises || [])) {
+        const id = entry.exerciseId;
+        if (!id) continue;
+        let s = exStats[id];
+        if (!s) s = exStats[id] = { sessions: 0, lastDate: null, bestWeight: 0, maxDuration: 0, maxDistance: 0, series: [] };
+        if (!seen.has(id)) { s.sessions++; seen.add(id); }
+        s.lastDate = w.date; // chronological → last assignment is the most recent
+        let sessionBestE1RM = 0;
+        for (const set of (entry.sets || [])) {
+          if (!set.done) continue;
+          if (set.weight != null && set.reps) {
+            const e = U.epley(set.weight, set.reps);
+            if (e > sessionBestE1RM) sessionBestE1RM = e;
+            if (set.weight > s.bestWeight) s.bestWeight = set.weight;
+          }
+          if (set.durationMin > s.maxDuration) s.maxDuration = set.durationMin;
+          if (set.distanceKm > s.maxDistance) s.maxDistance = set.distanceKm;
+        }
+        if (sessionBestE1RM > 0) s.series.push(Math.round(sessionBestE1RM));
+      }
+    }
+    const daysAgoLabel = (dateIso) => {
+      if (!dateIso) return null;
+      const d = Math.round((Date.parse(U.todayISO()) - Date.parse(dateIso)) / 86400000);
+      if (d <= 0) return "Today";
+      if (d === 1) return "Yesterday";
+      if (d < 7) return `${d}d ago`;
+      if (d < 30) return `${Math.floor(d / 7)}w ago`;
+      return `${Math.floor(d / 30)}mo ago`;
+    };
+    const prLabelFor = (s) => {
+      if (!s) return null;
+      if (s.bestWeight > 0) return `${Math.round(s.bestWeight)}kg`;
+      if (s.maxDistance > 0) return `${s.maxDistance}km`;
+      if (s.maxDuration > 0) return `${Math.round(s.maxDuration)}m`;
+      return null;
+    };
+    let sortMode = "az"; // az | recent | most | untried
+    const prTrophy = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 3h12v2h3v3a4 4 0 0 1-4 4h-.4A6 6 0 0 1 13 15.9V18h3v2H8v-2h3v-2.1A6 6 0 0 1 7.4 12H7a4 4 0 0 1-4-4V5h3V3zm0 4H5v1a2 2 0 0 0 1 1.7V7zm12 0v2.7A2 2 0 0 0 19 8V7h-1z"/></svg>';
+
     // Zone counts + recent-training heat (last 14 days of completed sets)
     const zoneCounts = (window.BodyMap && BodyMap.countByZone)
       ? BodyMap.countByZone(all)
@@ -5156,14 +5202,14 @@
       if (sel && sel.heatOnly) return; // heat toggle only — no filter change
       activeZone = (sel && sel.zoneId) || "all";
       syncChips();
-      refresh();
+      refresh(true);
     }
 
     function setFromChip(cat) {
       activeZone = cat || "all";
       syncChips();
       if (bodyMapApi) bodyMapApi.setActive(activeZone);
-      refresh();
+      refresh(true);
     }
 
     // Interactive body map (front / back SVG, fine zones + heat)
@@ -5196,6 +5242,26 @@
     }
     view.appendChild(filterRow);
 
+    // Sort control — order the library by your training relationship.
+    const SORTS = [
+      { id: "az", label: "A–Z" },
+      { id: "recent", label: "Recent" },
+      { id: "most", label: "Most trained" },
+      { id: "untried", label: "Untried" }
+    ];
+    const sortRow = el("div", { class: "library-sort" });
+    for (const s of SORTS) {
+      sortRow.appendChild(el("button", {
+        class: "sort-chip" + (s.id === sortMode ? " active" : ""), "data-sort": s.id,
+        on: { click: () => {
+          sortMode = s.id;
+          sortRow.querySelectorAll(".sort-chip").forEach(c => c.classList.toggle("active", c.getAttribute("data-sort") === sortMode));
+          refresh(true);
+        } }
+      }, s.label));
+    }
+    view.appendChild(sortRow);
+
     // Custom exercise button
     view.appendChild(el("button", { class: "btn btn-block mb-8", on: { click: openCustomExerciseForm } },
       el("span", { html: icons.plus }), "Add custom exercise"
@@ -5216,7 +5282,7 @@
       return ex.category === activeZone;
     }
 
-    function refresh() {
+    function refresh(stagger = false) {
       const q = searchInput.value.trim().toLowerCase();
       clear(grid);
       const filtered = all.filter(ex => {
@@ -5226,6 +5292,15 @@
                (ex.muscles || []).some(m => m.toLowerCase().includes(q)) ||
                (ex.equipment || "").toLowerCase().includes(q);
       });
+      // Sort by the user's training relationship.
+      filtered.sort((a, b) => {
+        const sa = exStats[a.id], sb = exStats[b.id];
+        const na = a.name.localeCompare(b.name);
+        if (sortMode === "most") return ((sb?.sessions || 0) - (sa?.sessions || 0)) || na;
+        if (sortMode === "recent") return String(sb?.lastDate || "").localeCompare(String(sa?.lastDate || "")) || na;
+        if (sortMode === "untried") return (((sa?.sessions || 0) > 0 ? 1 : 0) - ((sb?.sessions || 0) > 0 ? 1 : 0)) || na;
+        return na;
+      });
       if (filtered.length === 0) {
         grid.appendChild(emptyState({
           title: "No exercises found",
@@ -5234,7 +5309,7 @@
           onPrimary: () => {
             if (bodyMapApi) bodyMapApi.clear();
             searchInput.value = "";
-            refresh();
+            refresh(true);
           },
           primaryTestId: "empty-exercises-clear",
           secondaryLabel: "Add custom",
@@ -5242,20 +5317,39 @@
         }));
         return;
       }
+      grid.classList.toggle("exgrid-stagger", !!stagger);
       for (const ex of filtered) {
         const kpm = U.kcalPerMin(ex, bwKg);
+        const st = exStats[ex.id];
+        const trained = st && st.sessions > 0;
+        const pr = trained ? prLabelFor(st) : null;
+        const nameRow = el("div", { class: "exercise-card-name" },
+          ex.name,
+          ex.isCustom ? el("span", { class: "chip chip-accent" }, "Custom") : null,
+          pr ? el("span", { class: "ex-pr-chip" }, el("span", { class: "ex-pr-ic", html: prTrophy }), pr) : null
+        );
+        const infoRow = trained
+          ? el("div", { class: "exercise-card-stat" }, `${daysAgoLabel(st.lastDate)} · ${st.sessions} session${st.sessions === 1 ? "" : "s"}`)
+          : el("div", { class: "exercise-card-muscles" }, (ex.muscles || []).join(" · "));
+        const spark = (trained && st.series.length >= 2)
+          ? el("div", { class: "exercise-card-spark" }, sparkline(st.series, { width: 58, height: 26 }))
+          : null;
         grid.appendChild(el("div", {
-          class: "exercise-card",
+          class: "exercise-card" + (trained ? " is-trained" : ""),
           on: { click: () => openExerciseDetail(ex.id) }
         },
-          el("div", { class: "exercise-card-name" }, ex.name, ex.isCustom ? el("span", { class: "chip chip-accent" }, "Custom") : null),
-          el("div", { class: "exercise-card-meta" }, `${EXERCISE_CATEGORIES[ex.category]} · ${ex.equipment || "—"} · ≈ ${kpm} kcal/min`),
-          el("div", { class: "exercise-card-muscles" }, (ex.muscles || []).join(" · "))
+          exerciseFigureIcon(ex.category),
+          el("div", { class: "exercise-card-main" },
+            nameRow,
+            el("div", { class: "exercise-card-meta" }, `${EXERCISE_CATEGORIES[ex.category]} · ${ex.equipment || "—"} · ≈ ${kpm} kcal/min`),
+            infoRow
+          ),
+          spark
         ));
       }
     }
-    searchInput.addEventListener("input", U.debounce(refresh, 150));
-    refresh();
+    searchInput.addEventListener("input", U.debounce(() => refresh(false), 150));
+    refresh(true);
   }
 
   async function openExerciseDetail(exerciseId, fallback = null) {
