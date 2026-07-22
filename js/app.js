@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=110").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=111").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -6201,8 +6201,9 @@
     const cur = { ...(state.prefs.mealReminders || {}) };
     const rows = [];
     const body = el("div", {});
-    body.appendChild(el("p", { class: "text-sm text-muted", style: "margin-bottom:14px" },
-      "Get an in-app nudge when a meal hasn't been logged by its time. Supplement reminders are set on each supplement."));
+    body.appendChild(el("div", { class: "nsection-label", style: "margin:0 0 8px" }, "MEAL REMINDERS"));
+    body.appendChild(el("p", { class: "text-sm text-muted", style: "margin-bottom:12px" },
+      "Get an in-app nudge when a meal hasn't been logged by its time."));
     for (const key of CORE) {
       const meta = U.MEAL_SECTIONS[key];
       const on0 = !!U.normalizeMealTime(cur[key]);
@@ -6222,24 +6223,40 @@
       body.appendChild(el("div", { class: "remind-row-edit" },
         el("div", { class: "remind-row-name" }, meta.label), toggle, timeI));
     }
+
+    // Collect the current meal-reminder selections (shared by Save and Add).
+    const collect = () => {
+      const next = {};
+      for (const r of rows) {
+        if (r.toggle.getAttribute("aria-pressed") === "true") {
+          const t = U.normalizeMealTime(r.timeI.value);
+          if (t) next[r.key] = t;
+        }
+      }
+      return next;
+    };
+    const persist = async () => { state.prefs.mealReminders = collect(); await Storage.setPref("mealReminders", state.prefs.mealReminders); };
+
+    // Supplements share the reminders context — each carries its own daily time.
+    body.appendChild(el("div", { class: "nsection-label", style: "margin:18px 0 6px" }, "SUPPLEMENTS"));
+    body.appendChild(el("p", { class: "text-xs text-faint", style: "margin-bottom:10px" },
+      "Add a supplement and set its own daily reminder time."));
+    body.appendChild(el("button", { class: "btn btn-block", "data-testid": "reminders-add-supplement", on: { click: async () => {
+      await persist();            // keep any meal-time edits made here
+      closeModal();
+      openSupplementForm(null);
+    } } }, el("span", { html: icons.plus }), "Add supplement"));
+
     const footer = el("div", {},
       el("button", { class: "btn", on: { click: closeModal } }, "Cancel"),
       el("button", { class: "btn btn-primary", on: { click: async () => {
-        const next = {};
-        for (const r of rows) {
-          if (r.toggle.getAttribute("aria-pressed") === "true") {
-            const t = U.normalizeMealTime(r.timeI.value);
-            if (t) next[r.key] = t;
-          }
-        }
-        state.prefs.mealReminders = next;
-        await Storage.setPref("mealReminders", next);
+        await persist();
         closeModal();
         toast("Reminder times saved");
         afterNutritionChange();
       } } }, "Save")
     );
-    openModal("Meal reminders", body, footer);
+    openModal("Reminders", body, footer);
   }
 
   async function toggleSupplementTaken(supp, todayLogs) {
