@@ -3431,12 +3431,88 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); cursor: pointer;
 }
 .nsaved-chip svg { width: 14px; height: 14px; }
+/* Take = the call to action, so it's the loud button; Taken = a quiet "done" state. */
 .supp-take {
-  flex: none; padding: 8px 16px; border-radius: 100px; font-size: 13px; font-weight: 700;
-  color: var(--text-muted); background: var(--bg-sunken); border: 1px solid var(--border);
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 18px; border-radius: 100px; font-size: 14px; font-weight: 800;
+  color: #05242a; background: var(--accent); border: 1px solid var(--accent);
   cursor: pointer; transition: all 130ms ease;
+  box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--accent) 70%, transparent);
 }
-.supp-take.is-on { color: #062a2e; background: var(--accent); border-color: var(--accent); }
+.supp-take:active { transform: scale(0.96); }
+.supp-take.is-on {
+  color: var(--text-muted); background: transparent; border-color: var(--border);
+  font-weight: 700; box-shadow: none;
+}
+.supp-take-ic { display: inline-flex; width: 15px; height: 15px; }
+.supp-take-ic svg { width: 100%; height: 100%; }
+.supp-row.is-taken .nfood-name { color: var(--text-muted); }
+
+/* Reminder chip on a supplement row */
+.supp-remind-chip {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  padding: 3px 9px; border-radius: 100px; font-size: 11px; font-weight: 700;
+  color: var(--text-faint); background: var(--bg-sunken); border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.supp-remind-chip .supp-remind-ic { display: inline-flex; width: 11px; height: 11px; }
+.supp-remind-chip .supp-remind-ic svg { width: 100%; height: 100%; }
+.supp-remind-chip.is-due { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.supp-remind-chip.is-overdue { color: #ffb27a; border-color: color-mix(in srgb, #ff8a3d 45%, var(--border)); background: color-mix(in srgb, #ff8a3d 12%, var(--bg-sunken)); }
+
+/* Reminder toggle used in supplement form + meal reminders sheet */
+.remind-toggle {
+  display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  padding: 9px 14px; border-radius: 12px; font-size: 14px; font-weight: 700;
+  color: var(--text-muted); background: var(--bg-sunken); border: 1px solid var(--border);
+  transition: all 130ms ease;
+}
+.remind-toggle svg { width: 15px; height: 15px; }
+.remind-toggle.is-on { color: #05242a; background: var(--accent); border-color: var(--accent); }
+.remind-field { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.remind-field .input { max-width: 150px; }
+.remind-row-edit {
+  display: flex; align-items: center; gap: 10px; padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.remind-row-edit .remind-row-name { flex: 1; font-weight: 700; font-size: 15px; }
+.remind-row-edit .input { max-width: 128px; }
+.remind-row-edit .input:disabled { opacity: 0.4; }
+
+/* Quick log action row at the top of the Nutrition overview */
+.nquick-row { display: flex; gap: 8px; margin: 4px 0 14px; }
+.nquick-log { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 14px 16px; font-size: 15px; font-weight: 700; }
+.nquick-log svg { width: 18px; height: 18px; }
+.nquick-saved { display: inline-flex; align-items: center; gap: 7px; padding: 14px 16px; font-weight: 700; }
+.nquick-saved svg { width: 16px; height: 16px; }
+
+/* Reminders nudge card */
+.nremind-card {
+  margin: 0 0 14px; padding: 12px 14px 8px; border-radius: 16px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-elev));
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+.nremind-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.nremind-head .nremind-ic { display: inline-flex; width: 16px; height: 16px; color: var(--accent); }
+.nremind-head .nremind-ic svg { width: 100%; height: 100%; }
+.nremind-title { flex: 1; font-weight: 800; font-size: 15px; letter-spacing: 0.01em; }
+.nremind-count {
+  min-width: 22px; text-align: center; padding: 1px 8px; border-radius: 100px;
+  font-size: 12px; font-weight: 800; color: #05242a; background: var(--accent);
+}
+.nremind-count.is-overdue { background: #ff8a3d; color: #2a1400; }
+.nremind-edit { border: none; background: none; color: var(--text-muted); font-size: 13px; font-weight: 700; cursor: pointer; padding: 2px 4px; }
+.nremind-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border)); }
+.nremind-item-main { flex: 1; min-width: 0; }
+.nremind-item-name { font-weight: 700; font-size: 15px; }
+.nremind-item-when { font-size: 12px; color: var(--text-faint); margin-top: 1px; }
+.nremind-item.is-overdue .nremind-item-when { color: #ffb27a; }
+.nremind-act {
+  flex: none; padding: 8px 16px; border-radius: 100px; font-size: 13px; font-weight: 800;
+  color: #05242a; background: var(--accent); border: 1px solid var(--accent); cursor: pointer;
+  transition: transform 120ms ease;
+}
+.nremind-act:active { transform: scale(0.96); }
 
 /* Saved meals sheet */
 .saved-sheet-list { display: flex; flex-direction: column; gap: 8px; }

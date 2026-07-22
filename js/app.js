@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=100").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=101").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -416,6 +416,8 @@
       onboarded: !!(await Storage.getPref("onboarded", false)),
       // Weekly split/program: { mon: templateId | "rest", ... } (missing = open day).
       weeklyPlan: await Storage.getPref("weeklyPlan", {}),
+      // Meal reminder times: { breakfast: "08:00", ... } — only sections the user opted in.
+      mealReminders: await Storage.getPref("mealReminders", {}),
       theme: await Storage.getPref("theme", null)
     };
   }
@@ -5853,6 +5855,26 @@
     openModal(title, body, footer);
   }
 
+  // ============ Reminders (in-app, time-aware nudges) ============
+  // How long past its time before a due item is called "overdue" (minutes).
+  const REMINDER_OVERDUE_MIN = 60;
+  const hmToMin = (t) => {
+    const m = U.normalizeMealTime(t);
+    if (!m) return null;
+    const [h, mm] = m.split(":").map(Number);
+    return h * 60 + mm;
+  };
+  // For a reminder time on TODAY that isn't done yet: is it due (time reached)?
+  // Returns null when there's no valid time. { due, overdue, time } otherwise.
+  function reminderStatus(timeStr) {
+    const at = hmToMin(timeStr);
+    if (at == null) return null;
+    const now = hmToMin(U.nowMealTime());
+    const due = now >= at;
+    return { due, overdue: due && now - at >= REMINDER_OVERDUE_MIN, time: U.normalizeMealTime(timeStr) };
+  }
+  const bellIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>';
+
   // ============ Supplements (manual tracker on Nutrition) ============
   const SUPPLEMENT_UNITS = ["capsule", "tablet", "scoop", "g", "mg", "ml", "softgel", "drop", "serving"];
 
@@ -5893,6 +5915,27 @@
     // textarea value via property after create if el ignores value for textarea
     notesI.value = existing?.notes || "";
 
+    // Optional daily reminder time — surfaces an in-app "due" nudge when unticked.
+    const initRemind = U.normalizeMealTime(existing?.reminderTime || "");
+    const timeI = el("input", { class: "input", type: "time", value: initRemind });
+    const remindToggle = el("button", {
+      type: "button",
+      class: "remind-toggle" + (initRemind ? " is-on" : ""),
+      "aria-pressed": initRemind ? "true" : "false"
+    }, el("span", { html: bellIcon }), el("span", {}, "Remind me"));
+    const remindRow = el("div", { class: "remind-field", style: initRemind ? "" : "display:none" },
+      timeI,
+      el("button", { type: "button", class: "btn btn-ghost btn-sm", on: { click: () => { timeI.value = ""; } } }, "Clear")
+    );
+    remindToggle.addEventListener("click", () => {
+      const on = remindRow.style.display === "none";
+      remindRow.style.display = on ? "" : "none";
+      remindToggle.classList.toggle("is-on", on);
+      remindToggle.setAttribute("aria-pressed", on ? "true" : "false");
+      if (on && !timeI.value) timeI.value = "09:00";
+      if (!on) timeI.value = "";
+    });
+
     const body = el("div", {},
       el("label", { class: "label" }, "Name"),
       nameI,
@@ -5900,10 +5943,13 @@
         el("div", {}, el("label", { class: "label" }, "Usual dose"), doseI),
         el("div", {}, el("label", { class: "label" }, "Unit"), wheelizeSelect(unitSel, { title: "Unit" }))
       ),
+      el("label", { class: "label", style: "margin-top:12px" }, "Daily reminder"),
+      remindToggle,
+      remindRow,
       el("label", { class: "label", style: "margin-top:12px" }, "Notes"),
       notesI,
       el("p", { class: "text-xs text-faint", style: "margin-top:10px" },
-        "Tick it off each day on the Nutrition tab. Nothing is auto-logged to food calories.")
+        "Tick it off each day on the Nutrition tab. A reminder shows an in-app nudge when it's due — nothing is auto-logged to food calories.")
     );
 
     const footer = el("div", {},
@@ -5919,6 +5965,7 @@
           defaultDose,
           unit: unitSel.value || "serving",
           notes: notesI.value.trim(),
+          reminderTime: U.normalizeMealTime(timeI.value) || null,
           createdAt: existing?.createdAt || Date.now(),
           updatedAt: Date.now()
         };
@@ -5930,6 +5977,53 @@
     );
     openModal(existing ? "Edit supplement" : "Add supplement", body, footer);
     setTimeout(() => nameI.focus(), 40);
+  }
+
+  // Sheet to set per-section meal reminder times (in-app nudges only).
+  async function openReminderSettings() {
+    const CORE = ["breakfast", "lunch", "dinner", "snack"];
+    const cur = { ...(state.prefs.mealReminders || {}) };
+    const rows = [];
+    const body = el("div", {});
+    body.appendChild(el("p", { class: "text-sm text-muted", style: "margin-bottom:14px" },
+      "Get an in-app nudge when a meal hasn't been logged by its time. Supplement reminders are set on each supplement."));
+    for (const key of CORE) {
+      const meta = U.MEAL_SECTIONS[key];
+      const on0 = !!U.normalizeMealTime(cur[key]);
+      const timeI = el("input", { class: "input", type: "time", value: U.normalizeMealTime(cur[key]) || meta.defaultTime });
+      timeI.disabled = !on0;
+      const toggle = el("button", {
+        type: "button", class: "remind-toggle" + (on0 ? " is-on" : ""), "aria-pressed": on0 ? "true" : "false"
+      }, el("span", { html: bellIcon }), el("span", {}, on0 ? "On" : "Off"));
+      toggle.addEventListener("click", () => {
+        const on = toggle.getAttribute("aria-pressed") !== "true";
+        toggle.classList.toggle("is-on", on);
+        toggle.setAttribute("aria-pressed", on ? "true" : "false");
+        toggle.lastChild.textContent = on ? "On" : "Off";
+        timeI.disabled = !on;
+      });
+      rows.push({ key, timeI, toggle });
+      body.appendChild(el("div", { class: "remind-row-edit" },
+        el("div", { class: "remind-row-name" }, meta.label), toggle, timeI));
+    }
+    const footer = el("div", {},
+      el("button", { class: "btn", on: { click: closeModal } }, "Cancel"),
+      el("button", { class: "btn btn-primary", on: { click: async () => {
+        const next = {};
+        for (const r of rows) {
+          if (r.toggle.getAttribute("aria-pressed") === "true") {
+            const t = U.normalizeMealTime(r.timeI.value);
+            if (t) next[r.key] = t;
+          }
+        }
+        state.prefs.mealReminders = next;
+        await Storage.setPref("mealReminders", next);
+        closeModal();
+        toast("Reminder times saved");
+        renderMain();
+      } } }, "Save")
+    );
+    openModal("Meal reminders", body, footer);
   }
 
   async function toggleSupplementTaken(supp, todayLogs) {
@@ -6107,6 +6201,94 @@
     // Next meal to nudge: first with nothing logged, else the first card.
     const nextSection = mealSections.find(k => !(groups[k] || []).length) || mealSections[0];
 
+    // ---- Supplement "taken" state, updated in place (no full re-render) ----
+    const suppTotal = suppSorted.length;
+    // Elements that display the taken count in various formats; refreshed on toggle.
+    const suppCountEls = []; // { el, fmt(taken, total) }
+    function bindSuppCount(node, fmt) { suppCountEls.push({ el: node, fmt }); node.textContent = fmt(takenSuppIds.size, suppTotal); return node; }
+    function refreshSuppCounts() { for (const r of suppCountEls) r.el.textContent = r.fmt(takenSuppIds.size, suppTotal); }
+    const suppPainters = {}; // supplementId -> repaint its row in place
+    async function toggleSuppInPlace(s) {
+      const t = U.todayISO();
+      const existing = todaySuppLogs.find(l => l.supplementId === s.id && l.date === t);
+      if (existing) {
+        await Storage.deleteSupplementLog(existing.id);
+        const i = todaySuppLogs.indexOf(existing); if (i >= 0) todaySuppLogs.splice(i, 1);
+        takenSuppIds.delete(s.id);
+        toast(`${s.name} unmarked`);
+      } else {
+        const logObj = { id: U.uid(), date: t, supplementId: s.id, name: s.name, dose: s.defaultDose ?? null, unit: s.unit || "serving", time: U.nowMealTime(), taken: true, savedAt: Date.now() };
+        await Storage.saveSupplementLog(logObj);
+        todaySuppLogs.push(logObj);
+        takenSuppIds.add(s.id);
+        toast(`${s.name} logged`);
+      }
+      suppPainters[s.id] && suppPainters[s.id]();
+      refreshSuppCounts();
+      refreshRemindersCard();
+    }
+    const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+
+    // Everything still "to do" today whose reminder time has arrived.
+    function collectDueReminders() {
+      const items = [];
+      for (const s of suppSorted) {
+        if (takenSuppIds.has(s.id)) continue;
+        const st = reminderStatus(s.reminderTime);
+        if (st && st.due) items.push({ kind: "supp", id: s.id, name: s.name, time: st.time, overdue: st.overdue, s });
+      }
+      const mr = state.prefs.mealReminders || {};
+      for (const key of CORE) {
+        const st = reminderStatus(mr[key]);
+        if (!st || !st.due) continue;
+        if ((groups[key] || []).length) continue;
+        items.push({ kind: "meal", key, name: U.MEAL_SECTIONS[key].label, time: st.time, overdue: st.overdue });
+      }
+      items.sort((a, b) => (Number(b.overdue) - Number(a.overdue)) || a.time.localeCompare(b.time));
+      return items;
+    }
+
+    // One supplement row on the Supplements panel — repaints itself in place on toggle.
+    function suppRow(s) {
+      const nameEl = el("div", { class: "nfood-name" }, s.name);
+      const metaEl = el("div", { class: "nfood-meta" });
+      const mainBtn = el("button", { class: "nfood-main", type: "button", title: "Edit", on: { click: () => openSupplementForm(s) } }, nameEl, metaEl);
+      const chipEl = s.reminderTime ? el("span", { class: "supp-remind-chip" }) : null;
+      const takeBtn = el("button", { class: "supp-take", type: "button", "data-testid": "supp-take-" + s.id });
+      takeBtn.addEventListener("click", () => toggleSuppInPlace(s));
+      const delBtn = el("button", {
+        class: "nfood-del", type: "button", "aria-label": `Remove ${s.name}`, html: icons.x,
+        on: { click: async () => {
+          if (!(await confirmDialog(`Remove “${s.name}” from your list?`, { title: "Remove supplement?", okLabel: "Remove", danger: true }))) return;
+          for (const l of todaySuppLogs.filter(x => x.supplementId === s.id)) await Storage.deleteSupplementLog(l.id);
+          await Storage.deleteSupplement(s.id);
+          toast("Supplement removed"); renderMain();
+        } }
+      });
+      const row = el("div", { class: "nfood supp-row" }, mainBtn, chipEl, takeBtn, delBtn);
+      function paint() {
+        const taken = takenSuppIds.has(s.id);
+        const log = todaySuppLogs.find(l => l.supplementId === s.id);
+        metaEl.textContent = formatSupplementDose(s) + (taken && log?.time ? ` · ${log.time}` : "") + (s.notes ? ` · ${s.notes}` : "");
+        row.classList.toggle("is-taken", taken);
+        takeBtn.className = "supp-take" + (taken ? " is-on" : "");
+        clear(takeBtn);
+        if (taken) takeBtn.appendChild(el("span", { class: "supp-take-ic", html: CHECK }));
+        takeBtn.appendChild(el("span", {}, taken ? "Taken" : "Take"));
+        if (chipEl) {
+          const st = reminderStatus(s.reminderTime);
+          chipEl.style.display = taken ? "none" : "";
+          chipEl.className = "supp-remind-chip" + (st && st.overdue ? " is-overdue" : (st && st.due ? " is-due" : ""));
+          clear(chipEl);
+          chipEl.appendChild(el("span", { class: "supp-remind-ic", html: bellIcon }));
+          chipEl.appendChild(el("span", {}, st ? ((st.due ? (st.overdue ? "Overdue " : "Due ") : "") + st.time) : ""));
+        }
+      }
+      suppPainters[s.id] = paint;
+      paint();
+      return row;
+    }
+
     const screen = el("div", { class: "npager-screen" });
     const pager = el("div", { class: "npager", "data-testid": "npager" });
     const dots = el("div", { class: "npager-dots" });
@@ -6177,10 +6359,15 @@
       const items = groups[key] || [];
       const kcal = items.reduce((s, m) => s + (m.kcal || 0), 0);
       const meta = U.MEAL_SECTIONS[key];
+      // If a reminder is set for this section and nothing's logged past its time, flag it.
+      let sub = items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : "Not logged";
+      if (!items.length) {
+        const st = reminderStatus((state.prefs.mealReminders || {})[key]);
+        if (st && st.due) sub = (st.overdue ? "Overdue · " : "Due · ") + st.time;
+      }
       return timelineNode({
         badge: meta.short, color: mealColor(key), name: meta.label,
-        sub: items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : "Not logged",
-        kcal, logged: kcal > 0,
+        sub, kcal, logged: kcal > 0,
         onClick: () => goToPanel(panelIndexForSection(key))
       });
     }
@@ -6263,7 +6450,7 @@
           el("h2", { class: "npanel-title" }, "Supplements")
         ),
         el("div", { class: "npanel-head-right" },
-          el("div", { class: "npanel-head-kcal" }, suppSorted.length ? `${takenCount}/${suppSorted.length}` : "0"),
+          bindSuppCount(el("div", { class: "npanel-head-kcal" }), (t, n) => n ? `${t}/${n}` : "0"),
           el("div", { class: "npanel-head-sub" }, "taken")
         )
       ));
@@ -6272,7 +6459,7 @@
         el("span", { class: "ncard-badge" }, "Su"),
         el("div", { class: "ncard-head-main" },
           el("div", { class: "ncard-head-name" }, "Supplements"),
-          el("div", { class: "ncard-head-macros" }, suppSorted.length ? `${takenCount} of ${suppSorted.length} taken today` : "Daily checklist · no calories")
+          bindSuppCount(el("div", { class: "ncard-head-macros" }), (t, n) => n ? `${t} of ${n} taken today` : "Daily checklist · no calories")
         )
       ));
       const list = el("div", { class: "ncard-list" });
@@ -6281,36 +6468,15 @@
           el("div", { class: "ncard-empty-title" }, "No supplements yet"),
           el("div", { class: "ncard-empty-sub" }, "Add creatine, vitamin D, protein powder — anything you take by hand.")));
       } else {
-        for (const s of suppSorted) {
-          const taken = takenSuppIds.has(s.id);
-          const log = todaySuppLogs.find(l => l.supplementId === s.id);
-          const doseLine = formatSupplementDose(s) + (log?.time ? ` · ${log.time}` : "") + (s.notes ? ` · ${s.notes}` : "");
-          list.appendChild(el("div", { class: "nfood" },
-            el("button", { class: "nfood-main", type: "button", title: "Edit", on: { click: () => openSupplementForm(s) } },
-              el("div", { class: "nfood-name" }, s.name),
-              el("div", { class: "nfood-meta" }, doseLine)
-            ),
-            el("button", {
-              class: "supp-take" + (taken ? " is-on" : ""), type: "button",
-              on: { click: () => toggleSupplementTaken(s, todaySuppLogs) }
-            }, taken ? "Taken" : "Take"),
-            el("button", {
-              class: "nfood-del", type: "button", "aria-label": `Remove ${s.name}`, html: icons.x,
-              on: { click: async () => {
-                if (!(await confirmDialog(`Remove “${s.name}” from your list?`, { title: "Remove supplement?", okLabel: "Remove", danger: true }))) return;
-                for (const l of todaySuppLogs.filter(x => x.supplementId === s.id)) await Storage.deleteSupplementLog(l.id);
-                await Storage.deleteSupplement(s.id);
-                toast("Supplement removed"); renderMain();
-              } }
-            })
-          ));
-        }
+        for (const s of suppSorted) list.appendChild(suppRow(s));
       }
       card.appendChild(list);
       panel.appendChild(card);
       const foot = el("div", { class: "npanel-foot" });
       foot.appendChild(el("button", { class: "btn btn-primary btn-block nadd-btn", on: { click: () => openSupplementForm(null) } },
         el("span", { html: icons.plus }), "Add supplement"));
+      foot.appendChild(el("button", { class: "btn btn-ghost btn-sm", on: { click: () => openReminderSettings() } },
+        el("span", { html: bellIcon }), "Meal reminder times"));
       const ni = idxOf("supplements") + 1;
       if (ni < panelKeys.length) {
         foot.appendChild(el("button", { class: "btn btn-ghost btn-sm nnext-btn", on: { click: () => goToPanel(ni) } },
@@ -6333,6 +6499,45 @@
         el("div", { class: "npanel-head-sub" }, remaining >= 0 ? "kcal left" : "kcal over")
       )
     ));
+
+    // Always-reachable log action near the top (no scrolling to the panel foot).
+    ov.appendChild(el("div", { class: "nquick-row" },
+      el("button", { class: "btn btn-primary nquick-log", "data-testid": "quick-log-meal-top", on: { click: () => openMealFork(nextSection) } },
+        el("span", { html: icons.plus }), "Log a meal"),
+      el("button", { class: "btn nquick-saved", title: "Log a saved meal", on: { click: () => openSavedMealsSheet() } },
+        el("span", { html: icons.bookmark }), "Saved")
+    ));
+
+    // Reminders nudge — what's still to do today whose time has arrived. Rebuilt in place.
+    const remindersCard = el("div", { class: "nremind-card", "data-testid": "reminders-card" });
+    function refreshRemindersCard() {
+      const due = collectDueReminders();
+      clear(remindersCard);
+      if (!due.length) { remindersCard.style.display = "none"; return; }
+      remindersCard.style.display = "";
+      const overdueN = due.filter(d => d.overdue).length;
+      remindersCard.appendChild(el("div", { class: "nremind-head" },
+        el("span", { class: "nremind-ic", html: bellIcon }),
+        el("div", { class: "nremind-title" }, "Reminders"),
+        el("div", { class: "nremind-count" + (overdueN ? " is-overdue" : "") }, String(due.length)),
+        el("button", { class: "nremind-edit", type: "button", title: "Reminder times", on: { click: () => openReminderSettings() } }, "Edit")
+      ));
+      for (const item of due) {
+        const when = (item.overdue ? "Overdue" : "Due") + " · " + item.time;
+        remindersCard.appendChild(el("div", { class: "nremind-item" + (item.overdue ? " is-overdue" : "") },
+          el("div", { class: "nremind-item-main" },
+            el("div", { class: "nremind-item-name" }, item.kind === "supp" ? item.name : `Log ${item.name}`),
+            el("div", { class: "nremind-item-when" }, when)
+          ),
+          item.kind === "supp"
+            ? el("button", { class: "nremind-act", type: "button", on: { click: () => toggleSuppInPlace(item.s) } }, "Take")
+            : el("button", { class: "nremind-act", type: "button", on: { click: () => openMealFork(item.key) } }, "Log")
+        ));
+      }
+    }
+    refreshRemindersCard();
+    ov.appendChild(remindersCard);
+
     const ringWrap = buildEnergyRing(pct, over);
     ringWrap.appendChild(el("div", { class: "energy-ring-center" },
       el("div", { class: "energy-ring-main" + (remaining < 0 ? " over" : "") }, (remaining >= 0 ? remaining : Math.abs(remaining)).toLocaleString("en-GB")),
@@ -6379,8 +6584,8 @@
     for (const key of mealSections) timeline.appendChild(mealTimelineItem(key));
     timeline.appendChild(timelineNode({
       badge: "Su", color: mealColor("supplements"), name: "Supplements",
-      sub: suppSorted.length ? `${takenSuppIds.size} of ${suppSorted.length} taken` : "None added",
-      kcal: null, logged: suppSorted.length > 0 && takenSuppIds.size > 0,
+      sub: suppTotal ? bindSuppCount(el("div"), (t, n) => `${t} of ${n} taken`) : "None added",
+      kcal: null, logged: suppTotal > 0 && takenSuppIds.size > 0,
       onClick: () => goToPanel(idxOf("supplements"))
     }));
     mealsWrap.appendChild(timeline);
