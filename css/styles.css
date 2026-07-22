@@ -3107,7 +3107,9 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   display: flex;
   overflow-x: auto; overflow-y: hidden;
   scroll-snap-type: x mandatory;
-  scroll-behavior: smooth;
+  /* No CSS smooth-scroll: programmatic scroll restores must be instant, or
+     they animate as a jarring slide. Intentional smooth scrolls pass
+     behavior:"smooth" explicitly in scrollTo(). */
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
   margin: 0 -6px;
@@ -3279,7 +3281,8 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   height: 100%;
   overflow-y: auto;
   scroll-snap-type: y mandatory;
-  scroll-behavior: smooth;
+  /* Instant programmatic restores (smooth would slide); explicit smooth
+     scrolls still pass behavior:"smooth" in scrollTo(). */
   overscroll-behavior: contain;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
@@ -3541,7 +3544,7 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 
 .wpager {
   position: relative; flex: 1; min-height: 0;
-  overflow-y: auto; scroll-snap-type: y mandatory; scroll-behavior: smooth;
+  overflow-y: auto; scroll-snap-type: y mandatory; /* instant restores; explicit smooth via scrollTo() */
   overscroll-behavior: contain; scrollbar-width: none; -webkit-overflow-scrolling: touch;
 }
 .wpager::-webkit-scrollbar { display: none; }

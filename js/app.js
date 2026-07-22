@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=103").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=104").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1201,7 +1201,7 @@
         title: it.label,
         "data-testid": "dock-" + it.id,
         html: it.icon,
-        on: { click: () => { nutritionScrollKey = null; nutritionScrollTop = 0; workoutScrollIdx = 0; state.tab = it.id; renderMain(); window.scrollTo(0, 0); } }
+        on: { click: () => { nutritionScrollKey = null; nutritionScrollTop = 0; workoutScrollIdx = 0; workoutScrollTop = 0; state.tab = it.id; renderMain(); window.scrollTo(0, 0); } }
       }));
     }
     document.body.appendChild(dock);
@@ -1689,7 +1689,7 @@
       if (isNaN(kg) || kg <= 0) return toast("Enter a valid weight");
       await Storage.saveBodyweight({ date: today, kg });
       toast("Weight logged");
-      renderMain();
+      renderMainKeepScroll();
     } } }, "Log today");
     card.appendChild(el("div", { class: "row mt-8", style: "gap: 8px; align-items: center;" },
       wI,
@@ -1698,7 +1698,7 @@
       todayEntry ? el("button", { class: "icon-btn", title: "Delete today’s entry", on: { click: async () => {
         if (!(await confirmDialog("Delete today’s bodyweight entry?", { title: "Delete entry?", okLabel: "Delete", danger: true }))) return;
         await Storage.deleteBodyweight(today);
-        renderMain();
+        renderMainKeepScroll();
       } }, html: icons.trash }) : null
     ));
 
@@ -2082,7 +2082,7 @@
             state.prefs.kcalGoal = energy.autoBudget;
             await Storage.setPref("kcalGoal", energy.autoBudget);
           }
-          renderMain();
+          if (state.tab === "nutrition") afterNutritionChange(); else renderMainKeepScroll();
           toast("Using suggested food room");
         } }
       }, "Use suggestion"));
@@ -2934,7 +2934,7 @@
               el("button", { class: "icon-btn", title: "Delete template", on: { click: async () => {
                 if (!(await confirmDialog(`Delete template “${t.name}”?`, { title: "Delete template?", okLabel: "Delete", danger: true }))) return;
                 await Storage.deleteTemplate(t.id);
-                renderMain();
+                renderMainKeepScroll();
               } }, html: icons.trash })
             )
           ));
@@ -3120,7 +3120,7 @@
     fin.appendChild(el("button", { class: "btn btn-block mt-8", on: { click: () => openExercisePicker(async (items) => {
       for (const it of items) w.exercises.push(await buildExerciseEntry(it.id, it.name));
       await Storage.saveWorkout(w);
-      renderMain();
+      afterExerciseChange();
       toast(`Added ${items.length} exercise${items.length === 1 ? "" : "s"}`);
     }, { existingIds: new Set(exs.map(e => e.exerciseId)), title: "Add exercises" }) } },
       el("span", { html: icons.plus }), "Add exercise"));
@@ -3145,13 +3145,27 @@
         if (best !== activeIdx) { activeIdx = best; workoutScrollIdx = best; syncDots(); }
       });
     }, { passive: true });
+    pager.addEventListener("scroll", () => { workoutScrollTop = pager.scrollTop; }, { passive: true });
 
     view.appendChild(screen);
-    // Restore the card after an action re-render.
-    if (workoutScrollIdx > 0 && workoutScrollIdx < panelCount) {
-      const ri = workoutScrollIdx;
-      requestAnimationFrame(() => { if (pager.children[ri]) { pager.scrollTop = pager.children[ri].offsetTop; activeIdx = ri; syncDots(); } });
-    }
+    // Restore exact scroll (set synchronously to avoid a painted frame at 0),
+    // falling back to the remembered card the first time we land here.
+    const restoreScroll = () => {
+      if (workoutScrollTop > 0) { pager.scrollTop = workoutScrollTop; }
+      else if (workoutScrollIdx > 0 && workoutScrollIdx < panelCount && pager.children[workoutScrollIdx]) {
+        pager.scrollTop = pager.children[workoutScrollIdx].offsetTop;
+      }
+      const center = pager.scrollTop + pager.clientHeight / 2;
+      let best = 0, bd = Infinity;
+      for (let i = 0; i < pager.children.length; i++) {
+        const cc = pager.children[i].offsetTop + pager.children[i].offsetHeight / 2;
+        const d = Math.abs(cc - center);
+        if (d < bd) { bd = d; best = i; }
+      }
+      activeIdx = best; syncDots();
+    };
+    restoreScroll();
+    requestAnimationFrame(restoreScroll);
   }
 
   function suggestedName() {
@@ -3268,6 +3282,7 @@
 
   async function beginWorkoutSession({ name, exercises, templateId = null, source = "empty", sourceWorkoutId = null }) {
     workoutScrollIdx = 0;
+    workoutScrollTop = 0;
     const workout = {
       id: U.uid(),
       name: (name || suggestedName()).trim() || suggestedName(),
@@ -3593,7 +3608,7 @@
               state.prefs.weeklyPlan = next;
               await Storage.setPref("weeklyPlan", next);
               close();
-              renderMain();
+              renderMainKeepScroll();
               toast("Weekly plan saved");
             } }
           }, "Save plan")
@@ -3871,14 +3886,14 @@
             "Switching how this exercise is logged will clear its logged sets. Continue?",
             { title: "Change logging type?", okLabel: "Switch", danger: true }
           );
-          if (!ok) { typeMenu.value = exType; renderMain(); return; }
+          if (!ok) { typeMenu.value = exType; afterExerciseChange(); return; }
           ex.sets = [emptySetForType(nextType)];
         } else if (!hasLogged) {
           ex.sets = [emptySetForType(nextType)];
         }
         ex.type = nextType;
         await Storage.saveWorkout(state.activeWorkout);
-        renderMain();
+        afterExerciseChange();
       });
     }
     const typeControl = (typeMenu.tagName === "SELECT")
@@ -3907,7 +3922,7 @@
               nextEx.supersetGroup = g;
             }
             await Storage.saveWorkout(state.activeWorkout);
-            renderMain();
+            afterExerciseChange();
           } }
         }) : null,
         el("button", { class: "icon-btn", title: "Exercise info", on: { click: () => openExerciseDetail(ex.exerciseId) },
@@ -3916,7 +3931,7 @@
           if (!(await confirmDialog(`Remove ${ex.name} from this workout?`, { title: "Remove exercise?", okLabel: "Remove", danger: true }))) return;
           state.activeWorkout.exercises.splice(idx, 1);
           await Storage.saveWorkout(state.activeWorkout);
-          renderMain();
+          afterExerciseChange();
         } }, html: icons.trash })
       )
     ));
@@ -4603,7 +4618,7 @@
             }
             await Storage.saveWorkout(state.activeWorkout);
             closeModal();
-            renderMain();
+            refreshExerciseBlock(ex);
           } } }, "Save")
         );
         openModal("Set note", body, footer);
@@ -5972,7 +5987,7 @@
         await Storage.saveSupplement(payload);
         closeModal();
         toast(existing ? "Supplement updated" : "Supplement added");
-        renderMain();
+        afterNutritionChange();
       } } }, existing ? "Save" : "Add")
     );
     openModal(existing ? "Edit supplement" : "Add supplement", body, footer);
@@ -6020,7 +6035,7 @@
         await Storage.setPref("mealReminders", next);
         closeModal();
         toast("Reminder times saved");
-        renderMain();
+        afterNutritionChange();
       } } }, "Save")
     );
     openModal("Meal reminders", body, footer);
@@ -6046,7 +6061,7 @@
       });
       toast(`${supp.name} logged`);
     }
-    renderMain();
+    afterNutritionChange();
   }
 
   async function renderSupplementsCard() {
@@ -6164,13 +6179,36 @@
     if (oldView) oldView.replaceWith(fresh); else main.appendChild(fresh);
     if (freshPager) freshPager.scrollTop = nutritionScrollTop;
   }
-  // Meal add/remove: update Nutrition in place; anywhere else, a normal render.
-  function afterMealChange() {
+  // A meal/supplement/reminder change: update Nutrition in place (no rebuild
+  // flash or scroll jump); anywhere else, a normal render.
+  function afterNutritionChange() {
     if (state.tab === "nutrition") return refreshNutritionInPlace();
     renderMain();
   }
   // Same idea for the active-workout exercise pager (index of the active card).
   let workoutScrollIdx = 0;
+  // Exact pixel scroll of the workout pager, for a jump-free in-place refresh.
+  let workoutScrollTop = 0;
+
+  // No-flash rebuild of the Workout tab (add/remove exercise, change type):
+  // build off-screen, swap in one step, restore the exact scroll. Mirrors
+  // refreshNutritionInPlace so the pager no longer lurches on those actions.
+  async function refreshWorkoutInPlace() {
+    if (state.tab !== "workout") { renderMain(); return; }
+    const main = $("#main");
+    if (!main) { renderMain(); return; }
+    const oldView = main.querySelector(".view");
+    const fresh = el("div", { class: "view" });
+    await renderWorkout(fresh);
+    const freshPager = fresh.querySelector(".wpager");
+    if (oldView) oldView.replaceWith(fresh); else main.appendChild(fresh);
+    if (freshPager) freshPager.scrollTop = workoutScrollTop;
+  }
+  // An exercise was added/removed/retyped: update Workout in place, else render.
+  function afterExerciseChange() {
+    if (state.tab === "workout") return refreshWorkoutInPlace();
+    renderMain();
+  }
 
   // Redesigned nutrition tab: a vertical card pager — Overview, then one card
   // per meal section, then a Trends card. Swipe up/down; dots on the right.
@@ -6440,7 +6478,7 @@
             el("div", { class: "nfood-kcal" }, String(m.kcal || 0)),
             el("button", {
               class: "nfood-del", type: "button", "aria-label": `Remove ${m.name}`, html: icons.x,
-              on: { click: async () => { await Storage.deleteMeal(m.id); toast(`Removed ${m.name}`); afterMealChange(); } }
+              on: { click: async () => { await Storage.deleteMeal(m.id); toast(`Removed ${m.name}`); afterNutritionChange(); } }
             })
           ));
         }
@@ -7224,7 +7262,7 @@
     };
     await Storage.saveMeal(meal);
     toast(`Logged ${name} · about ${meal.kcal} kcal`);
-    afterMealChange();
+    afterNutritionChange();
   }
 
   // Sheet reached from the "−" beside the meals donut: pick a logged meal to remove.
@@ -7256,7 +7294,7 @@
             on: { click: async () => {
               await Storage.deleteMeal(m.id);
               toast(`Removed ${m.name}`);
-              afterMealChange();
+              afterNutritionChange();
               const fresh = await buildList();
               listEl.replaceWith(fresh);
               listEl = fresh;
@@ -7603,7 +7641,7 @@
           renderMain();
           openNutritionDayDetail(mealDate);
         } else {
-          afterMealChange();
+          afterNutritionChange();
         }
       } } }, existing?.id ? "Update" : "Save meal")
     );
