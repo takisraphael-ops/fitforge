@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=106").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=107").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1208,14 +1208,73 @@
     document.body.appendChild(dock);
   }
 
-  // Switch to a top-level tab, resetting remembered pager scroll so it opens fresh.
-  function switchTab(id) {
+  // Switch to a top-level tab, resetting remembered pager scroll so it opens
+  // fresh. `dir` (-1/0/+1) drives the slide direction; 0 = infer from dock order.
+  function switchTab(id, dir = 0) {
     if (id === state.tab) return;
-    nutritionScrollKey = null; nutritionScrollTop = 0;
-    workoutScrollIdx = 0; workoutScrollTop = 0;
-    state.tab = id;
-    renderMain();
-    window.scrollTo(0, 0);
+    if (!dir) {
+      const a = SWIPE_TABS.indexOf(state.tab === "history" ? "stats" : state.tab);
+      const b = SWIPE_TABS.indexOf(id);
+      dir = (a >= 0 && b >= 0) ? Math.sign(b - a) : 0;
+    }
+    const doRender = () => {
+      nutritionScrollKey = null; nutritionScrollTop = 0;
+      workoutScrollIdx = 0; workoutScrollTop = 0;
+      state.tab = id;
+      renderMain();
+      window.scrollTo(0, 0);
+    };
+    animateTabSwitch(dir, doRender);
+  }
+
+  // Slide the outgoing view off in the travel direction while the incoming one
+  // slides in from the opposite edge. Falls back to an instant swap when there's
+  // no direction, nothing to animate, or the user prefers reduced motion.
+  let tabAnimating = false;
+  function animateTabSwitch(dir, doRender) {
+    const main = $("#main");
+    const oldView = main && main.querySelector(".view");
+    const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!main || !oldView || !dir || reduce) { doRender(); return; }
+
+    // Clear any half-finished previous transition so rapid swipes stay clean.
+    main.querySelectorAll(".view.tab-ghost").forEach(g => g.remove());
+
+    const ghost = oldView;
+    ghost.classList.add("tab-ghost");
+    main.removeChild(ghost);           // detach so renderMain's clear() won't destroy it
+    main.classList.add("tab-anim");
+
+    doRender();                         // builds the new .view into #main (scrolls to top)
+    const newView = main.querySelector(".view");
+    if (!newView) { ghost.remove(); main.classList.remove("tab-anim"); return; }
+    main.appendChild(ghost);            // overlay the outgoing view on top
+
+    const DUR = 280, EASE = "cubic-bezier(.4,0,.2,1)";
+    const enterFrom = dir > 0 ? "100%" : "-100%"; // forward: new comes from the right
+    const exitTo = dir > 0 ? "-100%" : "100%";
+    newView.style.transform = `translateX(${enterFrom})`;
+    newView.style.willChange = "transform";
+    ghost.style.transform = "translateX(0)";
+    ghost.style.willChange = "transform, opacity";
+    void newView.offsetWidth;           // force a reflow so the start state sticks
+    newView.style.transition = `transform ${DUR}ms ${EASE}`;
+    ghost.style.transition = `transform ${DUR}ms ${EASE}, opacity ${DUR}ms ease`;
+    newView.style.transform = "translateX(0)";
+    ghost.style.transform = `translateX(${exitTo})`;
+    ghost.style.opacity = "0.35";
+
+    tabAnimating = true;
+    let done = false;
+    const cleanup = () => {
+      if (done) return;
+      done = true; tabAnimating = false;
+      ghost.remove();
+      newView.style.transition = ""; newView.style.transform = ""; newView.style.willChange = "";
+      main.classList.remove("tab-anim");
+    };
+    newView.addEventListener("transitionend", cleanup, { once: true });
+    setTimeout(cleanup, DUR + 90);      // belt-and-braces in case transitionend is missed
   }
 
   // Horizontal swipe anywhere moves between the main tabs (in dock order).
@@ -1255,7 +1314,7 @@
       if (i < 0) return; // e.g. mid-workout — don't swipe out of a session
       const ni = dx < 0 ? i + 1 : i - 1; // swipe left → next tab, right → previous
       if (ni < 0 || ni >= SWIPE_TABS.length) return; // clamp at the ends
-      switchTab(SWIPE_TABS[ni]);
+      switchTab(SWIPE_TABS[ni], dx < 0 ? 1 : -1);
     }, { passive: true });
   }
 

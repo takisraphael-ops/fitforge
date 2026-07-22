@@ -4201,3 +4201,11 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 /* Wheel-ified <select> wrapper (dropdowns replaced by wheel fields) */
 .wheel-select { display: block; }
 .wheel-select .wheel-field { width: 100%; }
+
+/* ---- Tab transition (swipe / dock nav) ---- */
+#main.tab-anim { position: relative; overflow: hidden; }
+#main.tab-anim > .view { backface-visibility: hidden; }
+.view.tab-ghost {
+  position: absolute; top: 0; left: 0; right: 0; width: 100%;
+  pointer-events: none; z-index: 2;
+}
