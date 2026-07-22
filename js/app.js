@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=112").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=113").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1331,7 +1331,7 @@
     setTimeout(() => {
       overlay.classList.add("tabload-out");
       setTimeout(() => overlay.remove(), 430);
-    }, 1050);
+    }, 1500);
   }
 
   // Slide the outgoing view off in the travel direction while the incoming one
