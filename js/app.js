@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=107").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=108").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -712,6 +712,23 @@
     old.replaceWith(fresh);
   }
 
+  // Celebrate a just-logged set: flash its row and pop the check (Tier B).
+  function flashCompletedSet(ex, si) {
+    if (reduceMotion()) return;
+    const w = state.activeWorkout;
+    const idx = w && Array.isArray(w.exercises) ? w.exercises.indexOf(ex) : -1;
+    if (idx < 0) return;
+    const block = document.querySelector(`.exercise-block[data-ex-idx="${idx}"]`);
+    if (!block) return;
+    // Only the editable set rows carry a Done button; ignore any history strip.
+    const rows = [...block.querySelectorAll(".set-row")].filter(r => r.querySelector(".set-done"));
+    const row = rows[si];
+    if (!row) return;
+    row.classList.add("set-row-flash");
+    const btn = row.querySelector(".set-done");
+    if (btn) btn.classList.add("set-check-pop");
+  }
+
   async function buildExerciseEntry(exerciseId, name) {
     const all = await getAllExercises();
     const def = all.find(x => x.id === exerciseId);
@@ -1137,6 +1154,30 @@
     // Theme + Settings now live in the You tab / Settings, not the header.
   }
 
+  function reduceMotion() {
+    return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  }
+  // Roll big stat numbers up to their value so logging feels consequential.
+  // Any element with class "count-up" (holding a formatted number) animates once.
+  function applyCountUps(root) {
+    if (!root || reduceMotion()) return;
+    root.querySelectorAll(".count-up").forEach(elm => {
+      if (elm._counted) return;
+      const raw = (elm.textContent || "").trim();
+      const target = parseFloat(raw.replace(/[^0-9.-]/g, ""));
+      if (!isFinite(target) || target <= 0) return;
+      elm._counted = true;
+      const dur = 650, t0 = performance.now();
+      const step = (now) => {
+        const p = Math.min(1, (now - t0) / dur);
+        const e = 1 - Math.pow(1 - p, 3);
+        elm.textContent = Math.round(target * e).toLocaleString("en-GB");
+        if (p < 1) requestAnimationFrame(step); else elm.textContent = raw;
+      };
+      requestAnimationFrame(step);
+    });
+  }
+
   function renderMain() {
     // The app header (logo + theme/settings) only appears on Home; other tabs
     // hide it to give their content the full screen.
@@ -1151,12 +1192,13 @@
 
     const view = el("div", { class: "view" });
     main.appendChild(view);
+    let rendered;
     switch (state.tab) {
-      case "home": renderHome(view); break;
-      case "workout": renderWorkout(view); break;
-      case "library": renderLibrary(view); break;
-      case "nutrition": renderNutrition(view); break;
-      case "stats": case "history": renderStatsShell(view); break;
+      case "home": rendered = renderHome(view); break;
+      case "workout": rendered = renderWorkout(view); break;
+      case "library": rendered = renderLibrary(view); break;
+      case "nutrition": rendered = renderNutrition(view); break;
+      case "stats": case "history": rendered = renderStatsShell(view); break;
     }
 
     // Bottom dock navigation
@@ -1164,6 +1206,12 @@
 
     // Rest timer overlay
     renderRestTimer();
+
+    // Roll the big stat numbers up once they're on screen. Tab renderers are
+    // async, so wait for the render to settle before the numbers exist.
+    const rollUp = () => requestAnimationFrame(() => applyCountUps(main));
+    if (rendered && typeof rendered.then === "function") rendered.then(rollUp, rollUp);
+    else rollUp();
   }
 
   // ============ Bottom dock ============
@@ -1276,6 +1324,11 @@
     newView.addEventListener("transitionend", cleanup, { once: true });
     setTimeout(cleanup, DUR + 90);      // belt-and-braces in case transitionend is missed
   }
+
+  // Set after saving a meal so the Saved-meals hero pulses on the next render.
+  let pulseSavedHero = false;
+  // Set on workout finish so the just-saved session card flourishes in History.
+  let finishFlourish = false;
 
   // Horizontal swipe anywhere moves between the main tabs (in dock order).
   const SWIPE_TABS = ["home", "nutrition", "stats", "library"];
@@ -1998,7 +2051,7 @@
     }
     wrap.appendChild(svg);
     wrap.appendChild(el("div", { class: "nmeals-donut-center" },
-      el("div", { class: "nmeals-donut-num" }, Math.round(totalEaten || 0).toLocaleString("en-GB")),
+      el("div", { class: "nmeals-donut-num count-up" }, Math.round(totalEaten || 0).toLocaleString("en-GB")),
       el("div", { class: "nmeals-donut-sub" }, total > 0 ? "eaten" : "no meals yet")
     ));
     return wrap;
@@ -2107,7 +2160,7 @@
     if (!isPersonal) ringWrap.classList.add("is-estimate");
     ringWrap.appendChild(el("div", { class: "energy-ring-center" },
       el("div", {
-        class: "energy-ring-main" + (remaining < 0 ? " over" : "") + (isPersonal ? "" : " is-estimate")
+        class: "energy-ring-main count-up" + (remaining < 0 ? " over" : "") + (isPersonal ? "" : " is-estimate")
       }, (remaining >= 0 ? remaining : Math.abs(remaining)).toLocaleString("en-GB")),
       el("div", { class: "energy-ring-sub" }, remaining >= 0 ? "kcal left" : "kcal over")
     ));
@@ -3923,6 +3976,7 @@
       await offerSaveAsTemplate(finishedWorkout);
     }
     // Land on History so the saved session is immediately visible.
+    finishFlourish = true;
     state.tab = "history";
     renderMain();
     const burned = finishedWorkout.kcalBurned || 0;
@@ -4349,7 +4403,9 @@
           if (!s.kcalManual) s.kcal = null;
           await Storage.saveWorkout(state.activeWorkout);
         }
-        refreshExerciseBlock(ex);
+        const didComplete = s.done;
+        await refreshExerciseBlock(ex);
+        if (didComplete) flashCompletedSet(ex, si);
       } }
     },
       s.done ? el("span", { html: icons.check }) : null,
@@ -4463,7 +4519,9 @@
           s.prTypes = [];
           await Storage.saveWorkout(state.activeWorkout);
         }
-        refreshExerciseBlock(ex);
+        const didComplete = s.done;
+        await refreshExerciseBlock(ex);
+        if (didComplete) flashCompletedSet(ex, si);
       } }
     },
       s.done ? el("span", { html: icons.check }) : null,
@@ -4646,7 +4704,7 @@
     attachNumPad(repsInput, {
       label: `${ex.name} \u00b7 set ${si + 1} \u00b7 reps`, unit: "reps", step: 1, wheel: { min: 1, max: 60 },
       chips: repsChips, hint: setHint,
-      onLogSet: async () => { if (await markSetDone()) refreshExerciseBlock(ex); }
+      onLogSet: async () => { if (await markSetDone()) { await refreshExerciseBlock(ex); flashCompletedSet(ex, si); } }
     });
 
     const openPlates = () => openPlateCalculator(parseFloat(weightInput.value) || (prevSet?.weight ?? 60));
@@ -4686,7 +4744,9 @@
           await Storage.saveWorkout(state.activeWorkout);
           stopRestTimer();
         }
-        refreshExerciseBlock(ex);
+        const didComplete = s.done;
+        await refreshExerciseBlock(ex);
+        if (didComplete) flashCompletedSet(ex, si);
       } }
     },
       s.done ? el("span", { html: icons.check }) : null,
@@ -5918,6 +5978,7 @@
       updatedAt: Date.now()
     };
     await Storage.saveMealTemplate(tpl);
+    pulseSavedHero = true; // draw the eye to the Saved-meals count next render
     toast("Meal saved for reuse");
     return tpl;
   }
@@ -6289,6 +6350,7 @@
     const freshPager = fresh.querySelector(".npager");
     if (oldView) oldView.replaceWith(fresh); else main.appendChild(fresh);
     if (freshPager) freshPager.scrollTop = nutritionScrollTop;
+    requestAnimationFrame(() => applyCountUps(main));
   }
   // A meal/supplement/reminder change: update Nutrition in place (no rebuild
   // flash or scroll jump); anywhere else, a normal render.
@@ -6676,12 +6738,14 @@
 
     // Saved meals — quick re-log, given the prominent top spot. Logging itself
     // now lives on the donut's + control below.
+    const savedHeroIc = el("span", { class: "nsaved-hero-ic" + (pulseSavedHero ? " save-pulse" : ""), html: icons.bookmark });
+    pulseSavedHero = false;
     ov.appendChild(el("button", {
       class: "nsaved-hero", type: "button", "data-testid": "saved-hero",
       title: "Log a saved meal", on: { click: () => openSavedMealsSheet() }
     },
       el("span", { class: "nsaved-hero-shine" }),
-      el("span", { class: "nsaved-hero-ic", html: icons.bookmark }),
+      savedHeroIc,
       el("span", { class: "nsaved-hero-text" },
         el("span", { class: "nsaved-hero-title" }, "Saved meals"),
         el("span", { class: "nsaved-hero-sub" }, savedCount ? `${savedCount} saved · tap to re-log` : "Bookmark a meal to re-log it fast")
@@ -6743,7 +6807,7 @@
 
     const ringWrap = buildEnergyRing(pct, over);
     ringWrap.appendChild(el("div", { class: "energy-ring-center" },
-      el("div", { class: "energy-ring-main" + (remaining < 0 ? " over" : "") }, (remaining >= 0 ? remaining : Math.abs(remaining)).toLocaleString("en-GB")),
+      el("div", { class: "energy-ring-main count-up" + (remaining < 0 ? " over" : "") }, (remaining >= 0 ? remaining : Math.abs(remaining)).toLocaleString("en-GB")),
       el("div", { class: "energy-ring-sub" }, remaining >= 0 ? "LEFT" : "OVER"),
       el("div", { class: "nring-detail" }, `${eaten.toLocaleString("en-GB")} / ${goal.toLocaleString("en-GB")} kcal`)
     ));
@@ -6882,6 +6946,8 @@
     };
     restoreScroll();
     requestAnimationFrame(restoreScroll);
+    // Count-ups must run after this async render has attached its numbers.
+    requestAnimationFrame(() => { if (document.contains(view)) applyCountUps(view); });
     return;
   }
 
@@ -8167,6 +8233,7 @@
     // Workout log
     const card = el("div", { class: "card" });
     card.appendChild(el("div", { class: "card-title" }, `Workout log (${completed.length})`));
+    let firstItem = true;
     for (const w of completed) {
       const totalVol = (w.exercises || []).reduce((s, e) => s + U.volume(e.sets), 0);
       const totalSets = (w.exercises || []).reduce((s, e) => s + e.sets.length, 0);
@@ -8174,13 +8241,17 @@
       const hasStrength = (w.exercises || []).some(e => e.type !== "cardio");
       const volBit = hasStrength && totalVol > 0 ? ` · ${totalVol.toLocaleString()}kg volume` : "";
       const burnBit = burned > 0 ? ` · ≈ ${burned} kcal` : "";
-      card.appendChild(el("div", { class: "history-item", on: { click: () => openWorkoutDetail(w) } },
+      // The freshly-finished session (top of the list) gets a one-off flourish.
+      const flourish = firstItem && finishFlourish ? " finish-flourish" : "";
+      firstItem = false;
+      card.appendChild(el("div", { class: "history-item" + flourish, on: { click: () => openWorkoutDetail(w) } },
         el("div", { class: "history-item-date" }, U.formatDate(w.date, { year: "numeric" })),
         el("div", { class: "history-item-name" }, w.name || "Workout"),
         el("div", { class: "history-item-summary" },
           `${w.exercises.length} ${w.exercises.length === 1 ? "exercise" : "exercises"} · ${totalSets} ${totalSets === 1 ? "set" : "sets"}${volBit}${burnBit} · ${U.formatDuration(w.durationSec)}`)
       ));
     }
+    finishFlourish = false;
     view.appendChild(card);
   }
 

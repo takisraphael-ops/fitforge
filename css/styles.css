@@ -4209,3 +4209,72 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   position: absolute; top: 0; left: 0; right: 0; width: 100%;
   pointer-events: none; z-index: 2;
 }
+
+/* ============================================================= */
+/* Motion system — shared "alive" micro-interactions (Tiers A/B/C) */
+/* ============================================================= */
+:root { --ease-spring: cubic-bezier(.22,1,.36,1); }
+
+/* Tier A · universal press feedback (buttons spring via their `all` transition) */
+.btn:active, .icon-btn:active, .seg-btn:active, .dock-item:active,
+.nnext-btn:active, .npager-dot:active { transform: scale(.95); }
+.card, .nfood, .xrow, .ntl-item, .nremind-item, .saved-sheet-item, .meal-item, .template-card {
+  transition: transform .15s var(--ease-spring), background-color .18s ease, border-color .18s ease;
+}
+.card:active, .nfood:active, .xrow:active, .ntl-item:active, .nremind-item:active,
+.saved-sheet-item:active, .meal-item:active, .template-card:active { transform: scale(.985); }
+
+/* Tier A · progress fills grow on render */
+.nmacro-fill { transform-origin: left center; animation: growFill .65s var(--ease-spring) both; }
+@keyframes growFill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* Tier B · set complete — the row flashes accent and the check pops */
+@keyframes setCheckPop { 0% { transform: scale(1); } 42% { transform: scale(1.28); } 100% { transform: scale(1); } }
+.set-check-pop { animation: setCheckPop .42s var(--ease-spring); }
+@keyframes setRowFlash {
+  0% { background-color: transparent; }
+  28% { background-color: color-mix(in srgb, var(--accent) 24%, transparent); }
+  100% { background-color: transparent; }
+}
+.set-row-flash { animation: setRowFlash .62s ease; }
+
+/* Tier B · streak flame flicker */
+@keyframes flameFlicker {
+  0%, 100% { transform: scale(1) rotate(0); opacity: 1; }
+  25% { transform: scale(1.09) rotate(-4deg); }
+  50% { transform: scale(.95) rotate(3deg); opacity: .9; }
+  75% { transform: scale(1.05) rotate(-2deg); }
+}
+.streak-flame { display: inline-block; transform-origin: center bottom; animation: flameFlicker 2.6s ease-in-out infinite; }
+
+/* Tier B · save confirmation pulse (bookmark a meal) */
+@keyframes savePulse { 0% { transform: scale(1); } 45% { transform: scale(1.4); } 100% { transform: scale(1); } }
+.save-pulse { animation: savePulse .5s var(--ease-spring); }
+
+/* Tier B · workout finish flourish */
+@keyframes finishPop { 0% { opacity: 0; transform: scale(.7); } 60% { opacity: 1; transform: scale(1.12); } 100% { opacity: 1; transform: scale(1); } }
+.finish-flourish { animation: finishPop .6s var(--ease-spring) both; }
+
+/* Tier C · dock active-icon bounce (plays when a tab becomes active) */
+@keyframes dockBounce { 0% { transform: translateY(0) scale(1); } 34% { transform: translateY(-4px) scale(1.14); } 100% { transform: translateY(0) scale(1); } }
+.dock-item.active { animation: dockBounce .44s var(--ease-spring); }
+
+/* Tier C · overdue reminder badge pulse */
+@keyframes badgePulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, #ff8a3d 55%, transparent); }
+  70% { box-shadow: 0 0 0 9px color-mix(in srgb, #ff8a3d 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, #ff8a3d 0%, transparent); }
+}
+.nremind-count.is-overdue { animation: badgePulse 1.9s ease-out infinite; }
+
+/* Tier C · rest timer urgency in the final seconds */
+@keyframes restUrgent { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.035); } }
+.rest-overlay.is-ending .rest-ring { animation: restUrgent 1s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .nmacro-fill, .streak-flame, .dock-item.active, .nremind-count.is-overdue,
+  .set-check-pop, .set-row-flash, .save-pulse, .finish-flourish,
+  .rest-overlay.is-ending .rest-ring { animation: none !important; }
+  .card:active, .nfood:active, .xrow:active, .ntl-item:active, .nremind-item:active,
+  .saved-sheet-item:active, .meal-item:active, .template-card:active { transform: none; }
+}
