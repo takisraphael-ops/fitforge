@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=117").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=118").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -5341,8 +5341,33 @@
       el("span", { html: icons.plus }), "Add custom exercise"
     ));
 
-    const grid = el("div", { class: "exercise-grid" });
+    const grid = el("div", { class: "exercise-wheel", "data-testid": "exercise-wheel" });
     view.appendChild(grid);
+
+    // Magnify wheel: the card nearest the wheel's centre grows and brightens,
+    // neighbours shrink and fade. Runs on scroll (of the wheel and the page).
+    function applyMagnify() {
+      if (!grid.isConnected) { window.removeEventListener("scroll", scheduleMagnify); return; }
+      const rect = grid.getBoundingClientRect();
+      if (!rect.height) return;
+      const mid = rect.top + rect.height / 2;
+      const half = rect.height / 2;
+      const cards = grid.querySelectorAll(".exercise-card");
+      let closest = null, closestD = Infinity;
+      cards.forEach(card => {
+        const r = card.getBoundingClientRect();
+        const d = Math.abs((r.top + r.height / 2) - mid);
+        const t = Math.min(1, d / half);
+        card.style.transform = `scale(${(1 - t * 0.17).toFixed(3)})`;
+        card.style.opacity = (1 - t * 0.58).toFixed(2);
+        if (d < closestD) { closestD = d; closest = card; }
+      });
+      cards.forEach(c => c.classList.toggle("is-center", c === closest));
+    }
+    let magRAF = null;
+    const scheduleMagnify = () => { if (magRAF) return; magRAF = requestAnimationFrame(() => { magRAF = null; applyMagnify(); }); };
+    grid.addEventListener("scroll", scheduleMagnify, { passive: true });
+    window.addEventListener("scroll", scheduleMagnify, { passive: true });
 
     function matchesActiveZone(ex) {
       if (!activeZone || activeZone === "all") return true;
@@ -5391,7 +5416,6 @@
         }));
         return;
       }
-      grid.classList.toggle("exgrid-stagger", !!stagger);
       for (const ex of filtered) {
         const kpm = U.kcalPerMin(ex, bwKg);
         const st = exStats[ex.id];
@@ -5425,6 +5449,12 @@
           spark
         ));
       }
+      // Centre the first card in the wheel, then apply the magnify pass.
+      requestAnimationFrame(() => {
+        const first = grid.querySelector(".exercise-card");
+        if (first) grid.scrollTop = Math.max(0, first.offsetTop - grid.clientHeight / 2 + first.offsetHeight / 2);
+        applyMagnify();
+      });
     }
     searchInput.addEventListener("input", U.debounce(() => refresh(false), 150));
     refresh(true);

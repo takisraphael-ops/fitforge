@@ -4460,3 +4460,29 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .balance-title { font-weight: 800; font-size: 15px; color: var(--text); }
 .balance-sub { font-size: 12px; color: var(--text-faint); }
 .balance-cta { flex: none; font-size: 12.5px; font-weight: 800; color: var(--accent); }
+
+/* ===== Exercises tab · magnify wheel (Direction A/B card list as a wheel) ===== */
+.exercise-wheel {
+  height: 62vh; max-height: 620px;
+  overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  scroll-snap-type: y mandatory; scrollbar-width: none;
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 26vh 2px; margin-top: 4px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 20%, #000 80%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 20%, #000 80%, transparent);
+}
+.exercise-wheel::-webkit-scrollbar { display: none; }
+.exercise-wheel .exercise-card {
+  scroll-snap-align: center; scroll-snap-stop: always;
+  transform-origin: center; will-change: transform, opacity;
+  /* magnify owns transform/opacity per scroll frame — no transition on those */
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+.exercise-wheel .exercise-card:hover { transform: none; box-shadow: none; }
+.exercise-wheel .exercise-card.is-center {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: 0 10px 34px -12px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .exercise-wheel { scroll-snap-type: y proximity; }
+}
