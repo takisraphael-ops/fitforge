@@ -4428,3 +4428,35 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .tl-macro .tl-arc2 { stroke: var(--accent); opacity: .6; }
 .tl-macro .tl-arc3 { stroke: var(--accent); opacity: .32; }
 @media (prefers-reduced-motion: reduce) { .tabload { display: none !important; } }
+
+/* ===== Exercises tab · strength levels & balance (Direction B) ===== */
+.ex-tier-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--tier); margin-right: 6px; vertical-align: middle; }
+.ex-tier-name { font-weight: 800; }
+
+.strength-card { position: relative; overflow: hidden; }
+.strength-badge {
+  flex: none; padding: 5px 13px; border-radius: 100px; font-size: 13px; font-weight: 800;
+  color: color-mix(in srgb, var(--tier) 88%, #000); background: color-mix(in srgb, var(--tier) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tier) 45%, transparent);
+}
+.tier-ladder { display: flex; gap: 5px; }
+.tier-step { flex: 1; height: 7px; border-radius: 999px; background: color-mix(in srgb, var(--text) 12%, transparent); transition: background 200ms ease; }
+.tier-step.on { background: var(--tier); box-shadow: 0 0 8px color-mix(in srgb, var(--tier) 55%, transparent); }
+.strength-progress { height: 7px; border-radius: 999px; background: color-mix(in srgb, var(--text) 12%, transparent); overflow: hidden; }
+.strength-progress > i { display: block; height: 100%; border-radius: 999px; transition: width 500ms cubic-bezier(.22,1,.36,1); }
+
+/* Muscle-balance nudge */
+.balance-nudge {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  margin: 0 0 14px; padding: 12px 14px; border-radius: 16px; cursor: pointer;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-elev));
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border));
+  transition: transform .13s var(--ease-spring, ease), border-color .18s ease;
+}
+.balance-nudge:active { transform: scale(.99); }
+.balance-ic { flex: none; width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.balance-ic svg { width: 18px; height: 18px; }
+.balance-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.balance-title { font-weight: 800; font-size: 15px; color: var(--text); }
+.balance-sub { font-size: 12px; color: var(--text-faint); }
+.balance-cta { flex: none; font-size: 12.5px; font-weight: 800; color: var(--accent); }

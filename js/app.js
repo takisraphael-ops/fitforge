@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=115").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=117").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -150,6 +150,50 @@
     }
     history.sort((a, b) => b.date.localeCompare(a.date));
     return history;
+  }
+
+  // ============ Strength levels (gamified, from e1RM vs bodyweight) ============
+  const STRENGTH_TIERS = ["Beginner", "Novice", "Intermediate", "Advanced", "Elite"];
+  const STRENGTH_TIER_COLORS = ["#8a94a6", "#5bb8c9", "#4bbd6a", "#e0913f", "#e8c14a"];
+  // Entry ratios (e1RM ÷ bodyweight) to reach Novice / Intermediate / Advanced / Elite.
+  const STRENGTH_STANDARDS = {
+    bench:    [0.75, 1.0, 1.5, 2.0],
+    squat:    [1.0, 1.5, 2.0, 2.5],
+    deadlift: [1.25, 1.75, 2.25, 2.75],
+    ohp:      [0.45, 0.65, 0.9, 1.15],
+    row:      [0.6, 0.9, 1.2, 1.5],
+    pulldown: [0.6, 0.85, 1.1, 1.4],
+    curl:     [0.3, 0.45, 0.6, 0.8],
+    generic:  [0.5, 0.8, 1.2, 1.6]
+  };
+  function liftKeyForStandards(ex) {
+    const n = (ex && ex.name || "").toLowerCase();
+    if (/bench press/.test(n)) return "bench";
+    if (/deadlift/.test(n)) return "deadlift";
+    if (/squat/.test(n)) return "squat";
+    if (/(overhead|shoulder|military).*press|\bohp\b/.test(n)) return "ohp";
+    if (/pulldown|pull-?up|chin-?up/.test(n)) return "pulldown";
+    if (/row/.test(n)) return "row";
+    if (/curl/.test(n)) return "curl";
+    return "generic";
+  }
+  // Returns a strength tier for a lift, or null when it can't be computed.
+  function strengthLevel(ex, e1rm, bwKg, sex) {
+    if (!e1rm || !bwKg || bwKg <= 0) return null;
+    const base = STRENGTH_STANDARDS[liftKeyForStandards(ex)] || STRENGTH_STANDARDS.generic;
+    const f = sex === "female" ? 0.72 : 1; // women's standards run lower; unknown → default
+    const th = base.map(v => v * f);
+    const ratio = e1rm / bwKg;
+    let idx = 0;
+    for (let i = 0; i < th.length; i++) if (ratio >= th[i]) idx = i + 1;
+    const lower = idx === 0 ? 0 : th[idx - 1];
+    const upper = idx < th.length ? th[idx] : null;
+    const pctToNext = upper != null ? Math.max(0, Math.min(100, Math.round(((ratio - lower) / (upper - lower)) * 100))) : 100;
+    return {
+      tier: STRENGTH_TIERS[idx], tierIndex: idx, color: STRENGTH_TIER_COLORS[idx], ratio,
+      nextTier: idx < 4 ? STRENGTH_TIERS[idx + 1] : null,
+      pctToNext, nextAt: upper != null ? Math.round(upper * bwKg) : null
+    };
   }
 
   // ============ Compute PRs for an exercise ============
@@ -5122,7 +5166,7 @@
         const id = entry.exerciseId;
         if (!id) continue;
         let s = exStats[id];
-        if (!s) s = exStats[id] = { sessions: 0, lastDate: null, bestWeight: 0, maxDuration: 0, maxDistance: 0, series: [] };
+        if (!s) s = exStats[id] = { sessions: 0, lastDate: null, bestWeight: 0, bestE1RM: 0, maxDuration: 0, maxDistance: 0, series: [] };
         if (!seen.has(id)) { s.sessions++; seen.add(id); }
         s.lastDate = w.date; // chronological → last assignment is the most recent
         let sessionBestE1RM = 0;
@@ -5131,6 +5175,7 @@
           if (set.weight != null && set.reps) {
             const e = U.epley(set.weight, set.reps);
             if (e > sessionBestE1RM) sessionBestE1RM = e;
+            if (e > s.bestE1RM) s.bestE1RM = e;
             if (set.weight > s.bestWeight) s.bestWeight = set.weight;
           }
           if (set.durationMin > s.maxDuration) s.maxDuration = set.durationMin;
@@ -5223,6 +5268,35 @@
       });
       view.appendChild(bodyMapApi.el);
     }
+
+    // Muscle-balance nudge — a neglected major group over the last 14 days.
+    (function balanceNudge() {
+      const MAJORS = { chest: "Chest", back: "Back", shoulders: "Shoulders", arms: "Arms", legs: "Legs", core: "Core" };
+      const cut = new Date(); cut.setDate(cut.getDate() - 14);
+      const cutIso = cut.toISOString().slice(0, 10);
+      const cnt = {}; for (const k in MAJORS) cnt[k] = 0;
+      let total = 0;
+      for (const w of doneWorkouts) {
+        if (w.date < cutIso) continue;
+        for (const entry of (w.exercises || [])) {
+          const ex = byId.get(entry.exerciseId); if (!ex || !(ex.category in cnt)) continue;
+          const done = (entry.sets || []).filter(s => s.done).length;
+          cnt[ex.category] += done; total += done;
+        }
+      }
+      if (total < 8) return; // not enough recent training to judge fairly
+      const ordered = Object.keys(MAJORS).map(k => ({ k, n: cnt[k] })).sort((a, b) => b.n - a.n);
+      const top = ordered[0], low = ordered[ordered.length - 1];
+      if (!top.n) return;
+      if (low.n > 0 && low.n >= top.n * 0.5) return; // reasonably balanced — don't nag
+      view.appendChild(el("button", { class: "balance-nudge", type: "button", "data-testid": "balance-nudge", on: { click: () => setFromChip(low.k) } },
+        el("span", { class: "balance-ic", html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>' }),
+        el("span", { class: "balance-main" },
+          el("span", { class: "balance-title" }, `${MAJORS[low.k]} is quiet this week`),
+          el("span", { class: "balance-sub" }, `${MAJORS[top.k]} leads with ${top.n} set${top.n === 1 ? "" : "s"} · ${MAJORS[low.k]} ${low.n === 0 ? "none yet" : low.n + " set" + (low.n === 1 ? "" : "s")}`)),
+        el("span", { class: "balance-cta" }, `Show ${MAJORS[low.k]}`)
+      ));
+    })();
 
     const controls = el("div", { class: "library-controls" });
     const searchInput = el("input", { class: "input", placeholder: "Search exercises…", id: "lib-search" });
@@ -5328,8 +5402,12 @@
           ex.isCustom ? el("span", { class: "chip chip-accent" }, "Custom") : null,
           pr ? el("span", { class: "ex-pr-chip" }, el("span", { class: "ex-pr-ic", html: prTrophy }), pr) : null
         );
+        const lvl = trained && st.bestE1RM ? strengthLevel(ex, st.bestE1RM, bwKg, state.prefs.sex) : null;
         const infoRow = trained
-          ? el("div", { class: "exercise-card-stat" }, `${daysAgoLabel(st.lastDate)} · ${st.sessions} session${st.sessions === 1 ? "" : "s"}`)
+          ? el("div", { class: "exercise-card-stat" },
+              lvl ? el("span", { class: "ex-tier-dot", style: `--tier:${lvl.color}` }) : null,
+              lvl ? el("span", { class: "ex-tier-name", style: `color:${lvl.color}` }, lvl.tier + " · ") : null,
+              `${daysAgoLabel(st.lastDate)} · ${st.sessions} session${st.sessions === 1 ? "" : "s"}`)
           : el("div", { class: "exercise-card-muscles" }, (ex.muscles || []).join(" · "));
         const spark = (trained && st.series.length >= 2)
           ? el("div", { class: "exercise-card-spark" }, sparkline(st.series, { width: 58, height: 26 }))
@@ -5436,10 +5514,51 @@
               ),
               el("div", { class: "stat" },
                 el("div", { class: "stat-label" }, "Max reps"),
-                el("div", { class: "stat-value" }, prs.maxReps || "—")
+                el("div", { class: "stat-value" }, prs.maxReps ? String(prs.maxReps) : "—")
               )
             )
           ) : null),
+      // Strength level — gamified tier from e1RM vs bodyweight
+      (!isCardio && prs.maxE1RM && bwKg) ? (() => {
+        const lvl = strengthLevel(ex, prs.maxE1RM, bwKg, state.prefs.sex);
+        if (!lvl) return null;
+        return el("div", { class: "card mt-16 strength-card" },
+          el("div", { class: "row-between", style: "align-items: flex-start; margin-bottom: 12px" },
+            el("div", {},
+              el("div", { class: "card-title", style: "margin: 0 0 2px" }, "Strength level"),
+              el("div", { class: "text-xs text-faint" }, `e1RM ${prs.maxE1RM.toFixed(1)}kg · ${lvl.ratio.toFixed(2)}× bodyweight`)),
+            el("div", { class: "strength-badge", style: `--tier:${lvl.color}` }, lvl.tier)),
+          el("div", { class: "tier-ladder" },
+            ...STRENGTH_TIERS.map((t, i) => el("div", { class: "tier-step" + (i <= lvl.tierIndex ? " on" : ""), style: `--tier:${lvl.color}`, title: t }))),
+          lvl.nextTier
+            ? el("div", { style: "margin-top: 10px" },
+                el("div", { class: "strength-progress" }, el("i", { style: `width:${lvl.pctToNext}%; background:${lvl.color}` })),
+                el("div", { class: "text-xs text-muted", style: "margin-top: 6px" }, `${lvl.pctToNext}% to ${lvl.nextTier} · reach ${lvl.nextAt}kg e1RM`))
+            : el("div", { class: "text-sm", style: `color:${lvl.color}; margin-top: 10px; font-weight: 700` }, "Top tier — Elite 💪"),
+          el("div", { class: "text-xs text-faint", style: "margin-top: 10px" }, "A rough guide from bodyweight ratios — real standards vary by lift and person.")
+        );
+      })() : null,
+      // Strength trend — e1RM over sessions
+      (!isCardio) ? (() => {
+        const asc = history.slice().sort((a, b) => a.date.localeCompare(b.date));
+        const series = [];
+        for (const h of asc) {
+          let best = 0;
+          for (const s of h.sets) { if (s.weight != null && s.reps) { const e = U.epley(s.weight, s.reps); if (e > best) best = e; } }
+          if (best > 0) series.push(Math.round(best));
+        }
+        if (series.length < 2) return null;
+        const first = series[0], last = series[series.length - 1];
+        const pct = first > 0 ? Math.round(((last - first) / first) * 100) : 0;
+        const up = last >= first;
+        return el("div", { class: "card mt-16" },
+          el("div", { class: "row-between", style: "margin-bottom: 8px" },
+            el("div", { class: "card-title", style: "margin: 0" }, "Strength trend"),
+            el("div", { class: "text-sm", style: `color:${up ? "var(--accent)" : "#e0913f"}; font-weight: 700` }, `${up ? "▲" : "▼"} ${Math.abs(pct)}% · ${series.length} sessions`)),
+          sparkline(series, { width: 300, height: 56 }),
+          el("div", { class: "text-xs text-faint", style: "margin-top: 6px" }, `Estimated 1RM per session (Epley). ${first}kg → ${last}kg.`)
+        );
+      })() : null,
       // 1RM projections — strength only
       (!isCardio && prs.maxE1RM) ? el("div", { class: "detail-section mt-16" },
         el("h3", {}, "1RM projections"),
