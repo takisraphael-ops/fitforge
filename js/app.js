@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=108").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=109").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1538,9 +1538,36 @@
         let whole = Math.floor(iv || 0);
         let frac = Math.round(((iv || 0) - whole) * denom) / denom;
         if (frac >= 1) { whole += 1; frac = 0; }
-        const syncW = () => { const w = whole + frac; raw = fmt(w); fresh = true; commit(); caption.textContent = `${fmt(w)} ${unit}`.trim(); };
-        const wholeWheel = buildWheel({ items: wheelRange(wc.min, wc.max, 1), value: whole, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-whole", onChange: (v) => { whole = v; syncW(); } });
+        let syncW = () => {}; // reassigned per layout below; fracWheel calls it at runtime
         const fracWheel = buildWheel({ items: fracItems, value: frac, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-frac", onChange: (v) => { frac = v; syncW(); } });
+
+        // Weight: split the whole number into a tens wheel + a ones wheel so
+        // heavy loads are a quick spin instead of a long single-column scroll.
+        if (wc.tens && wc.min >= 0) {
+          const maxTens = Math.floor(wc.max / 10) * 10;
+          let tens = Math.floor(whole / 10) * 10;
+          let ones = whole - tens;
+          syncW = () => { whole = tens + ones; const w = whole + frac; raw = fmt(w); fresh = true; commit(); caption.textContent = `${fmt(w)} ${unit}`.trim(); };
+          const tensWheel = buildWheel({ items: wheelRange(0, maxTens, 10), value: tens, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-tens", onChange: (v) => { tens = v; syncW(); } });
+          const onesWheel = buildWheel({ items: wheelRange(0, 9, 1), value: ones, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-ones", onChange: (v) => { ones = v; syncW(); } });
+          applyValueToWheels = (val) => {
+            let wl = Math.floor(val); let fr = Math.round((val - wl) * denom) / denom;
+            if (fr >= 1) { wl += 1; fr = 0; }
+            wl = Math.max(0, Math.min(wc.max, wl));
+            tens = Math.floor(wl / 10) * 10; ones = wl - tens; frac = fr;
+            tensWheel.setValue(tens); onesWheel.setValue(ones); fracWheel.setValue(fr); syncW();
+          };
+          syncW();
+          return el("div", { class: "numpad-wheel-cols numpad-wheel-cols-tens" },
+            el("div", { class: "numpad-wheel-col numpad-wheel-tensw" }, tensWheel.el),
+            el("div", { class: "numpad-wheel-col numpad-wheel-onesw" }, onesWheel.el),
+            el("div", { class: "numpad-wheel-col numpad-wheel-fracw" }, fracWheel.el),
+            el("div", { class: "numpad-wheel-unit" }, unit)
+          );
+        }
+
+        syncW = () => { const w = whole + frac; raw = fmt(w); fresh = true; commit(); caption.textContent = `${fmt(w)} ${unit}`.trim(); };
+        const wholeWheel = buildWheel({ items: wheelRange(wc.min, wc.max, 1), value: whole, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-whole", onChange: (v) => { whole = v; syncW(); } });
         applyValueToWheels = (val) => {
           let wl = Math.floor(val); let fr = Math.round((val - wl) * denom) / denom;
           if (fr >= 1) { wl += 1; fr = 0; }
@@ -4698,7 +4725,9 @@
       unit: "kg", step: 2.5, decimals: exType !== "weighted_bodyweight",
       allowMinus: exType === "weighted_bodyweight",
       // Added weight can be negative (assisted); plain weight starts at 0.
-      wheel: { min: exType === "weighted_bodyweight" ? -100 : 0, max: 400, frac: "quarter" },
+      // Standard weight gets a tens+ones+¼ split (fast to reach heavy loads);
+      // assisted (negative) weight keeps the single whole-number column.
+      wheel: { min: exType === "weighted_bodyweight" ? -100 : 0, max: 400, frac: "quarter", tens: exType !== "weighted_bodyweight" },
       chips: weightChips, hint: setHint
     });
     attachNumPad(repsInput, {

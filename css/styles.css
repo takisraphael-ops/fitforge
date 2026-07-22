@@ -4007,6 +4007,12 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .numpad-wheel-whole { width: 120px; }
 .numpad-wheel-fracw { width: 76px; }
 .numpad-wheel-unit { font-size: 16px; font-weight: 700; color: var(--text-muted); margin-left: 4px; }
+/* Tens + ones + ¼ split for weight — three narrower columns still fit the sheet. */
+.numpad-wheel-cols-tens { gap: 2px; }
+.numpad-wheel-cols-tens .numpad-wheel-tensw { width: 84px; }
+.numpad-wheel-cols-tens .numpad-wheel-onesw { width: 60px; }
+.numpad-wheel-cols-tens .numpad-wheel-fracw { width: 74px; }
+.numpad-wheel-cols-tens .numpad-wheel-unit { margin-left: 2px; }
 .numpad-sheet-wheel .wheel { margin: 0 auto; }
 
 /* ============ Ring polish (F1) ============ */
