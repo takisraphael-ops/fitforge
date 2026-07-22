@@ -4530,3 +4530,27 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
 }
 @media (prefers-reduced-motion: reduce) { .xpick-panel-list.is-wheel { scroll-snap-type: y proximity; } }
+
+/* Start-workout edge handles: Weekly plan (left) / Templates (right) */
+.wk-edge {
+  position: fixed; top: 50%; z-index: 1500;
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  padding: 14px 5px; cursor: pointer;
+  background: color-mix(in srgb, var(--bg-elev) 90%, transparent);
+  border: 1px solid var(--border); color: var(--accent);
+  backdrop-filter: blur(7px); box-shadow: 0 10px 28px -12px rgba(0,0,0,.55);
+}
+.wk-edge-left { left: 0; border-left: none; border-radius: 0 15px 15px 0; animation: wkEdgeL 2.2s ease-in-out infinite; }
+.wk-edge-right { right: 0; border-right: none; border-radius: 15px 0 0 15px; animation: wkEdgeR 2.2s ease-in-out infinite; }
+.wk-edge-text {
+  writing-mode: vertical-rl; text-orientation: mixed;
+  font-size: 10.5px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.wk-edge-left .wk-edge-text { transform: rotate(180deg); }
+.wk-edge-chev { width: 14px; height: 14px; display: inline-flex; }
+.wk-edge-chev svg { width: 100%; height: 100%; }
+@keyframes wkEdgeL { 0%, 100% { transform: translateY(-50%) translateX(0); } 50% { transform: translateY(-50%) translateX(3px); } }
+@keyframes wkEdgeR { 0%, 100% { transform: translateY(-50%) translateX(0); } 50% { transform: translateY(-50%) translateX(-3px); } }
+@media (prefers-reduced-motion: reduce) { .wk-edge-left, .wk-edge-right { animation: none; transform: translateY(-50%); } }
+.templates-sheet { display: flex; flex-direction: column; gap: 10px; }

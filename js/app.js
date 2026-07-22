@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=119").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=120").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -3186,6 +3186,39 @@
       view.appendChild(el("div", { class: "xpick-screen" }, picker.body));
       picker.refresh();
 
+      // Edge handles: Weekly plan (left) and Templates (right). They surface two
+      // buried flows and — being pinned to the screen edge — don't clash with
+      // the exercise picker's centre horizontal swipe (category paging).
+      const CHEV_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+      const CHEV_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
+      view.appendChild(el("button", {
+        class: "wk-edge wk-edge-left", type: "button", "data-testid": "edge-plan", "aria-label": "Weekly plan",
+        on: { click: openWeeklyPlanQuiz }
+      }, el("span", { class: "wk-edge-chev", html: CHEV_R }), el("span", { class: "wk-edge-text" }, "Plan")));
+      view.appendChild(el("button", {
+        class: "wk-edge wk-edge-right", type: "button", "data-testid": "edge-templates", "aria-label": "Templates",
+        on: { click: openTemplatesSheet }
+      }, el("span", { class: "wk-edge-chev", html: CHEV_L }), el("span", { class: "wk-edge-text" }, "Templates")));
+
+      // Edge-swipe: a horizontal swipe that STARTS at the screen edge opens the
+      // matching flow. Starting at the edge is what keeps it clear of the picker.
+      const EDGE = 30;
+      let esx = 0, esy = 0, esEdge = null;
+      view.addEventListener("touchstart", (e) => {
+        if (e.touches.length !== 1) { esEdge = null; return; }
+        const x = e.touches[0].clientX, w = window.innerWidth;
+        esEdge = x <= EDGE ? "left" : (x >= w - EDGE ? "right" : null);
+        esx = x; esy = e.touches[0].clientY;
+      }, { passive: true });
+      view.addEventListener("touchend", (e) => {
+        if (!esEdge) return;
+        const t = e.changedTouches[0], dx = t.clientX - esx, dy = t.clientY - esy, was = esEdge;
+        esEdge = null;
+        if (Math.abs(dx) < 46 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+        if (was === "left" && dx > 0) openWeeklyPlanQuiz();
+        else if (was === "right" && dx < 0) openTemplatesSheet();
+      }, { passive: true });
+
       // Repeat last completed session — compact fast path.
       const last = await getLastCompletedWorkout();
       if (last) {
@@ -3640,6 +3673,49 @@
         elapsed.textContent = U.formatTime(Math.floor((Date.now() - state.activeWorkout.startedAt) / 1000));
       }
     }, 1000);
+  }
+
+  // Templates hub — reached from the right-edge handle on the start screen.
+  async function openTemplatesSheet() {
+    let sheetBody;
+    const build = async () => {
+      const templates = await Storage.getTemplates();
+      const box = el("div", { class: "templates-sheet" });
+      if (!templates.length) {
+        box.appendChild(el("div", { class: "ncard-empty" },
+          el("div", { class: "ncard-empty-title" }, "No templates yet"),
+          el("div", { class: "ncard-empty-sub" }, "Build a reusable workout, or finish a session and save it as a template.")));
+      } else {
+        for (const t of templates.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))) {
+          const isCardioEntry = e => e.targetDurationMin != null || looksLikeCardio({ id: e.exerciseId, name: e.name });
+          const setsTotal = t.exercises.reduce((s, e) => s + (isCardioEntry(e) ? 0 : (e.targetSets || 3)), 0);
+          const cardioMin = t.exercises.reduce((s, e) => s + (isCardioEntry(e) ? (e.targetDurationMin || 0) : 0), 0);
+          const meta = [`${t.exercises.length} exercise${t.exercises.length === 1 ? "" : "s"}`, setsTotal > 0 ? `${setsTotal} sets` : null, cardioMin > 0 ? `${cardioMin} min cardio` : null].filter(Boolean).join(" · ");
+          box.appendChild(el("div", { class: "template-card" },
+            el("div", { class: "template-card-name" }, t.name),
+            el("div", { class: "template-card-meta" }, meta),
+            el("div", { class: "template-card-exercises" }, t.exercises.slice(0, 4).map(e => e.name).join(" · ") + (t.exercises.length > 4 ? ` +${t.exercises.length - 4} more` : "")),
+            el("div", { class: "row mt-8", style: "gap: 6px" },
+              el("button", { class: "btn btn-primary btn-sm", on: { click: () => { closeModal(); startNewWorkout(t); } } }, "Start"),
+              el("button", { class: "btn btn-sm", on: { click: () => { closeModal(); openTemplateEditor(t); } } }, "Edit"),
+              el("button", { class: "icon-btn", title: "Delete template", html: icons.trash, on: { click: async () => {
+                if (!(await confirmDialog(`Delete template “${t.name}”?`, { title: "Delete template?", okLabel: "Delete", danger: true }))) return;
+                await Storage.deleteTemplate(t.id);
+                const fresh = await build(); sheetBody.replaceWith(fresh); sheetBody = fresh;
+              } } })
+            )
+          ));
+        }
+      }
+      return box;
+    };
+    sheetBody = await build();
+    const footer = el("div", {},
+      el("button", { class: "btn", on: { click: closeModal } }, "Close"),
+      el("button", { class: "btn btn-primary", on: { click: () => { closeModal(); openTemplateEditor(null); } } },
+        el("span", { html: icons.plus }), "Create template")
+    );
+    openModal("Templates", sheetBody, footer);
   }
 
   async function openTemplateEditor(existing = null) {
