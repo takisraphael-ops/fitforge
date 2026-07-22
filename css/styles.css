@@ -4038,6 +4038,27 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   position: relative; width: 168px; height: 168px; margin: 6px auto 14px;
   animation: fadeScale 420ms cubic-bezier(.2,.9,.3,1) both;
 }
+/* Donut flanked by remove (−, left) and log (+, right) — prominent but subordinate. */
+.ndonut-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 6px 0 14px; }
+.ndonut-row .nmeals-donut-wrap { margin: 0; flex: none; }
+.ndonut-fab {
+  flex: none; width: 50px; height: 50px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--bg-elev); border: 1px solid var(--border); cursor: pointer;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+.ndonut-fab:active { transform: scale(0.9); }
+.ndonut-fab-ic { width: 22px; height: 22px; display: inline-flex; }
+.ndonut-fab-ic svg { width: 100%; height: 100%; }
+.ndonut-plus {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-elev));
+}
+.ndonut-plus:hover { background: color-mix(in srgb, var(--accent) 20%, var(--bg-elev)); }
+.ndonut-minus { color: var(--text-muted); }
+.ndonut-minus:hover { color: var(--text); border-color: var(--text-faint); }
+.remove-meal-list { display: flex; flex-direction: column; gap: 8px; }
 .nmeals-donut { display: block; }
 .nmeals-donut circle { transition: stroke-dasharray 500ms ease; }
 .nmeals-donut-center {

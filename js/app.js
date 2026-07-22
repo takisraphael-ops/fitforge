@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=101").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=102").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1201,7 +1201,7 @@
         title: it.label,
         "data-testid": "dock-" + it.id,
         html: it.icon,
-        on: { click: () => { nutritionScrollKey = null; workoutScrollIdx = 0; state.tab = it.id; renderMain(); window.scrollTo(0, 0); } }
+        on: { click: () => { nutritionScrollKey = null; nutritionScrollTop = 0; workoutScrollIdx = 0; state.tab = it.id; renderMain(); window.scrollTo(0, 0); } }
       }));
     }
     document.body.appendChild(dock);
@@ -6145,6 +6145,30 @@
   // Remembers which nutrition card was active so an action-triggered re-render
   // returns there instead of snapping back to Overview. Cleared on dock nav.
   let nutritionScrollKey = null;
+  // Exact pixel scroll of the nutrition pager, so an in-place refresh restores
+  // the precise position (no snap-to-panel jump). Cleared on dock nav.
+  let nutritionScrollTop = 0;
+
+  // Re-render the Nutrition tab with no teardown flash: build a fresh view
+  // off-screen (while the current one stays visible), then swap it in a single
+  // synchronous step and restore the exact scroll. Used after logging/removing
+  // a meal so the screen updates without the jarring rebuild + scroll lurch.
+  async function refreshNutritionInPlace() {
+    if (state.tab !== "nutrition") { renderMain(); return; }
+    const main = $("#main");
+    if (!main) { renderMain(); return; }
+    const oldView = main.querySelector(".view");
+    const fresh = el("div", { class: "view" });
+    await renderNutrition(fresh);
+    const freshPager = fresh.querySelector(".npager");
+    if (oldView) oldView.replaceWith(fresh); else main.appendChild(fresh);
+    if (freshPager) freshPager.scrollTop = nutritionScrollTop;
+  }
+  // Meal add/remove: update Nutrition in place; anywhere else, a normal render.
+  function afterMealChange() {
+    if (state.tab === "nutrition") return refreshNutritionInPlace();
+    renderMain();
+  }
   // Same idea for the active-workout exercise pager (index of the active card).
   let workoutScrollIdx = 0;
 
@@ -6415,7 +6439,7 @@
             el("div", { class: "nfood-kcal" }, String(m.kcal || 0)),
             el("button", {
               class: "nfood-del", type: "button", "aria-label": `Remove ${m.name}`, html: icons.x,
-              on: { click: async () => { await Storage.deleteMeal(m.id); toast(`Removed ${m.name}`); renderMain(); } }
+              on: { click: async () => { await Storage.deleteMeal(m.id); toast(`Removed ${m.name}`); afterMealChange(); } }
             })
           ));
         }
@@ -6570,14 +6594,20 @@
       el("button", { class: "nsaved-chip", type: "button", on: { click: () => openSavedMealsSheet() } },
         el("span", { html: icons.bookmark }), "Saved")
     ));
-    // Donut: today's calories split by meal.
+    // Donut: today's calories split by meal, flanked by log (+) and remove (−).
     const donutEntries = mealSections.map(key => ({
       key, label: U.MEAL_SECTIONS[key].label,
       kcal: (groups[key] || []).reduce((s, m) => s + (m.kcal || 0), 0),
       color: mealColor(key)
     }));
     if (donutEntries.some(e => e.kcal > 0)) {
-      mealsWrap.appendChild(buildMealsDonut(donutEntries, eaten));
+      const MINUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="6" y1="12" x2="18" y2="12"/></svg>';
+      const PLUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="12" y1="6" x2="12" y2="18"/><line x1="6" y1="12" x2="18" y2="12"/></svg>';
+      const minusBtn = el("button", { class: "ndonut-fab ndonut-minus", type: "button", "aria-label": "Remove a meal", title: "Remove a meal", "data-testid": "donut-remove", on: { click: () => openRemoveMealSheet() } },
+        el("span", { class: "ndonut-fab-ic", html: MINUS_SVG }));
+      const plusBtn = el("button", { class: "ndonut-fab ndonut-plus", type: "button", "aria-label": "Log a meal", title: "Log a meal", "data-testid": "donut-add", on: { click: () => openMealFork(nextSection) } },
+        el("span", { class: "ndonut-fab-ic", html: PLUS_SVG }));
+      mealsWrap.appendChild(el("div", { class: "ndonut-row" }, minusBtn, buildMealsDonut(donutEntries, eaten), plusBtn));
     }
     // Vertical timeline rail — meals flow down the day, colour-keyed to the donut.
     const timeline = el("div", { class: "nmeal-timeline" });
@@ -6654,6 +6684,7 @@
     renderDots();
     let sRAF = null;
     pager.addEventListener("scroll", () => {
+      nutritionScrollTop = pager.scrollTop; // exact position for in-place refresh
       if (sRAF) return;
       sRAF = requestAnimationFrame(() => {
         sRAF = null;
@@ -6669,13 +6700,26 @@
     }, { passive: true });
 
     view.appendChild(screen);
-    // Restore the card the user was on before an action re-rendered the tab.
-    if (nutritionScrollKey && panelKeys.includes(nutritionScrollKey)) {
-      const ri = idxOf(nutritionScrollKey);
-      requestAnimationFrame(() => {
-        if (pager.children[ri]) { pager.scrollTop = pager.children[ri].offsetTop; activeIdx = ri; syncDots(); }
-      });
-    }
+    // Restore exact scroll (set synchronously to avoid a painted frame at 0),
+    // falling back to the remembered panel the first time we land here.
+    const restoreScroll = () => {
+      if (nutritionScrollTop > 0) { pager.scrollTop = nutritionScrollTop; }
+      else if (nutritionScrollKey && panelKeys.includes(nutritionScrollKey)) {
+        const ri = idxOf(nutritionScrollKey);
+        if (pager.children[ri]) pager.scrollTop = pager.children[ri].offsetTop;
+      }
+      // keep dots in sync with wherever we landed
+      const center = pager.scrollTop + pager.clientHeight / 2;
+      let best = 0, bd = Infinity;
+      for (let i = 0; i < pager.children.length; i++) {
+        const cc = pager.children[i].offsetTop + pager.children[i].offsetHeight / 2;
+        const d = Math.abs(cc - center);
+        if (d < bd) { bd = d; best = i; }
+      }
+      activeIdx = best; syncDots();
+    };
+    restoreScroll();
+    requestAnimationFrame(restoreScroll);
     return;
   }
 
@@ -7168,7 +7212,51 @@
     };
     await Storage.saveMeal(meal);
     toast(`Logged ${name} · about ${meal.kcal} kcal`);
-    renderMain();
+    afterMealChange();
+  }
+
+  // Sheet reached from the "−" beside the meals donut: pick a logged meal to remove.
+  async function openRemoveMealSheet(dateHint = null) {
+    const date = dateHint || U.todayISO();
+    const ORDER = ["breakfast", "lunch", "dinner", "snack", "pre_workout", "post_workout", "other"];
+    let listEl;
+    async function buildList() {
+      const meals = (await Storage.getMeals()).filter(m => m.date === date);
+      const box = el("div", { class: "remove-meal-list" });
+      if (!meals.length) {
+        box.appendChild(el("div", { class: "ncard-empty" },
+          el("div", { class: "ncard-empty-title" }, "Nothing to remove"),
+          el("div", { class: "ncard-empty-sub" }, "No meals are logged for today yet.")));
+        return box;
+      }
+      meals.sort((a, b) =>
+        (ORDER.indexOf(U.normalizeMealSection(a.section)) - ORDER.indexOf(U.normalizeMealSection(b.section))) ||
+        String(a.time || "").localeCompare(String(b.time || "")));
+      for (const m of meals) {
+        const meta = U.mealSectionLabel(m.section) + (m.time ? ` · ${m.time}` : "");
+        box.appendChild(el("div", { class: "nfood" },
+          el("div", { class: "nfood-main" },
+            el("div", { class: "nfood-name" }, m.name),
+            el("div", { class: "nfood-meta" }, meta)),
+          el("div", { class: "nfood-kcal" }, String(m.kcal || 0)),
+          el("button", {
+            class: "nfood-del", type: "button", "aria-label": `Remove ${m.name}`, html: icons.x,
+            on: { click: async () => {
+              await Storage.deleteMeal(m.id);
+              toast(`Removed ${m.name}`);
+              afterMealChange();
+              const fresh = await buildList();
+              listEl.replaceWith(fresh);
+              listEl = fresh;
+            } }
+          })
+        ));
+      }
+      return box;
+    }
+    listEl = await buildList();
+    const footer = el("div", {}, el("button", { class: "btn btn-primary", on: { click: closeModal } }, "Done"));
+    openModal("Remove a meal", listEl, footer);
   }
 
   // Full-screen "fork in the road" for logging a meal — mirrors the + button.
@@ -7503,7 +7591,7 @@
           renderMain();
           openNutritionDayDetail(mealDate);
         } else {
-          renderMain();
+          afterMealChange();
         }
       } } }, existing?.id ? "Update" : "Save meal")
     );
