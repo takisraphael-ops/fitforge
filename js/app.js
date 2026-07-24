@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=95").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=120").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -97,6 +97,7 @@
       navigator.serviceWorker.getRegistration().then(reg => reg && reg.update().catch(() => {})).catch(() => {});
     }
     render();
+    initTabSwipe();
     if (!Storage.isPersistent()) {
       setTimeout(() => toast("Storage is temporary in this browser — export a backup after workouts"), 600);
     }
@@ -149,6 +150,50 @@
     }
     history.sort((a, b) => b.date.localeCompare(a.date));
     return history;
+  }
+
+  // ============ Strength levels (gamified, from e1RM vs bodyweight) ============
+  const STRENGTH_TIERS = ["Beginner", "Novice", "Intermediate", "Advanced", "Elite"];
+  const STRENGTH_TIER_COLORS = ["#8a94a6", "#5bb8c9", "#4bbd6a", "#e0913f", "#e8c14a"];
+  // Entry ratios (e1RM ÷ bodyweight) to reach Novice / Intermediate / Advanced / Elite.
+  const STRENGTH_STANDARDS = {
+    bench:    [0.75, 1.0, 1.5, 2.0],
+    squat:    [1.0, 1.5, 2.0, 2.5],
+    deadlift: [1.25, 1.75, 2.25, 2.75],
+    ohp:      [0.45, 0.65, 0.9, 1.15],
+    row:      [0.6, 0.9, 1.2, 1.5],
+    pulldown: [0.6, 0.85, 1.1, 1.4],
+    curl:     [0.3, 0.45, 0.6, 0.8],
+    generic:  [0.5, 0.8, 1.2, 1.6]
+  };
+  function liftKeyForStandards(ex) {
+    const n = (ex && ex.name || "").toLowerCase();
+    if (/bench press/.test(n)) return "bench";
+    if (/deadlift/.test(n)) return "deadlift";
+    if (/squat/.test(n)) return "squat";
+    if (/(overhead|shoulder|military).*press|\bohp\b/.test(n)) return "ohp";
+    if (/pulldown|pull-?up|chin-?up/.test(n)) return "pulldown";
+    if (/row/.test(n)) return "row";
+    if (/curl/.test(n)) return "curl";
+    return "generic";
+  }
+  // Returns a strength tier for a lift, or null when it can't be computed.
+  function strengthLevel(ex, e1rm, bwKg, sex) {
+    if (!e1rm || !bwKg || bwKg <= 0) return null;
+    const base = STRENGTH_STANDARDS[liftKeyForStandards(ex)] || STRENGTH_STANDARDS.generic;
+    const f = sex === "female" ? 0.72 : 1; // women's standards run lower; unknown → default
+    const th = base.map(v => v * f);
+    const ratio = e1rm / bwKg;
+    let idx = 0;
+    for (let i = 0; i < th.length; i++) if (ratio >= th[i]) idx = i + 1;
+    const lower = idx === 0 ? 0 : th[idx - 1];
+    const upper = idx < th.length ? th[idx] : null;
+    const pctToNext = upper != null ? Math.max(0, Math.min(100, Math.round(((ratio - lower) / (upper - lower)) * 100))) : 100;
+    return {
+      tier: STRENGTH_TIERS[idx], tierIndex: idx, color: STRENGTH_TIER_COLORS[idx], ratio,
+      nextTier: idx < 4 ? STRENGTH_TIERS[idx + 1] : null,
+      pctToNext, nextAt: upper != null ? Math.round(upper * bwKg) : null
+    };
   }
 
   // ============ Compute PRs for an exercise ============
@@ -416,6 +461,8 @@
       onboarded: !!(await Storage.getPref("onboarded", false)),
       // Weekly split/program: { mon: templateId | "rest", ... } (missing = open day).
       weeklyPlan: await Storage.getPref("weeklyPlan", {}),
+      // Meal reminder times: { breakfast: "08:00", ... } — only sections the user opted in.
+      mealReminders: await Storage.getPref("mealReminders", {}),
       theme: await Storage.getPref("theme", null)
     };
   }
@@ -709,6 +756,23 @@
     old.replaceWith(fresh);
   }
 
+  // Celebrate a just-logged set: flash its row and pop the check (Tier B).
+  function flashCompletedSet(ex, si) {
+    if (reduceMotion()) return;
+    const w = state.activeWorkout;
+    const idx = w && Array.isArray(w.exercises) ? w.exercises.indexOf(ex) : -1;
+    if (idx < 0) return;
+    const block = document.querySelector(`.exercise-block[data-ex-idx="${idx}"]`);
+    if (!block) return;
+    // Only the editable set rows carry a Done button; ignore any history strip.
+    const rows = [...block.querySelectorAll(".set-row")].filter(r => r.querySelector(".set-done"));
+    const row = rows[si];
+    if (!row) return;
+    row.classList.add("set-row-flash");
+    const btn = row.querySelector(".set-done");
+    if (btn) btn.classList.add("set-check-pop");
+  }
+
   async function buildExerciseEntry(exerciseId, name) {
     const all = await getAllExercises();
     const def = all.find(x => x.id === exerciseId);
@@ -911,7 +975,7 @@
 
     body.appendChild(el("div", { class: "form-row" },
       el("div", { style: "flex:2" }, el("label", { class: "label" }, "Target weight (kg)"), targetI),
-      el("div", { style: "flex:1" }, el("label", { class: "label" }, "Bar"), barS)
+      el("div", { style: "flex:1" }, el("label", { class: "label" }, "Bar"), wheelizeSelect(barS, { title: "Bar weight" }))
     ));
     body.appendChild(output);
 
@@ -1131,11 +1195,31 @@
       el("span", { class: "logo-mark", html: `<svg viewBox="0 0 32 32" aria-label="FitForge logo"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-opacity=".2" stroke-width="2"/><circle cx="16" cy="16" r="13" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-dasharray="22 60" transform="rotate(-90 16 16)"/><circle cx="16" cy="16" r="7" fill="none" stroke="var(--accent)" stroke-opacity=".45" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="11 33" transform="rotate(120 16 16)"/><circle cx="16" cy="16" r="2.6" fill="var(--accent)"/></svg>` }),
       "FitForge"
     ));
-    const isDark = document.documentElement.classList.contains("dark");
-    header.appendChild(el("div", { class: "header-actions" },
-      el("button", { class: "icon-btn", title: "Toggle theme", on: { click: toggleTheme }, html: isDark ? icons.sun : icons.moon }),
-      el("button", { class: "icon-btn", title: "Settings", on: { click: openSettings }, html: icons.settings })
-    ));
+    // Theme + Settings now live in the You tab / Settings, not the header.
+  }
+
+  function reduceMotion() {
+    return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  }
+  // Roll big stat numbers up to their value so logging feels consequential.
+  // Any element with class "count-up" (holding a formatted number) animates once.
+  function applyCountUps(root) {
+    if (!root || reduceMotion()) return;
+    root.querySelectorAll(".count-up").forEach(elm => {
+      if (elm._counted) return;
+      const raw = (elm.textContent || "").trim();
+      const target = parseFloat(raw.replace(/[^0-9.-]/g, ""));
+      if (!isFinite(target) || target <= 0) return;
+      elm._counted = true;
+      const dur = 650, t0 = performance.now();
+      const step = (now) => {
+        const p = Math.min(1, (now - t0) / dur);
+        const e = 1 - Math.pow(1 - p, 3);
+        elm.textContent = Math.round(target * e).toLocaleString("en-GB");
+        if (p < 1) requestAnimationFrame(step); else elm.textContent = raw;
+      };
+      requestAnimationFrame(step);
+    });
   }
 
   function renderMain() {
@@ -1152,12 +1236,13 @@
 
     const view = el("div", { class: "view" });
     main.appendChild(view);
+    let rendered;
     switch (state.tab) {
-      case "home": renderHome(view); break;
-      case "workout": renderWorkout(view); break;
-      case "library": renderLibrary(view); break;
-      case "nutrition": renderNutrition(view); break;
-      case "stats": case "history": renderStatsShell(view); break;
+      case "home": rendered = renderHome(view); break;
+      case "workout": rendered = renderWorkout(view); break;
+      case "library": rendered = renderLibrary(view); break;
+      case "nutrition": rendered = renderNutrition(view); break;
+      case "stats": case "history": rendered = renderStatsShell(view); break;
     }
 
     // Bottom dock navigation
@@ -1165,13 +1250,20 @@
 
     // Rest timer overlay
     renderRestTimer();
+
+    // Roll the big stat numbers up once they're on screen. Tab renderers are
+    // async, so wait for the render to settle before the numbers exist.
+    const rollUp = () => requestAnimationFrame(() => applyCountUps(main));
+    if (rendered && typeof rendered.then === "function") rendered.then(rollUp, rollUp);
+    else rollUp();
   }
 
   // ============ Bottom dock ============
   const dockIcons = {
     home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-6h6v6"/></svg>',
     utensils: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3v7a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V3"/><path d="M6 3v18"/><path d="M15 3c-1.5 1.5-2 4-2 6 0 2.5 1.5 4 3 4v8"/><path d="M18 3c1 1.5 1.5 4 1.5 6"/></svg>',
-    chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m6 15 4-5 3 3 5-7"/></svg>'
+    chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m6 15 4-5 3 3 5-7"/></svg>',
+    person: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M5 21c0-3.9 3.1-7 7-7s7 3.1 7 7"/></svg>'
   };
 
   function renderDock(main) {
@@ -1181,7 +1273,7 @@
       { id: "home", icon: dockIcons.home, label: "Home" },
       { id: "nutrition", icon: dockIcons.utensils, label: "Nutrition" },
       { id: "__fab", icon: icons.plus, label: "Quick actions" },
-      { id: "stats", icon: dockIcons.chart, label: "Stats" },
+      { id: "stats", icon: dockIcons.person, label: "You" },
       { id: "library", icon: icons.dumbbell, label: "Exercises" }
     ];
     const dock = el("nav", { class: "dock", "data-testid": "dock" });
@@ -1202,10 +1294,184 @@
         title: it.label,
         "data-testid": "dock-" + it.id,
         html: it.icon,
-        on: { click: () => { nutritionScrollKey = null; workoutScrollIdx = 0; state.tab = it.id; renderMain(); window.scrollTo(0, 0); } }
+        on: { click: () => switchTab(it.id) }
       }));
     }
     document.body.appendChild(dock);
+  }
+
+  // Switch to a top-level tab, resetting remembered pager scroll so it opens
+  // fresh. `dir` (-1/0/+1) drives the slide direction; 0 = infer from dock order.
+  function switchTab(id, dir = 0) {
+    if (id === state.tab) return;
+    if (!dir) {
+      const a = SWIPE_TABS.indexOf(state.tab === "history" ? "stats" : state.tab);
+      const b = SWIPE_TABS.indexOf(id);
+      dir = (a >= 0 && b >= 0) ? Math.sign(b - a) : 0;
+    }
+    const doRender = () => {
+      nutritionScrollKey = null; nutritionScrollTop = 0;
+      workoutScrollIdx = 0; workoutScrollTop = 0;
+      state.tab = id;
+      renderMain();
+      window.scrollTo(0, 0);
+    };
+    // First time this tab is opened this session, play its tailored loader.
+    const firstVisit = TAB_LOADERS[id] && !seenTabLoaders.has(id);
+    animateTabSwitch(dir, doRender);
+    if (firstVisit) { seenTabLoaders.add(id); showTabLoader(id); }
+  }
+
+  // ============ Tab loading screens (first visit per tab, per session) ============
+  // Built on the brand orbit; each tab gets a motif matching its function.
+  const TAB_LOADERS = {
+    home:      { word: "FitForge", sub: "SYNCING · YOUR DAY",   motif: "orbit" },
+    nutrition: { word: "FitForge", sub: "LOADING · MACROS",     motif: "macro" },
+    stats:     { word: "FitForge", sub: "LOADING · YOUR STATS", motif: "bars" },
+    library:   { word: "FitForge", sub: "LOADING · WORKOUTS",   motif: "dumbbell" }
+  };
+  // Home is already covered by the launch splash, so don't replay it on nav.
+  const seenTabLoaders = new Set(["home"]);
+
+  function tabLoaderMark(motif) {
+    const mark = el("div", { class: "tabload-mark" });
+    mark.appendChild(el("div", { class: "tl-ring0" }));
+    if (motif === "macro") {
+      mark.appendChild(el("div", { class: "tl-macro", html:
+        '<svg width="132" height="132" viewBox="0 0 132 132">'
+        + '<circle class="tl-track" cx="66" cy="66" r="52" fill="none" stroke-width="7"/>'
+        + '<circle class="tl-arc1" cx="66" cy="66" r="52" fill="none" stroke-width="7" stroke-linecap="round" transform="rotate(-90 66 66)"/>'
+        + '<circle class="tl-arc2" cx="66" cy="66" r="52" fill="none" stroke-width="7" stroke-linecap="round" transform="rotate(68 66 66)"/>'
+        + '<circle class="tl-arc3" cx="66" cy="66" r="52" fill="none" stroke-width="7" stroke-linecap="round" transform="rotate(176 66 66)"/>'
+        + '</svg>' }));
+      mark.appendChild(el("div", { class: "tl-core" }));
+    } else if (motif === "bars") {
+      mark.appendChild(el("div", { class: "tl-spin" }, el("div", { class: "tl-arc-top" })));
+      mark.appendChild(el("div", { class: "tl-bars" },
+        el("div", { class: "tl-bar tl-bar1" }), el("div", { class: "tl-bar tl-bar2" }), el("div", { class: "tl-bar tl-bar3" })));
+    } else if (motif === "dumbbell") {
+      mark.appendChild(el("div", { class: "tl-spin" }, el("div", { class: "tl-arc-top" })));
+      mark.appendChild(el("div", { class: "tl-db" }, el("div", { class: "tl-db-inner", html:
+        '<div class="tl-db-bar"></div><div class="tl-plate tl-plate-l1"></div><div class="tl-plate tl-plate-r1"></div><div class="tl-plate tl-plate-l2"></div><div class="tl-plate tl-plate-r2"></div>' })));
+    } else {
+      mark.appendChild(el("div", { class: "tl-spin" }, el("div", { class: "tl-arc-top" })));
+      mark.appendChild(el("div", { class: "tl-spinrev" }, el("div", { class: "tl-arc-bot" })));
+      mark.appendChild(el("div", { class: "tl-core" }));
+    }
+    return mark;
+  }
+
+  function showTabLoader(tabId) {
+    const cfg = TAB_LOADERS[tabId];
+    if (!cfg || reduceMotion()) return;
+    const overlay = el("div", { class: "tabload", "data-testid": "tab-loader", "data-tab": tabId },
+      tabLoaderMark(cfg.motif),
+      el("div", { class: "tabload-text" },
+        el("div", { class: "tabload-word" }, cfg.word),
+        el("div", { class: "tabload-sub" }, cfg.sub)),
+      el("div", { class: "tabload-bar" }, el("i", {}))
+    );
+    document.body.appendChild(overlay);
+    setTimeout(() => {
+      overlay.classList.add("tabload-out");
+      setTimeout(() => overlay.remove(), 430);
+    }, 1500);
+  }
+
+  // Slide the outgoing view off in the travel direction while the incoming one
+  // slides in from the opposite edge. Falls back to an instant swap when there's
+  // no direction, nothing to animate, or the user prefers reduced motion.
+  let tabAnimating = false;
+  function animateTabSwitch(dir, doRender) {
+    const main = $("#main");
+    const oldView = main && main.querySelector(".view");
+    const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!main || !oldView || !dir || reduce) { doRender(); return; }
+
+    // Clear any half-finished previous transition so rapid swipes stay clean.
+    main.querySelectorAll(".view.tab-ghost").forEach(g => g.remove());
+
+    const ghost = oldView;
+    ghost.classList.add("tab-ghost");
+    main.removeChild(ghost);           // detach so renderMain's clear() won't destroy it
+    main.classList.add("tab-anim");
+
+    doRender();                         // builds the new .view into #main (scrolls to top)
+    const newView = main.querySelector(".view");
+    if (!newView) { ghost.remove(); main.classList.remove("tab-anim"); return; }
+    main.appendChild(ghost);            // overlay the outgoing view on top
+
+    const DUR = 280, EASE = "cubic-bezier(.4,0,.2,1)";
+    const enterFrom = dir > 0 ? "100%" : "-100%"; // forward: new comes from the right
+    const exitTo = dir > 0 ? "-100%" : "100%";
+    newView.style.transform = `translateX(${enterFrom})`;
+    newView.style.willChange = "transform";
+    ghost.style.transform = "translateX(0)";
+    ghost.style.willChange = "transform, opacity";
+    void newView.offsetWidth;           // force a reflow so the start state sticks
+    newView.style.transition = `transform ${DUR}ms ${EASE}`;
+    ghost.style.transition = `transform ${DUR}ms ${EASE}, opacity ${DUR}ms ease`;
+    newView.style.transform = "translateX(0)";
+    ghost.style.transform = `translateX(${exitTo})`;
+    ghost.style.opacity = "0.35";
+
+    tabAnimating = true;
+    let done = false;
+    const cleanup = () => {
+      if (done) return;
+      done = true; tabAnimating = false;
+      ghost.remove();
+      newView.style.transition = ""; newView.style.transform = ""; newView.style.willChange = "";
+      main.classList.remove("tab-anim");
+    };
+    newView.addEventListener("transitionend", cleanup, { once: true });
+    setTimeout(cleanup, DUR + 90);      // belt-and-braces in case transitionend is missed
+  }
+
+  // Set after saving a meal so the Saved-meals hero pulses on the next render.
+  let pulseSavedHero = false;
+  // Set on workout finish so the just-saved session card flourishes in History.
+  let finishFlourish = false;
+
+  // Horizontal swipe anywhere moves between the main tabs (in dock order).
+  const SWIPE_TABS = ["home", "nutrition", "stats", "library"];
+  function initTabSwipe() {
+    // Sheets/modals/quizzes that should own the gesture while open.
+    const BLOCKING = ".modal-overlay, .qa-fork-overlay, .qa-overlay, .numpad-overlay, .rest-overlay, .wsheet-overlay, .pquiz";
+    // Walk up from the touch target: if something scrolls horizontally itself
+    // (category pager, week strip, a wheel, a range slider), let it have the swipe.
+    function ownsHorizontal(node) {
+      for (let n = node; n && n !== document.body; n = n.parentNode) {
+        if (n.nodeType !== 1) continue;
+        if (n.classList && (n.classList.contains("wheel") || n.classList.contains("xpick-pager"))) return true;
+        if (n.tagName === "INPUT" && n.type === "range") return true;
+        const ox = getComputedStyle(n).overflowX;
+        if ((ox === "auto" || ox === "scroll") && n.scrollWidth > n.clientWidth + 4) return true;
+      }
+      return false;
+    }
+    let sx = 0, sy = 0, tracking = false, skip = false;
+    document.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1) { tracking = false; return; }
+      const t = e.touches[0];
+      sx = t.clientX; sy = t.clientY; tracking = true;
+      skip = !!document.querySelector(BLOCKING) || ownsHorizontal(e.target);
+    }, { passive: true });
+    document.addEventListener("touchend", (e) => {
+      const go = tracking && !skip;
+      tracking = false;
+      if (!go) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - sx, dy = t.clientY - sy;
+      // Require a clean, mostly-horizontal swipe so vertical scrolls never trigger it.
+      if (Math.abs(dx) < 64 || Math.abs(dx) < Math.abs(dy) * 1.7) return;
+      const cur = state.tab === "history" ? "stats" : state.tab;
+      const i = SWIPE_TABS.indexOf(cur);
+      if (i < 0) return; // e.g. mid-workout — don't swipe out of a session
+      const ni = dx < 0 ? i + 1 : i - 1; // swipe left → next tab, right → previous
+      if (ni < 0 || ni >= SWIPE_TABS.length) return; // clamp at the ends
+      switchTab(SWIPE_TABS[ni], dx < 0 ? 1 : -1);
+    }, { passive: true });
   }
 
   // ============ Numeric keypad (tap-first input for weights, reps, cardio) ============
@@ -1375,9 +1641,36 @@
         let whole = Math.floor(iv || 0);
         let frac = Math.round(((iv || 0) - whole) * denom) / denom;
         if (frac >= 1) { whole += 1; frac = 0; }
-        const syncW = () => { const w = whole + frac; raw = fmt(w); fresh = true; commit(); caption.textContent = `${fmt(w)} ${unit}`.trim(); };
-        const wholeWheel = buildWheel({ items: wheelRange(wc.min, wc.max, 1), value: whole, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-whole", onChange: (v) => { whole = v; syncW(); } });
+        let syncW = () => {}; // reassigned per layout below; fracWheel calls it at runtime
         const fracWheel = buildWheel({ items: fracItems, value: frac, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-frac", onChange: (v) => { frac = v; syncW(); } });
+
+        // Weight: split the whole number into a tens wheel + a ones wheel so
+        // heavy loads are a quick spin instead of a long single-column scroll.
+        if (wc.tens && wc.min >= 0) {
+          const maxTens = Math.floor(wc.max / 10) * 10;
+          let tens = Math.floor(whole / 10) * 10;
+          let ones = whole - tens;
+          syncW = () => { whole = tens + ones; const w = whole + frac; raw = fmt(w); fresh = true; commit(); caption.textContent = `${fmt(w)} ${unit}`.trim(); };
+          const tensWheel = buildWheel({ items: wheelRange(0, maxTens, 10), value: tens, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-tens", onChange: (v) => { tens = v; syncW(); } });
+          const onesWheel = buildWheel({ items: wheelRange(0, 9, 1), value: ones, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-ones", onChange: (v) => { ones = v; syncW(); } });
+          applyValueToWheels = (val) => {
+            let wl = Math.floor(val); let fr = Math.round((val - wl) * denom) / denom;
+            if (fr >= 1) { wl += 1; fr = 0; }
+            wl = Math.max(0, Math.min(wc.max, wl));
+            tens = Math.floor(wl / 10) * 10; ones = wl - tens; frac = fr;
+            tensWheel.setValue(tens); onesWheel.setValue(ones); fracWheel.setValue(fr); syncW();
+          };
+          syncW();
+          return el("div", { class: "numpad-wheel-cols numpad-wheel-cols-tens" },
+            el("div", { class: "numpad-wheel-col numpad-wheel-tensw" }, tensWheel.el),
+            el("div", { class: "numpad-wheel-col numpad-wheel-onesw" }, onesWheel.el),
+            el("div", { class: "numpad-wheel-col numpad-wheel-fracw" }, fracWheel.el),
+            el("div", { class: "numpad-wheel-unit" }, unit)
+          );
+        }
+
+        syncW = () => { const w = whole + frac; raw = fmt(w); fresh = true; commit(); caption.textContent = `${fmt(w)} ${unit}`.trim(); };
+        const wholeWheel = buildWheel({ items: wheelRange(wc.min, wc.max, 1), value: whole, variant: "wheel-sheet", itemHeight: 44, testid: "numpad-wheel-whole", onChange: (v) => { whole = v; syncW(); } });
         applyValueToWheels = (val) => {
           let wl = Math.floor(val); let fr = Math.round((val - wl) * denom) / denom;
           if (fr >= 1) { wl += 1; fr = 0; }
@@ -1487,11 +1780,45 @@
     overlay.appendChild(workoutPanel);
     overlay.appendChild(mealPanel);
     overlay.appendChild(el("button", { class: "qa-fork-close", "aria-label": "Close", title: "Close", html: CLOSE_ART, on: { click: close } }));
+
+    // Subtle hint that you can swipe to choose (chevrons breathe outward).
+    const CHEV_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
+    const CHEV_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+    overlay.appendChild(el("div", { class: "qa-fork-hint", "aria-hidden": "true" },
+      el("span", { class: "qa-fork-chev qa-fork-chev-l", html: CHEV_L }),
+      el("span", { class: "qa-fork-hint-text" }, "Swipe or tap"),
+      el("span", { class: "qa-fork-chev qa-fork-chev-r", html: CHEV_R })
+    ));
+
+    // Swipe toward the side you want: left → Workout (left), right → Log meal (right).
+    let sx = 0, sy = 0, swiping = false, didSwipe = false;
+    overlay.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1) { swiping = false; return; }
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY; swiping = true; didSwipe = false;
+    }, { passive: true });
+    overlay.addEventListener("touchend", (e) => {
+      if (!swiping) return; swiping = false;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - sx, dy = t.clientY - sy;
+      if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      didSwipe = true;
+      const panel = dx < 0 ? workoutPanel : mealPanel;
+      panel.classList.add("qa2-chosen");
+      setTimeout(() => go(dx < 0 ? "workout" : "nutrition"), 140);
+    }, { passive: true });
+    // A swipe that ends on a panel shouldn't also fire its tap.
+    [workoutPanel, mealPanel].forEach(p => p.addEventListener("click", (e) => { if (didSwipe) { e.preventDefault(); e.stopPropagation(); } }, true));
+
     document.body.appendChild(overlay);
   }
 
   // ============ Stats shell (Trends | History) ============
-  function renderStatsShell(view) {
+  async function renderStatsShell(view) {
+    // "You" tab: profile header (targets + setup/settings) then your stats.
+    const headerHost = el("div", { "data-testid": "you-header" });
+    view.appendChild(headerHost);
+    buildYouHeader().then(node => { if (node) headerHost.appendChild(node); });
+
     const seg = el("div", { class: "seg-control", "data-testid": "stats-seg" },
       el("button", {
         class: "seg-btn" + (state.tab === "stats" ? " active" : ""),
@@ -1504,10 +1831,63 @@
         on: { click: () => { state.tab = "history"; renderMain(); } }
       }, "History")
     );
+    view.appendChild(el("div", { class: "you-stats-label" }, "Your stats"));
     view.appendChild(seg);
     const inner = el("div");
     view.appendChild(inner);
     if (state.tab === "history") renderHistory(inner); else renderStats(inner);
+  }
+
+  // Profile header for the You tab — targets + setup/edit/settings entry points.
+  async function buildYouHeader() {
+    const today = U.todayISO();
+    const energy = await resolveEnergyBudget(today);
+    const macroGoals = await resolveMacroGoals(today, energy);
+    const complete = U.profileComplete(state.prefs);
+    const name = (state.prefs.profileName || "").trim();
+
+    // Incomplete → hero that launches the guided setup quiz.
+    if (!complete) {
+      return el("div", { class: "card you-profile you-profile-setup", "data-testid": "you-profile" },
+        el("div", { class: "you-avatar you-avatar-empty", html: dockIcons.person }),
+        el("div", { class: "you-profile-title" }, "Set up your profile"),
+        el("div", { class: "you-profile-sub" }, "Answer a few quick questions to unlock your daily targets."),
+        el("button", {
+          class: "btn btn-primary btn-block mt-8", "data-testid": "you-setup",
+          on: { click: () => openProfileQuiz({ firstRun: false }) }
+        }, "Set up profile")
+      );
+    }
+
+    const goals = macroGoals?.hasGoals ? macroGoals.goals : null;
+    const macroLine = goals
+      ? `${Math.round(goals.protein)}P · ${Math.round(goals.carbs)}C · ${Math.round(goals.fat)}F`
+      : "";
+    const badge = energy.source === "manual" ? "Your number" : "Suggested";
+    const initial = (name || "Y").charAt(0).toUpperCase();
+
+    return el("div", { class: "card you-profile", "data-testid": "you-profile" },
+      el("div", { class: "you-profile-top" },
+        el("div", { class: "you-avatar" }, initial),
+        el("div", { class: "you-profile-id" },
+          el("div", { class: "you-profile-name" }, name || "Your profile"),
+          el("div", { class: "you-profile-target" },
+            el("strong", {}, `${(energy.goal || 0).toLocaleString("en-GB")} kcal`),
+            macroLine ? el("span", { class: "you-profile-macros" }, ` · ${macroLine}` ) : null
+          )
+        ),
+        el("div", { class: "you-profile-badge" + (badge === "Your number" ? " is-manual" : "") }, badge)
+      ),
+      el("div", { class: "you-profile-actions" },
+        el("button", { class: "btn btn-sm you-act", "data-testid": "you-edit",
+          on: { click: () => openProfileQuiz({ firstRun: false }) } },
+          el("span", { html: icons.edit }), "Edit profile"),
+        el("button", { class: "btn btn-sm you-act", "data-testid": "you-mynumber",
+          on: { click: () => openSettings({ focusBudget: true }) } }, "My number"),
+        el("button", { class: "btn btn-sm you-act you-act-gear", title: "Settings", "data-testid": "you-settings",
+          on: { click: () => openSettings() }, html: icons.settings })
+      )
+    );
   }
 
   // ============ Extra icons ============
@@ -1632,7 +2012,7 @@
       if (isNaN(kg) || kg <= 0) return toast("Enter a valid weight");
       await Storage.saveBodyweight({ date: today, kg });
       toast("Weight logged");
-      renderMain();
+      renderMainKeepScroll();
     } } }, "Log today");
     card.appendChild(el("div", { class: "row mt-8", style: "gap: 8px; align-items: center;" },
       wI,
@@ -1641,7 +2021,7 @@
       todayEntry ? el("button", { class: "icon-btn", title: "Delete today’s entry", on: { click: async () => {
         if (!(await confirmDialog("Delete today’s bodyweight entry?", { title: "Delete entry?", okLabel: "Delete", danger: true }))) return;
         await Storage.deleteBodyweight(today);
-        renderMain();
+        renderMainKeepScroll();
       } }, html: icons.trash }) : null
     ));
 
@@ -1830,7 +2210,7 @@
     }
     wrap.appendChild(svg);
     wrap.appendChild(el("div", { class: "nmeals-donut-center" },
-      el("div", { class: "nmeals-donut-num" }, Math.round(totalEaten || 0).toLocaleString("en-GB")),
+      el("div", { class: "nmeals-donut-num count-up" }, Math.round(totalEaten || 0).toLocaleString("en-GB")),
       el("div", { class: "nmeals-donut-sub" }, total > 0 ? "eaten" : "no meals yet")
     ));
     return wrap;
@@ -1939,7 +2319,7 @@
     if (!isPersonal) ringWrap.classList.add("is-estimate");
     ringWrap.appendChild(el("div", { class: "energy-ring-center" },
       el("div", {
-        class: "energy-ring-main" + (remaining < 0 ? " over" : "") + (isPersonal ? "" : " is-estimate")
+        class: "energy-ring-main count-up" + (remaining < 0 ? " over" : "") + (isPersonal ? "" : " is-estimate")
       }, (remaining >= 0 ? remaining : Math.abs(remaining)).toLocaleString("en-GB")),
       el("div", { class: "energy-ring-sub" }, remaining >= 0 ? "kcal left" : "kcal over")
     ));
@@ -2025,7 +2405,7 @@
             state.prefs.kcalGoal = energy.autoBudget;
             await Storage.setPref("kcalGoal", energy.autoBudget);
           }
-          renderMain();
+          if (state.tab === "nutrition") afterNutritionChange(); else renderMainKeepScroll();
           toast("Using suggested food room");
         } }
       }, "Use suggestion"));
@@ -2795,6 +3175,7 @@
         confirmLabel: (n) => `Start workout · ${n} exercise${n === 1 ? "" : "s"}`,
         allowCustom: true,
         customImmediate: false,
+        wheel: true,
         initialCat,
         onConfirm: async (items) => {
           const exercises = [];
@@ -2804,6 +3185,39 @@
       });
       view.appendChild(el("div", { class: "xpick-screen" }, picker.body));
       picker.refresh();
+
+      // Edge handles: Weekly plan (left) and Templates (right). They surface two
+      // buried flows and — being pinned to the screen edge — don't clash with
+      // the exercise picker's centre horizontal swipe (category paging).
+      const CHEV_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+      const CHEV_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
+      view.appendChild(el("button", {
+        class: "wk-edge wk-edge-left", type: "button", "data-testid": "edge-plan", "aria-label": "Weekly plan",
+        on: { click: openWeeklyPlanQuiz }
+      }, el("span", { class: "wk-edge-chev", html: CHEV_R }), el("span", { class: "wk-edge-text" }, "Plan")));
+      view.appendChild(el("button", {
+        class: "wk-edge wk-edge-right", type: "button", "data-testid": "edge-templates", "aria-label": "Templates",
+        on: { click: openTemplatesSheet }
+      }, el("span", { class: "wk-edge-chev", html: CHEV_L }), el("span", { class: "wk-edge-text" }, "Templates")));
+
+      // Edge-swipe: a horizontal swipe that STARTS at the screen edge opens the
+      // matching flow. Starting at the edge is what keeps it clear of the picker.
+      const EDGE = 30;
+      let esx = 0, esy = 0, esEdge = null;
+      view.addEventListener("touchstart", (e) => {
+        if (e.touches.length !== 1) { esEdge = null; return; }
+        const x = e.touches[0].clientX, w = window.innerWidth;
+        esEdge = x <= EDGE ? "left" : (x >= w - EDGE ? "right" : null);
+        esx = x; esy = e.touches[0].clientY;
+      }, { passive: true });
+      view.addEventListener("touchend", (e) => {
+        if (!esEdge) return;
+        const t = e.changedTouches[0], dx = t.clientX - esx, dy = t.clientY - esy, was = esEdge;
+        esEdge = null;
+        if (Math.abs(dx) < 46 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+        if (was === "left" && dx > 0) openWeeklyPlanQuiz();
+        else if (was === "right" && dx < 0) openTemplatesSheet();
+      }, { passive: true });
 
       // Repeat last completed session — compact fast path.
       const last = await getLastCompletedWorkout();
@@ -2877,7 +3291,7 @@
               el("button", { class: "icon-btn", title: "Delete template", on: { click: async () => {
                 if (!(await confirmDialog(`Delete template “${t.name}”?`, { title: "Delete template?", okLabel: "Delete", danger: true }))) return;
                 await Storage.deleteTemplate(t.id);
-                renderMain();
+                renderMainKeepScroll();
               } }, html: icons.trash })
             )
           ));
@@ -3063,7 +3477,7 @@
     fin.appendChild(el("button", { class: "btn btn-block mt-8", on: { click: () => openExercisePicker(async (items) => {
       for (const it of items) w.exercises.push(await buildExerciseEntry(it.id, it.name));
       await Storage.saveWorkout(w);
-      renderMain();
+      afterExerciseChange();
       toast(`Added ${items.length} exercise${items.length === 1 ? "" : "s"}`);
     }, { existingIds: new Set(exs.map(e => e.exerciseId)), title: "Add exercises" }) } },
       el("span", { html: icons.plus }), "Add exercise"));
@@ -3088,13 +3502,27 @@
         if (best !== activeIdx) { activeIdx = best; workoutScrollIdx = best; syncDots(); }
       });
     }, { passive: true });
+    pager.addEventListener("scroll", () => { workoutScrollTop = pager.scrollTop; }, { passive: true });
 
     view.appendChild(screen);
-    // Restore the card after an action re-render.
-    if (workoutScrollIdx > 0 && workoutScrollIdx < panelCount) {
-      const ri = workoutScrollIdx;
-      requestAnimationFrame(() => { if (pager.children[ri]) { pager.scrollTop = pager.children[ri].offsetTop; activeIdx = ri; syncDots(); } });
-    }
+    // Restore exact scroll (set synchronously to avoid a painted frame at 0),
+    // falling back to the remembered card the first time we land here.
+    const restoreScroll = () => {
+      if (workoutScrollTop > 0) { pager.scrollTop = workoutScrollTop; }
+      else if (workoutScrollIdx > 0 && workoutScrollIdx < panelCount && pager.children[workoutScrollIdx]) {
+        pager.scrollTop = pager.children[workoutScrollIdx].offsetTop;
+      }
+      const center = pager.scrollTop + pager.clientHeight / 2;
+      let best = 0, bd = Infinity;
+      for (let i = 0; i < pager.children.length; i++) {
+        const cc = pager.children[i].offsetTop + pager.children[i].offsetHeight / 2;
+        const d = Math.abs(cc - center);
+        if (d < bd) { bd = d; best = i; }
+      }
+      activeIdx = best; syncDots();
+    };
+    restoreScroll();
+    requestAnimationFrame(restoreScroll);
   }
 
   function suggestedName() {
@@ -3211,6 +3639,7 @@
 
   async function beginWorkoutSession({ name, exercises, templateId = null, source = "empty", sourceWorkoutId = null }) {
     workoutScrollIdx = 0;
+    workoutScrollTop = 0;
     const workout = {
       id: U.uid(),
       name: (name || suggestedName()).trim() || suggestedName(),
@@ -3244,6 +3673,49 @@
         elapsed.textContent = U.formatTime(Math.floor((Date.now() - state.activeWorkout.startedAt) / 1000));
       }
     }, 1000);
+  }
+
+  // Templates hub — reached from the right-edge handle on the start screen.
+  async function openTemplatesSheet() {
+    let sheetBody;
+    const build = async () => {
+      const templates = await Storage.getTemplates();
+      const box = el("div", { class: "templates-sheet" });
+      if (!templates.length) {
+        box.appendChild(el("div", { class: "ncard-empty" },
+          el("div", { class: "ncard-empty-title" }, "No templates yet"),
+          el("div", { class: "ncard-empty-sub" }, "Build a reusable workout, or finish a session and save it as a template.")));
+      } else {
+        for (const t of templates.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))) {
+          const isCardioEntry = e => e.targetDurationMin != null || looksLikeCardio({ id: e.exerciseId, name: e.name });
+          const setsTotal = t.exercises.reduce((s, e) => s + (isCardioEntry(e) ? 0 : (e.targetSets || 3)), 0);
+          const cardioMin = t.exercises.reduce((s, e) => s + (isCardioEntry(e) ? (e.targetDurationMin || 0) : 0), 0);
+          const meta = [`${t.exercises.length} exercise${t.exercises.length === 1 ? "" : "s"}`, setsTotal > 0 ? `${setsTotal} sets` : null, cardioMin > 0 ? `${cardioMin} min cardio` : null].filter(Boolean).join(" · ");
+          box.appendChild(el("div", { class: "template-card" },
+            el("div", { class: "template-card-name" }, t.name),
+            el("div", { class: "template-card-meta" }, meta),
+            el("div", { class: "template-card-exercises" }, t.exercises.slice(0, 4).map(e => e.name).join(" · ") + (t.exercises.length > 4 ? ` +${t.exercises.length - 4} more` : "")),
+            el("div", { class: "row mt-8", style: "gap: 6px" },
+              el("button", { class: "btn btn-primary btn-sm", on: { click: () => { closeModal(); startNewWorkout(t); } } }, "Start"),
+              el("button", { class: "btn btn-sm", on: { click: () => { closeModal(); openTemplateEditor(t); } } }, "Edit"),
+              el("button", { class: "icon-btn", title: "Delete template", html: icons.trash, on: { click: async () => {
+                if (!(await confirmDialog(`Delete template “${t.name}”?`, { title: "Delete template?", okLabel: "Delete", danger: true }))) return;
+                await Storage.deleteTemplate(t.id);
+                const fresh = await build(); sheetBody.replaceWith(fresh); sheetBody = fresh;
+              } } })
+            )
+          ));
+        }
+      }
+      return box;
+    };
+    sheetBody = await build();
+    const footer = el("div", {},
+      el("button", { class: "btn", on: { click: closeModal } }, "Close"),
+      el("button", { class: "btn btn-primary", on: { click: () => { closeModal(); openTemplateEditor(null); } } },
+        el("span", { html: icons.plus }), "Create template")
+    );
+    openModal("Templates", sheetBody, footer);
   }
 
   async function openTemplateEditor(existing = null) {
@@ -3536,7 +4008,7 @@
               state.prefs.weeklyPlan = next;
               await Storage.setPref("weeklyPlan", next);
               close();
-              renderMain();
+              renderMainKeepScroll();
               toast("Weekly plan saved");
             } }
           }, "Save plan")
@@ -3740,6 +4212,7 @@
       await offerSaveAsTemplate(finishedWorkout);
     }
     // Land on History so the saved session is immediately visible.
+    finishFlourish = true;
     state.tab = "history";
     renderMain();
     const burned = finishedWorkout.kcalBurned || 0;
@@ -3814,16 +4287,19 @@
             "Switching how this exercise is logged will clear its logged sets. Continue?",
             { title: "Change logging type?", okLabel: "Switch", danger: true }
           );
-          if (!ok) { typeMenu.value = exType; return; }
+          if (!ok) { typeMenu.value = exType; afterExerciseChange(); return; }
           ex.sets = [emptySetForType(nextType)];
         } else if (!hasLogged) {
           ex.sets = [emptySetForType(nextType)];
         }
         ex.type = nextType;
         await Storage.saveWorkout(state.activeWorkout);
-        renderMain();
+        afterExerciseChange();
       });
     }
+    const typeControl = (typeMenu.tagName === "SELECT")
+      ? wheelizeSelect(typeMenu, { title: "How it's logged" })
+      : typeMenu;
 
     block.appendChild(el("div", { class: "exercise-block-header" },
       el("div", { class: "exercise-block-title" },
@@ -3832,7 +4308,7 @@
         exKcal > 0 ? el("span", { class: "chip chip-sm", style: "margin-left:8px" }, `≈ ${exKcal} kcal`) : null
       ),
       el("div", { class: "row" },
-        typeMenu,
+        typeControl,
         nextEx && !isCardio ? el("button", {
           class: "icon-btn",
           title: ex.supersetGroup && ex.supersetGroup === nextEx.supersetGroup ? "Unlink superset" : "Link with next",
@@ -3847,7 +4323,7 @@
               nextEx.supersetGroup = g;
             }
             await Storage.saveWorkout(state.activeWorkout);
-            renderMain();
+            afterExerciseChange();
           } }
         }) : null,
         el("button", { class: "icon-btn", title: "Exercise info", on: { click: () => openExerciseDetail(ex.exerciseId) },
@@ -3856,7 +4332,7 @@
           if (!(await confirmDialog(`Remove ${ex.name} from this workout?`, { title: "Remove exercise?", okLabel: "Remove", danger: true }))) return;
           state.activeWorkout.exercises.splice(idx, 1);
           await Storage.saveWorkout(state.activeWorkout);
-          renderMain();
+          afterExerciseChange();
         } }, html: icons.trash })
       )
     ));
@@ -4163,7 +4639,9 @@
           if (!s.kcalManual) s.kcal = null;
           await Storage.saveWorkout(state.activeWorkout);
         }
-        refreshExerciseBlock(ex);
+        const didComplete = s.done;
+        await refreshExerciseBlock(ex);
+        if (didComplete) flashCompletedSet(ex, si);
       } }
     },
       s.done ? el("span", { html: icons.check }) : null,
@@ -4277,7 +4755,9 @@
           s.prTypes = [];
           await Storage.saveWorkout(state.activeWorkout);
         }
-        refreshExerciseBlock(ex);
+        const didComplete = s.done;
+        await refreshExerciseBlock(ex);
+        if (didComplete) flashCompletedSet(ex, si);
       } }
     },
       s.done ? el("span", { html: icons.check }) : null,
@@ -4454,13 +4934,15 @@
       unit: "kg", step: 2.5, decimals: exType !== "weighted_bodyweight",
       allowMinus: exType === "weighted_bodyweight",
       // Added weight can be negative (assisted); plain weight starts at 0.
-      wheel: { min: exType === "weighted_bodyweight" ? -100 : 0, max: 400, frac: "quarter" },
+      // Standard weight gets a tens+ones+¼ split (fast to reach heavy loads);
+      // assisted (negative) weight keeps the single whole-number column.
+      wheel: { min: exType === "weighted_bodyweight" ? -100 : 0, max: 400, frac: "quarter", tens: exType !== "weighted_bodyweight" },
       chips: weightChips, hint: setHint
     });
     attachNumPad(repsInput, {
       label: `${ex.name} \u00b7 set ${si + 1} \u00b7 reps`, unit: "reps", step: 1, wheel: { min: 1, max: 60 },
       chips: repsChips, hint: setHint,
-      onLogSet: async () => { if (await markSetDone()) refreshExerciseBlock(ex); }
+      onLogSet: async () => { if (await markSetDone()) { await refreshExerciseBlock(ex); flashCompletedSet(ex, si); } }
     });
 
     const openPlates = () => openPlateCalculator(parseFloat(weightInput.value) || (prevSet?.weight ?? 60));
@@ -4500,7 +4982,9 @@
           await Storage.saveWorkout(state.activeWorkout);
           stopRestTimer();
         }
-        refreshExerciseBlock(ex);
+        const didComplete = s.done;
+        await refreshExerciseBlock(ex);
+        if (didComplete) flashCompletedSet(ex, si);
       } }
     },
       s.done ? el("span", { html: icons.check }) : null,
@@ -4543,7 +5027,7 @@
             }
             await Storage.saveWorkout(state.activeWorkout);
             closeModal();
-            renderMain();
+            refreshExerciseBlock(ex);
           } } }, "Save")
         );
         openModal("Set note", body, footer);
@@ -4778,6 +5262,53 @@
     const bwKg = await getBodyweightKg();
     const workouts = await Storage.getWorkouts();
 
+    // Per-exercise personal stats from completed sessions: how often, how
+    // recently, your best, and an estimated-1RM trend for the mini sparkline.
+    const exStats = {};
+    const doneWorkouts = workouts.filter(w => w.completedAt).sort((a, b) => a.startedAt - b.startedAt);
+    for (const w of doneWorkouts) {
+      const seen = new Set();
+      for (const entry of (w.exercises || [])) {
+        const id = entry.exerciseId;
+        if (!id) continue;
+        let s = exStats[id];
+        if (!s) s = exStats[id] = { sessions: 0, lastDate: null, bestWeight: 0, bestE1RM: 0, maxDuration: 0, maxDistance: 0, series: [] };
+        if (!seen.has(id)) { s.sessions++; seen.add(id); }
+        s.lastDate = w.date; // chronological → last assignment is the most recent
+        let sessionBestE1RM = 0;
+        for (const set of (entry.sets || [])) {
+          if (!set.done) continue;
+          if (set.weight != null && set.reps) {
+            const e = U.epley(set.weight, set.reps);
+            if (e > sessionBestE1RM) sessionBestE1RM = e;
+            if (e > s.bestE1RM) s.bestE1RM = e;
+            if (set.weight > s.bestWeight) s.bestWeight = set.weight;
+          }
+          if (set.durationMin > s.maxDuration) s.maxDuration = set.durationMin;
+          if (set.distanceKm > s.maxDistance) s.maxDistance = set.distanceKm;
+        }
+        if (sessionBestE1RM > 0) s.series.push(Math.round(sessionBestE1RM));
+      }
+    }
+    const daysAgoLabel = (dateIso) => {
+      if (!dateIso) return null;
+      const d = Math.round((Date.parse(U.todayISO()) - Date.parse(dateIso)) / 86400000);
+      if (d <= 0) return "Today";
+      if (d === 1) return "Yesterday";
+      if (d < 7) return `${d}d ago`;
+      if (d < 30) return `${Math.floor(d / 7)}w ago`;
+      return `${Math.floor(d / 30)}mo ago`;
+    };
+    const prLabelFor = (s) => {
+      if (!s) return null;
+      if (s.bestWeight > 0) return `${Math.round(s.bestWeight)}kg`;
+      if (s.maxDistance > 0) return `${s.maxDistance}km`;
+      if (s.maxDuration > 0) return `${Math.round(s.maxDuration)}m`;
+      return null;
+    };
+    let sortMode = "az"; // az | recent | most | untried
+    const prTrophy = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 3h12v2h3v3a4 4 0 0 1-4 4h-.4A6 6 0 0 1 13 15.9V18h3v2H8v-2h3v-2.1A6 6 0 0 1 7.4 12H7a4 4 0 0 1-4-4V5h3V3zm0 4H5v1a2 2 0 0 0 1 1.7V7zm12 0v2.7A2 2 0 0 0 19 8V7h-1z"/></svg>';
+
     // Zone counts + recent-training heat (last 14 days of completed sets)
     const zoneCounts = (window.BodyMap && BodyMap.countByZone)
       ? BodyMap.countByZone(all)
@@ -4822,14 +5353,14 @@
       if (sel && sel.heatOnly) return; // heat toggle only — no filter change
       activeZone = (sel && sel.zoneId) || "all";
       syncChips();
-      refresh();
+      refresh(true);
     }
 
     function setFromChip(cat) {
       activeZone = cat || "all";
       syncChips();
       if (bodyMapApi) bodyMapApi.setActive(activeZone);
-      refresh();
+      refresh(true);
     }
 
     // Interactive body map (front / back SVG, fine zones + heat)
@@ -4843,6 +5374,35 @@
       });
       view.appendChild(bodyMapApi.el);
     }
+
+    // Muscle-balance nudge — a neglected major group over the last 14 days.
+    (function balanceNudge() {
+      const MAJORS = { chest: "Chest", back: "Back", shoulders: "Shoulders", arms: "Arms", legs: "Legs", core: "Core" };
+      const cut = new Date(); cut.setDate(cut.getDate() - 14);
+      const cutIso = cut.toISOString().slice(0, 10);
+      const cnt = {}; for (const k in MAJORS) cnt[k] = 0;
+      let total = 0;
+      for (const w of doneWorkouts) {
+        if (w.date < cutIso) continue;
+        for (const entry of (w.exercises || [])) {
+          const ex = byId.get(entry.exerciseId); if (!ex || !(ex.category in cnt)) continue;
+          const done = (entry.sets || []).filter(s => s.done).length;
+          cnt[ex.category] += done; total += done;
+        }
+      }
+      if (total < 8) return; // not enough recent training to judge fairly
+      const ordered = Object.keys(MAJORS).map(k => ({ k, n: cnt[k] })).sort((a, b) => b.n - a.n);
+      const top = ordered[0], low = ordered[ordered.length - 1];
+      if (!top.n) return;
+      if (low.n > 0 && low.n >= top.n * 0.5) return; // reasonably balanced — don't nag
+      view.appendChild(el("button", { class: "balance-nudge", type: "button", "data-testid": "balance-nudge", on: { click: () => setFromChip(low.k) } },
+        el("span", { class: "balance-ic", html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>' }),
+        el("span", { class: "balance-main" },
+          el("span", { class: "balance-title" }, `${MAJORS[low.k]} is quiet this week`),
+          el("span", { class: "balance-sub" }, `${MAJORS[top.k]} leads with ${top.n} set${top.n === 1 ? "" : "s"} · ${MAJORS[low.k]} ${low.n === 0 ? "none yet" : low.n + " set" + (low.n === 1 ? "" : "s")}`)),
+        el("span", { class: "balance-cta" }, `Show ${MAJORS[low.k]}`)
+      ));
+    })();
 
     const controls = el("div", { class: "library-controls" });
     const searchInput = el("input", { class: "input", placeholder: "Search exercises…", id: "lib-search" });
@@ -4862,13 +5422,58 @@
     }
     view.appendChild(filterRow);
 
+    // Sort control — order the library by your training relationship.
+    const SORTS = [
+      { id: "az", label: "A–Z" },
+      { id: "recent", label: "Recent" },
+      { id: "most", label: "Most trained" },
+      { id: "untried", label: "Untried" }
+    ];
+    const sortRow = el("div", { class: "library-sort" });
+    for (const s of SORTS) {
+      sortRow.appendChild(el("button", {
+        class: "sort-chip" + (s.id === sortMode ? " active" : ""), "data-sort": s.id,
+        on: { click: () => {
+          sortMode = s.id;
+          sortRow.querySelectorAll(".sort-chip").forEach(c => c.classList.toggle("active", c.getAttribute("data-sort") === sortMode));
+          refresh(true);
+        } }
+      }, s.label));
+    }
+    view.appendChild(sortRow);
+
     // Custom exercise button
     view.appendChild(el("button", { class: "btn btn-block mb-8", on: { click: openCustomExerciseForm } },
       el("span", { html: icons.plus }), "Add custom exercise"
     ));
 
-    const grid = el("div", { class: "exercise-grid" });
+    const grid = el("div", { class: "exercise-wheel", "data-testid": "exercise-wheel" });
     view.appendChild(grid);
+
+    // Magnify wheel: the card nearest the wheel's centre grows and brightens,
+    // neighbours shrink and fade. Runs on scroll (of the wheel and the page).
+    function applyMagnify() {
+      if (!grid.isConnected) { window.removeEventListener("scroll", scheduleMagnify); return; }
+      const rect = grid.getBoundingClientRect();
+      if (!rect.height) return;
+      const mid = rect.top + rect.height / 2;
+      const half = rect.height / 2;
+      const cards = grid.querySelectorAll(".exercise-card");
+      let closest = null, closestD = Infinity;
+      cards.forEach(card => {
+        const r = card.getBoundingClientRect();
+        const d = Math.abs((r.top + r.height / 2) - mid);
+        const t = Math.min(1, d / half);
+        card.style.transform = `scale(${(1 - t * 0.17).toFixed(3)})`;
+        card.style.opacity = (1 - t * 0.58).toFixed(2);
+        if (d < closestD) { closestD = d; closest = card; }
+      });
+      cards.forEach(c => c.classList.toggle("is-center", c === closest));
+    }
+    let magRAF = null;
+    const scheduleMagnify = () => { if (magRAF) return; magRAF = requestAnimationFrame(() => { magRAF = null; applyMagnify(); }); };
+    grid.addEventListener("scroll", scheduleMagnify, { passive: true });
+    window.addEventListener("scroll", scheduleMagnify, { passive: true });
 
     function matchesActiveZone(ex) {
       if (!activeZone || activeZone === "all") return true;
@@ -4882,7 +5487,7 @@
       return ex.category === activeZone;
     }
 
-    function refresh() {
+    function refresh(stagger = false) {
       const q = searchInput.value.trim().toLowerCase();
       clear(grid);
       const filtered = all.filter(ex => {
@@ -4892,6 +5497,15 @@
                (ex.muscles || []).some(m => m.toLowerCase().includes(q)) ||
                (ex.equipment || "").toLowerCase().includes(q);
       });
+      // Sort by the user's training relationship.
+      filtered.sort((a, b) => {
+        const sa = exStats[a.id], sb = exStats[b.id];
+        const na = a.name.localeCompare(b.name);
+        if (sortMode === "most") return ((sb?.sessions || 0) - (sa?.sessions || 0)) || na;
+        if (sortMode === "recent") return String(sb?.lastDate || "").localeCompare(String(sa?.lastDate || "")) || na;
+        if (sortMode === "untried") return (((sa?.sessions || 0) > 0 ? 1 : 0) - ((sb?.sessions || 0) > 0 ? 1 : 0)) || na;
+        return na;
+      });
       if (filtered.length === 0) {
         grid.appendChild(emptyState({
           title: "No exercises found",
@@ -4900,7 +5514,7 @@
           onPrimary: () => {
             if (bodyMapApi) bodyMapApi.clear();
             searchInput.value = "";
-            refresh();
+            refresh(true);
           },
           primaryTestId: "empty-exercises-clear",
           secondaryLabel: "Add custom",
@@ -4910,18 +5524,46 @@
       }
       for (const ex of filtered) {
         const kpm = U.kcalPerMin(ex, bwKg);
+        const st = exStats[ex.id];
+        const trained = st && st.sessions > 0;
+        const pr = trained ? prLabelFor(st) : null;
+        const nameRow = el("div", { class: "exercise-card-name" },
+          ex.name,
+          ex.isCustom ? el("span", { class: "chip chip-accent" }, "Custom") : null,
+          pr ? el("span", { class: "ex-pr-chip" }, el("span", { class: "ex-pr-ic", html: prTrophy }), pr) : null
+        );
+        const lvl = trained && st.bestE1RM ? strengthLevel(ex, st.bestE1RM, bwKg, state.prefs.sex) : null;
+        const infoRow = trained
+          ? el("div", { class: "exercise-card-stat" },
+              lvl ? el("span", { class: "ex-tier-dot", style: `--tier:${lvl.color}` }) : null,
+              lvl ? el("span", { class: "ex-tier-name", style: `color:${lvl.color}` }, lvl.tier + " · ") : null,
+              `${daysAgoLabel(st.lastDate)} · ${st.sessions} session${st.sessions === 1 ? "" : "s"}`)
+          : el("div", { class: "exercise-card-muscles" }, (ex.muscles || []).join(" · "));
+        const spark = (trained && st.series.length >= 2)
+          ? el("div", { class: "exercise-card-spark" }, sparkline(st.series, { width: 58, height: 26 }))
+          : null;
         grid.appendChild(el("div", {
-          class: "exercise-card",
+          class: "exercise-card" + (trained ? " is-trained" : ""),
           on: { click: () => openExerciseDetail(ex.id) }
         },
-          el("div", { class: "exercise-card-name" }, ex.name, ex.isCustom ? el("span", { class: "chip chip-accent" }, "Custom") : null),
-          el("div", { class: "exercise-card-meta" }, `${EXERCISE_CATEGORIES[ex.category]} · ${ex.equipment || "—"} · ≈ ${kpm} kcal/min`),
-          el("div", { class: "exercise-card-muscles" }, (ex.muscles || []).join(" · "))
+          exerciseFigureIcon(ex.category),
+          el("div", { class: "exercise-card-main" },
+            nameRow,
+            el("div", { class: "exercise-card-meta" }, `${EXERCISE_CATEGORIES[ex.category]} · ${ex.equipment || "—"} · ≈ ${kpm} kcal/min`),
+            infoRow
+          ),
+          spark
         ));
       }
+      // Centre the first card in the wheel, then apply the magnify pass.
+      requestAnimationFrame(() => {
+        const first = grid.querySelector(".exercise-card");
+        if (first) grid.scrollTop = Math.max(0, first.offsetTop - grid.clientHeight / 2 + first.offsetHeight / 2);
+        applyMagnify();
+      });
     }
-    searchInput.addEventListener("input", U.debounce(refresh, 150));
-    refresh();
+    searchInput.addEventListener("input", U.debounce(() => refresh(false), 150));
+    refresh(true);
   }
 
   async function openExerciseDetail(exerciseId, fallback = null) {
@@ -5008,10 +5650,51 @@
               ),
               el("div", { class: "stat" },
                 el("div", { class: "stat-label" }, "Max reps"),
-                el("div", { class: "stat-value" }, prs.maxReps || "—")
+                el("div", { class: "stat-value" }, prs.maxReps ? String(prs.maxReps) : "—")
               )
             )
           ) : null),
+      // Strength level — gamified tier from e1RM vs bodyweight
+      (!isCardio && prs.maxE1RM && bwKg) ? (() => {
+        const lvl = strengthLevel(ex, prs.maxE1RM, bwKg, state.prefs.sex);
+        if (!lvl) return null;
+        return el("div", { class: "card mt-16 strength-card" },
+          el("div", { class: "row-between", style: "align-items: flex-start; margin-bottom: 12px" },
+            el("div", {},
+              el("div", { class: "card-title", style: "margin: 0 0 2px" }, "Strength level"),
+              el("div", { class: "text-xs text-faint" }, `e1RM ${prs.maxE1RM.toFixed(1)}kg · ${lvl.ratio.toFixed(2)}× bodyweight`)),
+            el("div", { class: "strength-badge", style: `--tier:${lvl.color}` }, lvl.tier)),
+          el("div", { class: "tier-ladder" },
+            ...STRENGTH_TIERS.map((t, i) => el("div", { class: "tier-step" + (i <= lvl.tierIndex ? " on" : ""), style: `--tier:${lvl.color}`, title: t }))),
+          lvl.nextTier
+            ? el("div", { style: "margin-top: 10px" },
+                el("div", { class: "strength-progress" }, el("i", { style: `width:${lvl.pctToNext}%; background:${lvl.color}` })),
+                el("div", { class: "text-xs text-muted", style: "margin-top: 6px" }, `${lvl.pctToNext}% to ${lvl.nextTier} · reach ${lvl.nextAt}kg e1RM`))
+            : el("div", { class: "text-sm", style: `color:${lvl.color}; margin-top: 10px; font-weight: 700` }, "Top tier — Elite 💪"),
+          el("div", { class: "text-xs text-faint", style: "margin-top: 10px" }, "A rough guide from bodyweight ratios — real standards vary by lift and person.")
+        );
+      })() : null,
+      // Strength trend — e1RM over sessions
+      (!isCardio) ? (() => {
+        const asc = history.slice().sort((a, b) => a.date.localeCompare(b.date));
+        const series = [];
+        for (const h of asc) {
+          let best = 0;
+          for (const s of h.sets) { if (s.weight != null && s.reps) { const e = U.epley(s.weight, s.reps); if (e > best) best = e; } }
+          if (best > 0) series.push(Math.round(best));
+        }
+        if (series.length < 2) return null;
+        const first = series[0], last = series[series.length - 1];
+        const pct = first > 0 ? Math.round(((last - first) / first) * 100) : 0;
+        const up = last >= first;
+        return el("div", { class: "card mt-16" },
+          el("div", { class: "row-between", style: "margin-bottom: 8px" },
+            el("div", { class: "card-title", style: "margin: 0" }, "Strength trend"),
+            el("div", { class: "text-sm", style: `color:${up ? "var(--accent)" : "#e0913f"}; font-weight: 700` }, `${up ? "▲" : "▼"} ${Math.abs(pct)}% · ${series.length} sessions`)),
+          sparkline(series, { width: 300, height: 56 }),
+          el("div", { class: "text-xs text-faint", style: "margin-top: 6px" }, `Estimated 1RM per session (Epley). ${first}kg → ${last}kg.`)
+        );
+      })() : null,
       // 1RM projections — strength only
       (!isCardio && prs.maxE1RM) ? el("div", { class: "detail-section mt-16" },
         el("h3", {}, "1RM projections"),
@@ -5113,7 +5796,7 @@
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Metric name"), metricLabelI),
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Unit"), metricUnitI)
       ),
-      el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "Personal best"), betterS)),
+      el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "Personal best"), wheelizeSelect(betterS, { title: "Personal best" }))),
       el("div", { class: "text-xs text-faint", style: "margin-top:-4px;margin-bottom:8px" },
         "Log one number per set for this metric (e.g. skips, metres, seconds held, watts).")
     );
@@ -5124,10 +5807,10 @@
     const body = el("div", {},
       el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "Name"), nameI)),
       el("div", { class: "form-row" },
-        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Category"), catS),
+        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Category"), wheelizeSelect(catS, { title: "Category" })),
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Equipment"), equipI)
       ),
-      el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "How it's logged"), logS)),
+      el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "How it's logged"), wheelizeSelect(logS, { title: "How it's logged" }))),
       metricWrap,
       el("div", { class: "form-row" },
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Muscles"), musclesI),
@@ -5263,12 +5946,19 @@
       confirmLabel = (n) => `Add ${n}`,
       header = null,
       allowCustom = true,
-      customImmediate = false
+      customImmediate = false,
+      wheel: isWheel = false
     } = opts;
     const existing = opts.existingIds instanceof Set ? opts.existingIds : new Set(opts.existingIds || []);
     const selected = new Map(); // id -> { id, name }
 
     const searchI = el("input", { class: "input", placeholder: "Search exercises…" });
+    // Body-map figure that lights up the active category's muscle group.
+    const catFigure = el("div", { class: "xpick-figure", "data-testid": "xpick-figure" });
+    function updateFigure() {
+      clear(catFigure);
+      if (activeCat) catFigure.appendChild(exerciseFigureIcon(activeCat));
+    }
     const chipRow = el("div", { class: "xpick-chips", "data-testid": "xpick-chips" });
     const dotsRow = el("div", { class: "xpick-dots", "data-testid": "xpick-dots" });
     const content = el("div", { class: "xpick-content" });
@@ -5349,6 +6039,7 @@
       for (const dot of Array.from(dotsRow.children)) {
         dot.classList.toggle("active", dot.getAttribute("data-cat") === activeCat);
       }
+      updateFigure();
     }
 
     function panelForCat(c) {
@@ -5378,6 +6069,31 @@
       syncActive();
       const panel = panelForCat(c);
       if (pager && panel) pager.scrollTo({ left: panel.offsetLeft, behavior: "smooth" });
+      if (isWheel) setTimeout(magnifyActive, 60);
+    }
+
+    // Magnify wheel for the exercise list (start-workout only): the row nearest
+    // the list's centre grows and brightens; the + on each row still selects.
+    function magnifyList(listEl) {
+      if (!listEl) return;
+      const rect = listEl.getBoundingClientRect();
+      if (!rect.height) return;
+      const mid = rect.top + rect.height / 2, half = rect.height / 2;
+      let closest = null, cd = Infinity;
+      const rows = listEl.querySelectorAll(".xrow");
+      rows.forEach(r => {
+        const b = r.getBoundingClientRect();
+        const d = Math.abs((b.top + b.height / 2) - mid);
+        const t = Math.min(1, d / half);
+        r.style.transform = `scale(${(1 - t * 0.13).toFixed(3)})`;
+        r.style.opacity = (1 - t * 0.5).toFixed(2);
+        if (d < cd) { cd = d; closest = r; }
+      });
+      rows.forEach(r => r.classList.toggle("is-center", r === closest));
+    }
+    function magnifyActive() {
+      const panel = panelForCat(activeCat);
+      if (panel) magnifyList(panel.querySelector(".xpick-panel-list"));
     }
 
     function rowFor(ex) {
@@ -5458,13 +6174,18 @@
       const p = el("div", { class: "xpick-pager", "data-testid": "xpick-pager" });
       for (const c of cats) {
         const items = all.filter(e => e.category === c);
+        const list = el("div", { class: "xpick-panel-list" + (isWheel ? " is-wheel" : "") }, ...items.map(rowFor));
+        if (isWheel) {
+          let lraf = null;
+          list.addEventListener("scroll", () => { if (lraf) return; lraf = requestAnimationFrame(() => { lraf = null; magnifyList(list); }); }, { passive: true });
+        }
         const panel = el("div", { class: "xpick-panel", "data-cat": c },
           el("div", { class: "xpick-card" },
             el("div", { class: "xpick-panel-head" },
               el("span", { class: "xpick-panel-title" }, catLabel(c)),
               el("span", { class: "xpick-panel-count" }, `${items.length}`)
             ),
-            el("div", { class: "xpick-panel-list" }, ...items.map(rowFor))
+            list
           )
         );
         p.appendChild(panel);
@@ -5480,7 +6201,7 @@
         scrollRAF = requestAnimationFrame(() => {
           scrollRAF = null;
           const c = cats[nearestPanelIndex()];
-          if (c && c !== activeCat) { activeCat = c; syncActive(); }
+          if (c && c !== activeCat) { activeCat = c; syncActive(); if (isWheel) magnifyActive(); }
         });
       }, { passive: true });
       return p;
@@ -5491,12 +6212,14 @@
       const q = searchI.value.trim().toLowerCase();
       if (q) {
         chipRow.style.display = "none";
+        catFigure.style.display = "none";
         dotsRow.style.display = "none";
         pager = null;
         content.appendChild(renderSearch(q));
         return;
       }
       chipRow.style.display = "";
+      catFigure.style.display = "";
       if (!cats.length) {
         dotsRow.style.display = "none";
         pager = null;
@@ -5512,6 +6235,14 @@
       requestAnimationFrame(() => {
         const panel = panelForCat(activeCat);
         if (pager && panel) pager.scrollLeft = panel.offsetLeft;
+        if (isWheel) {
+          // Centre the first row of each list, then apply the magnify pass.
+          pager.querySelectorAll(".xpick-panel-list.is-wheel").forEach(list => {
+            const first = list.querySelector(".xrow");
+            if (first) list.scrollTop = Math.max(0, first.offsetTop - list.clientHeight / 2 + first.offsetHeight / 2);
+            magnifyList(list);
+          });
+        }
       });
     }
 
@@ -5534,7 +6265,7 @@
     ) : null;
 
     const body = el("div", { class: "xpick xpick-multi" },
-      headerEl, searchI, chipRow, content, dotsRow, footer
+      headerEl, searchI, catFigure, chipRow, content, dotsRow, footer
     );
 
     let didInitialScroll = false;
@@ -5723,6 +6454,7 @@
       updatedAt: Date.now()
     };
     await Storage.saveMealTemplate(tpl);
+    pulseSavedHero = true; // draw the eye to the Saved-meals count next render
     toast("Meal saved for reuse");
     return tpl;
   }
@@ -5786,6 +6518,26 @@
     openModal(title, body, footer);
   }
 
+  // ============ Reminders (in-app, time-aware nudges) ============
+  // How long past its time before a due item is called "overdue" (minutes).
+  const REMINDER_OVERDUE_MIN = 60;
+  const hmToMin = (t) => {
+    const m = U.normalizeMealTime(t);
+    if (!m) return null;
+    const [h, mm] = m.split(":").map(Number);
+    return h * 60 + mm;
+  };
+  // For a reminder time on TODAY that isn't done yet: is it due (time reached)?
+  // Returns null when there's no valid time. { due, overdue, time } otherwise.
+  function reminderStatus(timeStr) {
+    const at = hmToMin(timeStr);
+    if (at == null) return null;
+    const now = hmToMin(U.nowMealTime());
+    const due = now >= at;
+    return { due, overdue: due && now - at >= REMINDER_OVERDUE_MIN, time: U.normalizeMealTime(timeStr) };
+  }
+  const bellIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>';
+
   // ============ Supplements (manual tracker on Nutrition) ============
   const SUPPLEMENT_UNITS = ["capsule", "tablet", "scoop", "g", "mg", "ml", "softgel", "drop", "serving"];
 
@@ -5826,17 +6578,41 @@
     // textarea value via property after create if el ignores value for textarea
     notesI.value = existing?.notes || "";
 
+    // Optional daily reminder time — surfaces an in-app "due" nudge when unticked.
+    const initRemind = U.normalizeMealTime(existing?.reminderTime || "");
+    const timeI = el("input", { class: "input", type: "time", value: initRemind });
+    const remindToggle = el("button", {
+      type: "button",
+      class: "remind-toggle" + (initRemind ? " is-on" : ""),
+      "aria-pressed": initRemind ? "true" : "false"
+    }, el("span", { html: bellIcon }), el("span", {}, "Remind me"));
+    const remindRow = el("div", { class: "remind-field", style: initRemind ? "" : "display:none" },
+      timeI,
+      el("button", { type: "button", class: "btn btn-ghost btn-sm", on: { click: () => { timeI.value = ""; } } }, "Clear")
+    );
+    remindToggle.addEventListener("click", () => {
+      const on = remindRow.style.display === "none";
+      remindRow.style.display = on ? "" : "none";
+      remindToggle.classList.toggle("is-on", on);
+      remindToggle.setAttribute("aria-pressed", on ? "true" : "false");
+      if (on && !timeI.value) timeI.value = "09:00";
+      if (!on) timeI.value = "";
+    });
+
     const body = el("div", {},
       el("label", { class: "label" }, "Name"),
       nameI,
       el("div", { class: "supplement-dose-row", style: "margin-top:12px" },
         el("div", {}, el("label", { class: "label" }, "Usual dose"), doseI),
-        el("div", {}, el("label", { class: "label" }, "Unit"), unitSel)
+        el("div", {}, el("label", { class: "label" }, "Unit"), wheelizeSelect(unitSel, { title: "Unit" }))
       ),
+      el("label", { class: "label", style: "margin-top:12px" }, "Daily reminder"),
+      remindToggle,
+      remindRow,
       el("label", { class: "label", style: "margin-top:12px" }, "Notes"),
       notesI,
       el("p", { class: "text-xs text-faint", style: "margin-top:10px" },
-        "Tick it off each day on the Nutrition tab. Nothing is auto-logged to food calories.")
+        "Tick it off each day on the Nutrition tab. A reminder shows an in-app nudge when it's due — nothing is auto-logged to food calories.")
     );
 
     const footer = el("div", {},
@@ -5852,17 +6628,82 @@
           defaultDose,
           unit: unitSel.value || "serving",
           notes: notesI.value.trim(),
+          reminderTime: U.normalizeMealTime(timeI.value) || null,
           createdAt: existing?.createdAt || Date.now(),
           updatedAt: Date.now()
         };
         await Storage.saveSupplement(payload);
         closeModal();
         toast(existing ? "Supplement updated" : "Supplement added");
-        renderMain();
+        afterNutritionChange();
       } } }, existing ? "Save" : "Add")
     );
     openModal(existing ? "Edit supplement" : "Add supplement", body, footer);
     setTimeout(() => nameI.focus(), 40);
+  }
+
+  // Sheet to set per-section meal reminder times (in-app nudges only).
+  async function openReminderSettings() {
+    const CORE = ["breakfast", "lunch", "dinner", "snack"];
+    const cur = { ...(state.prefs.mealReminders || {}) };
+    const rows = [];
+    const body = el("div", {});
+    body.appendChild(el("div", { class: "nsection-label", style: "margin:0 0 8px" }, "MEAL REMINDERS"));
+    body.appendChild(el("p", { class: "text-sm text-muted", style: "margin-bottom:12px" },
+      "Get an in-app nudge when a meal hasn't been logged by its time."));
+    for (const key of CORE) {
+      const meta = U.MEAL_SECTIONS[key];
+      const on0 = !!U.normalizeMealTime(cur[key]);
+      const timeI = el("input", { class: "input", type: "time", value: U.normalizeMealTime(cur[key]) || meta.defaultTime });
+      timeI.disabled = !on0;
+      const toggle = el("button", {
+        type: "button", class: "remind-toggle" + (on0 ? " is-on" : ""), "aria-pressed": on0 ? "true" : "false"
+      }, el("span", { html: bellIcon }), el("span", {}, on0 ? "On" : "Off"));
+      toggle.addEventListener("click", () => {
+        const on = toggle.getAttribute("aria-pressed") !== "true";
+        toggle.classList.toggle("is-on", on);
+        toggle.setAttribute("aria-pressed", on ? "true" : "false");
+        toggle.lastChild.textContent = on ? "On" : "Off";
+        timeI.disabled = !on;
+      });
+      rows.push({ key, timeI, toggle });
+      body.appendChild(el("div", { class: "remind-row-edit" },
+        el("div", { class: "remind-row-name" }, meta.label), toggle, timeI));
+    }
+
+    // Collect the current meal-reminder selections (shared by Save and Add).
+    const collect = () => {
+      const next = {};
+      for (const r of rows) {
+        if (r.toggle.getAttribute("aria-pressed") === "true") {
+          const t = U.normalizeMealTime(r.timeI.value);
+          if (t) next[r.key] = t;
+        }
+      }
+      return next;
+    };
+    const persist = async () => { state.prefs.mealReminders = collect(); await Storage.setPref("mealReminders", state.prefs.mealReminders); };
+
+    // Supplements share the reminders context — each carries its own daily time.
+    body.appendChild(el("div", { class: "nsection-label", style: "margin:18px 0 6px" }, "SUPPLEMENTS"));
+    body.appendChild(el("p", { class: "text-xs text-faint", style: "margin-bottom:10px" },
+      "Add a supplement and set its own daily reminder time."));
+    body.appendChild(el("button", { class: "btn btn-block", "data-testid": "reminders-add-supplement", on: { click: async () => {
+      await persist();            // keep any meal-time edits made here
+      closeModal();
+      openSupplementForm(null);
+    } } }, el("span", { html: icons.plus }), "Add supplement"));
+
+    const footer = el("div", {},
+      el("button", { class: "btn", on: { click: closeModal } }, "Cancel"),
+      el("button", { class: "btn btn-primary", on: { click: async () => {
+        await persist();
+        closeModal();
+        toast("Reminder times saved");
+        afterNutritionChange();
+      } } }, "Save")
+    );
+    openModal("Reminders", body, footer);
   }
 
   async function toggleSupplementTaken(supp, todayLogs) {
@@ -5885,7 +6726,7 @@
       });
       toast(`${supp.name} logged`);
     }
-    renderMain();
+    afterNutritionChange();
   }
 
   async function renderSupplementsCard() {
@@ -5984,8 +6825,56 @@
   // Remembers which nutrition card was active so an action-triggered re-render
   // returns there instead of snapping back to Overview. Cleared on dock nav.
   let nutritionScrollKey = null;
+  // Exact pixel scroll of the nutrition pager, so an in-place refresh restores
+  // the precise position (no snap-to-panel jump). Cleared on dock nav.
+  let nutritionScrollTop = 0;
+
+  // Re-render the Nutrition tab with no teardown flash: build a fresh view
+  // off-screen (while the current one stays visible), then swap it in a single
+  // synchronous step and restore the exact scroll. Used after logging/removing
+  // a meal so the screen updates without the jarring rebuild + scroll lurch.
+  async function refreshNutritionInPlace() {
+    if (state.tab !== "nutrition") { renderMain(); return; }
+    const main = $("#main");
+    if (!main) { renderMain(); return; }
+    const oldView = main.querySelector(".view");
+    const fresh = el("div", { class: "view" });
+    await renderNutrition(fresh);
+    const freshPager = fresh.querySelector(".npager");
+    if (oldView) oldView.replaceWith(fresh); else main.appendChild(fresh);
+    if (freshPager) freshPager.scrollTop = nutritionScrollTop;
+    requestAnimationFrame(() => applyCountUps(main));
+  }
+  // A meal/supplement/reminder change: update Nutrition in place (no rebuild
+  // flash or scroll jump); anywhere else, a normal render.
+  function afterNutritionChange() {
+    if (state.tab === "nutrition") return refreshNutritionInPlace();
+    renderMain();
+  }
   // Same idea for the active-workout exercise pager (index of the active card).
   let workoutScrollIdx = 0;
+  // Exact pixel scroll of the workout pager, for a jump-free in-place refresh.
+  let workoutScrollTop = 0;
+
+  // No-flash rebuild of the Workout tab (add/remove exercise, change type):
+  // build off-screen, swap in one step, restore the exact scroll. Mirrors
+  // refreshNutritionInPlace so the pager no longer lurches on those actions.
+  async function refreshWorkoutInPlace() {
+    if (state.tab !== "workout") { renderMain(); return; }
+    const main = $("#main");
+    if (!main) { renderMain(); return; }
+    const oldView = main.querySelector(".view");
+    const fresh = el("div", { class: "view" });
+    await renderWorkout(fresh);
+    const freshPager = fresh.querySelector(".wpager");
+    if (oldView) oldView.replaceWith(fresh); else main.appendChild(fresh);
+    if (freshPager) freshPager.scrollTop = workoutScrollTop;
+  }
+  // An exercise was added/removed/retyped: update Workout in place, else render.
+  function afterExerciseChange() {
+    if (state.tab === "workout") return refreshWorkoutInPlace();
+    renderMain();
+  }
 
   // Redesigned nutrition tab: a vertical card pager — Overview, then one card
   // per meal section, then a Trends card. Swipe up/down; dots on the right.
@@ -6007,9 +6896,10 @@
     };
     const panelIcon = (key) => el("span", { class: "npanel-icon", html: NICONS[key] || NICONS.other });
 
-    const [meals, supplements, suppLogs] = await Promise.all([
-      Storage.getMeals(), Storage.getSupplements(), Storage.getSupplementLogs()
+    const [meals, supplements, suppLogs, savedMeals] = await Promise.all([
+      Storage.getMeals(), Storage.getSupplements(), Storage.getSupplementLogs(), Storage.getMealTemplates()
     ]);
+    const savedCount = (savedMeals || []).length;
     const today = U.todayISO();
     const todays = meals.filter(m => m.date === today);
     const energy = await resolveEnergyBudget(today);
@@ -6039,6 +6929,94 @@
     ];
     // Next meal to nudge: first with nothing logged, else the first card.
     const nextSection = mealSections.find(k => !(groups[k] || []).length) || mealSections[0];
+
+    // ---- Supplement "taken" state, updated in place (no full re-render) ----
+    const suppTotal = suppSorted.length;
+    // Elements that display the taken count in various formats; refreshed on toggle.
+    const suppCountEls = []; // { el, fmt(taken, total) }
+    function bindSuppCount(node, fmt) { suppCountEls.push({ el: node, fmt }); node.textContent = fmt(takenSuppIds.size, suppTotal); return node; }
+    function refreshSuppCounts() { for (const r of suppCountEls) r.el.textContent = r.fmt(takenSuppIds.size, suppTotal); }
+    const suppPainters = {}; // supplementId -> repaint its row in place
+    async function toggleSuppInPlace(s) {
+      const t = U.todayISO();
+      const existing = todaySuppLogs.find(l => l.supplementId === s.id && l.date === t);
+      if (existing) {
+        await Storage.deleteSupplementLog(existing.id);
+        const i = todaySuppLogs.indexOf(existing); if (i >= 0) todaySuppLogs.splice(i, 1);
+        takenSuppIds.delete(s.id);
+        toast(`${s.name} unmarked`);
+      } else {
+        const logObj = { id: U.uid(), date: t, supplementId: s.id, name: s.name, dose: s.defaultDose ?? null, unit: s.unit || "serving", time: U.nowMealTime(), taken: true, savedAt: Date.now() };
+        await Storage.saveSupplementLog(logObj);
+        todaySuppLogs.push(logObj);
+        takenSuppIds.add(s.id);
+        toast(`${s.name} logged`);
+      }
+      suppPainters[s.id] && suppPainters[s.id]();
+      refreshSuppCounts();
+      refreshRemindersCard();
+    }
+    const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+
+    // Everything still "to do" today whose reminder time has arrived.
+    function collectDueReminders() {
+      const items = [];
+      for (const s of suppSorted) {
+        if (takenSuppIds.has(s.id)) continue;
+        const st = reminderStatus(s.reminderTime);
+        if (st && st.due) items.push({ kind: "supp", id: s.id, name: s.name, time: st.time, overdue: st.overdue, s });
+      }
+      const mr = state.prefs.mealReminders || {};
+      for (const key of CORE) {
+        const st = reminderStatus(mr[key]);
+        if (!st || !st.due) continue;
+        if ((groups[key] || []).length) continue;
+        items.push({ kind: "meal", key, name: U.MEAL_SECTIONS[key].label, time: st.time, overdue: st.overdue });
+      }
+      items.sort((a, b) => (Number(b.overdue) - Number(a.overdue)) || a.time.localeCompare(b.time));
+      return items;
+    }
+
+    // One supplement row on the Supplements panel — repaints itself in place on toggle.
+    function suppRow(s) {
+      const nameEl = el("div", { class: "nfood-name" }, s.name);
+      const metaEl = el("div", { class: "nfood-meta" });
+      const mainBtn = el("button", { class: "nfood-main", type: "button", title: "Edit", on: { click: () => openSupplementForm(s) } }, nameEl, metaEl);
+      const chipEl = s.reminderTime ? el("span", { class: "supp-remind-chip" }) : null;
+      const takeBtn = el("button", { class: "supp-take", type: "button", "data-testid": "supp-take-" + s.id });
+      takeBtn.addEventListener("click", () => toggleSuppInPlace(s));
+      const delBtn = el("button", {
+        class: "nfood-del", type: "button", "aria-label": `Remove ${s.name}`, html: icons.x,
+        on: { click: async () => {
+          if (!(await confirmDialog(`Remove “${s.name}” from your list?`, { title: "Remove supplement?", okLabel: "Remove", danger: true }))) return;
+          for (const l of todaySuppLogs.filter(x => x.supplementId === s.id)) await Storage.deleteSupplementLog(l.id);
+          await Storage.deleteSupplement(s.id);
+          toast("Supplement removed"); renderMain();
+        } }
+      });
+      const row = el("div", { class: "nfood supp-row" }, mainBtn, chipEl, takeBtn, delBtn);
+      function paint() {
+        const taken = takenSuppIds.has(s.id);
+        const log = todaySuppLogs.find(l => l.supplementId === s.id);
+        metaEl.textContent = formatSupplementDose(s) + (taken && log?.time ? ` · ${log.time}` : "") + (s.notes ? ` · ${s.notes}` : "");
+        row.classList.toggle("is-taken", taken);
+        takeBtn.className = "supp-take" + (taken ? " is-on" : "");
+        clear(takeBtn);
+        if (taken) takeBtn.appendChild(el("span", { class: "supp-take-ic", html: CHECK }));
+        takeBtn.appendChild(el("span", {}, taken ? "Taken" : "Take"));
+        if (chipEl) {
+          const st = reminderStatus(s.reminderTime);
+          chipEl.style.display = taken ? "none" : "";
+          chipEl.className = "supp-remind-chip" + (st && st.overdue ? " is-overdue" : (st && st.due ? " is-due" : ""));
+          clear(chipEl);
+          chipEl.appendChild(el("span", { class: "supp-remind-ic", html: bellIcon }));
+          chipEl.appendChild(el("span", {}, st ? ((st.due ? (st.overdue ? "Overdue " : "Due ") : "") + st.time) : ""));
+        }
+      }
+      suppPainters[s.id] = paint;
+      paint();
+      return row;
+    }
 
     const screen = el("div", { class: "npager-screen" });
     const pager = el("div", { class: "npager", "data-testid": "npager" });
@@ -6090,20 +7068,37 @@
       );
     }
 
-    function mealsTodayRow(key) {
+    // One node on the meals timeline rail.
+    function timelineNode({ badge, color, name, sub, kcal, logged, onClick }) {
+      return el("button", { class: "ntl-item", type: "button", on: { click: onClick } },
+        el("div", { class: "ntl-rail" },
+          el("div", { class: "ntl-node" + (logged ? " is-logged" : ""), style: "--meal-color:" + color }, badge)
+        ),
+        el("div", { class: "ntl-content" },
+          el("div", { class: "ntl-main" },
+            el("div", { class: "ntl-name" }, name),
+            el("div", { class: "ntl-sub" }, sub)
+          ),
+          kcal != null ? el("div", { class: "ntl-kcal" + (logged ? "" : " is-zero") }, String(kcal)) : null,
+          el("span", { class: "ntl-chev", html: NCHEV })
+        )
+      );
+    }
+    function mealTimelineItem(key) {
       const items = groups[key] || [];
       const kcal = items.reduce((s, m) => s + (m.kcal || 0), 0);
       const meta = U.MEAL_SECTIONS[key];
-      return el("button", { class: "nmeal-row", type: "button", on: { click: () => goToPanel(panelIndexForSection(key)) } },
-        el("span", { class: "nmeal-dot", style: `background:${mealColor(key)}` + (kcal > 0 ? "" : ";opacity:.35") }),
-        el("span", { class: "nmeal-badge" }, meta.short),
-        el("div", { class: "nmeal-row-main" },
-          el("div", { class: "nmeal-row-name" }, meta.label),
-          el("div", { class: "nmeal-row-sub" }, items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : "Not logged")
-        ),
-        el("div", { class: "nmeal-row-kcal" }, String(kcal)),
-        el("span", { class: "nmeal-row-chev", html: NCHEV })
-      );
+      // If a reminder is set for this section and nothing's logged past its time, flag it.
+      let sub = items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : "Not logged";
+      if (!items.length) {
+        const st = reminderStatus((state.prefs.mealReminders || {})[key]);
+        if (st && st.due) sub = (st.overdue ? "Overdue · " : "Due · ") + st.time;
+      }
+      return timelineNode({
+        badge: meta.short, color: mealColor(key), name: meta.label,
+        sub, kcal, logged: kcal > 0,
+        onClick: () => goToPanel(panelIndexForSection(key))
+      });
     }
 
     function mealPanel(key) {
@@ -6149,7 +7144,7 @@
             el("div", { class: "nfood-kcal" }, String(m.kcal || 0)),
             el("button", {
               class: "nfood-del", type: "button", "aria-label": `Remove ${m.name}`, html: icons.x,
-              on: { click: async () => { await Storage.deleteMeal(m.id); toast(`Removed ${m.name}`); renderMain(); } }
+              on: { click: async () => { await Storage.deleteMeal(m.id); toast(`Removed ${m.name}`); afterNutritionChange(); } }
             })
           ));
         }
@@ -6184,7 +7179,7 @@
           el("h2", { class: "npanel-title" }, "Supplements")
         ),
         el("div", { class: "npanel-head-right" },
-          el("div", { class: "npanel-head-kcal" }, suppSorted.length ? `${takenCount}/${suppSorted.length}` : "0"),
+          bindSuppCount(el("div", { class: "npanel-head-kcal" }), (t, n) => n ? `${t}/${n}` : "0"),
           el("div", { class: "npanel-head-sub" }, "taken")
         )
       ));
@@ -6193,7 +7188,7 @@
         el("span", { class: "ncard-badge" }, "Su"),
         el("div", { class: "ncard-head-main" },
           el("div", { class: "ncard-head-name" }, "Supplements"),
-          el("div", { class: "ncard-head-macros" }, suppSorted.length ? `${takenCount} of ${suppSorted.length} taken today` : "Daily checklist · no calories")
+          bindSuppCount(el("div", { class: "ncard-head-macros" }), (t, n) => n ? `${t} of ${n} taken today` : "Daily checklist · no calories")
         )
       ));
       const list = el("div", { class: "ncard-list" });
@@ -6202,30 +7197,7 @@
           el("div", { class: "ncard-empty-title" }, "No supplements yet"),
           el("div", { class: "ncard-empty-sub" }, "Add creatine, vitamin D, protein powder — anything you take by hand.")));
       } else {
-        for (const s of suppSorted) {
-          const taken = takenSuppIds.has(s.id);
-          const log = todaySuppLogs.find(l => l.supplementId === s.id);
-          const doseLine = formatSupplementDose(s) + (log?.time ? ` · ${log.time}` : "") + (s.notes ? ` · ${s.notes}` : "");
-          list.appendChild(el("div", { class: "nfood" },
-            el("button", { class: "nfood-main", type: "button", title: "Edit", on: { click: () => openSupplementForm(s) } },
-              el("div", { class: "nfood-name" }, s.name),
-              el("div", { class: "nfood-meta" }, doseLine)
-            ),
-            el("button", {
-              class: "supp-take" + (taken ? " is-on" : ""), type: "button",
-              on: { click: () => toggleSupplementTaken(s, todaySuppLogs) }
-            }, taken ? "Taken" : "Take"),
-            el("button", {
-              class: "nfood-del", type: "button", "aria-label": `Remove ${s.name}`, html: icons.x,
-              on: { click: async () => {
-                if (!(await confirmDialog(`Remove “${s.name}” from your list?`, { title: "Remove supplement?", okLabel: "Remove", danger: true }))) return;
-                for (const l of todaySuppLogs.filter(x => x.supplementId === s.id)) await Storage.deleteSupplementLog(l.id);
-                await Storage.deleteSupplement(s.id);
-                toast("Supplement removed"); renderMain();
-              } }
-            })
-          ));
-        }
+        for (const s of suppSorted) list.appendChild(suppRow(s));
       }
       card.appendChild(list);
       panel.appendChild(card);
@@ -6254,9 +7226,87 @@
         el("div", { class: "npanel-head-sub" }, remaining >= 0 ? "kcal left" : "kcal over")
       )
     ));
+
+    // Saved meals — quick re-log, given the prominent top spot. Logging itself
+    // now lives on the donut's + control below.
+    const savedHeroIc = el("span", { class: "nsaved-hero-ic" + (pulseSavedHero ? " save-pulse" : ""), html: icons.bookmark });
+    pulseSavedHero = false;
+    ov.appendChild(el("div", { class: "nsaved-row" },
+      el("button", {
+        class: "nsaved-hero", type: "button", "data-testid": "saved-hero",
+        title: "Log a saved meal", on: { click: () => openSavedMealsSheet() }
+      },
+        el("span", { class: "nsaved-hero-shine" }),
+        savedHeroIc,
+        el("span", { class: "nsaved-hero-text" },
+          el("span", { class: "nsaved-hero-title" }, "Saved meals"),
+          el("span", { class: "nsaved-hero-sub" }, savedCount ? `${savedCount} saved · tap to re-log` : "Bookmark a meal to re-log it fast")
+        ),
+        savedCount ? el("span", { class: "nsaved-hero-count" }, String(savedCount)) : el("span", { class: "nsaved-hero-chev", html: NCHEV })
+      ),
+      // Compact secondary control — set meal reminder times (low-frequency config).
+      el("button", {
+        class: "nsaved-remind", type: "button", title: "Meal reminder times",
+        "aria-label": "Meal reminder times", "data-testid": "reminder-times-btn",
+        on: { click: () => openReminderSettings() }
+      }, el("span", { class: "nsaved-remind-ic", html: bellIcon }))
+    ));
+
+    // Reminders nudge — what's still to do today whose time has arrived. Rebuilt in place.
+    const remindersCard = el("div", { class: "nremind-card", "data-testid": "reminders-card" });
+    function refreshRemindersCard() {
+      const due = collectDueReminders();
+      clear(remindersCard);
+      if (!due.length) { remindersCard.style.display = "none"; return; }
+      remindersCard.style.display = "";
+      const overdueN = due.filter(d => d.overdue).length;
+      remindersCard.appendChild(el("div", { class: "nremind-head" },
+        el("span", { class: "nremind-ic", html: bellIcon }),
+        el("div", { class: "nremind-title" }, "Reminders"),
+        el("div", { class: "nremind-count" + (overdueN ? " is-overdue" : "") }, String(due.length)),
+        el("button", { class: "nremind-edit", type: "button", title: "Reminder times", on: { click: () => openReminderSettings() } }, "Edit")
+      ));
+      for (const item of due) {
+        const when = (item.overdue ? "Overdue" : "Due") + " · " + item.time;
+        remindersCard.appendChild(el("div", { class: "nremind-item" + (item.overdue ? " is-overdue" : "") },
+          el("div", { class: "nremind-item-main" },
+            el("div", { class: "nremind-item-name" }, item.kind === "supp" ? item.name : `Log ${item.name}`),
+            el("div", { class: "nremind-item-when" }, when)
+          ),
+          item.kind === "supp"
+            ? el("button", { class: "nremind-act", type: "button", on: { click: () => toggleSuppInPlace(item.s) } }, "Take")
+            : el("button", { class: "nremind-act", type: "button", on: { click: () => openMealFork(item.key) } }, "Log")
+        ));
+      }
+    }
+    refreshRemindersCard();
+    ov.appendChild(remindersCard);
+
+    // Meals hub — the donut flanked by log (+) / remove (−), lifted above the
+    // ring so logging is reachable in the first screenful. Captions + a pulse
+    // on + make the actions legible; − is disabled until there's a meal to remove.
+    const donutEntries = mealSections.map(key => ({
+      key, label: U.MEAL_SECTIONS[key].label,
+      kcal: (groups[key] || []).reduce((s, m) => s + (m.kcal || 0), 0),
+      color: mealColor(key)
+    }));
+    const anyLogged = donutEntries.some(e => e.kcal > 0);
+    const MINUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="6" y1="12" x2="18" y2="12"/></svg>';
+    const PLUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="12" y1="6" x2="12" y2="18"/><line x1="6" y1="12" x2="18" y2="12"/></svg>';
+    const fab = (side, label, svg, testid, opts) => el("div", { class: "ndonut-fab-wrap" },
+      el("button", Object.assign({ class: "ndonut-fab ndonut-" + side, type: "button", "aria-label": label, title: label, "data-testid": testid }, opts),
+        el("span", { class: "ndonut-fab-ic", html: svg })),
+      el("span", { class: "ndonut-fab-cap" }, label.split(" ")[0])
+    );
+    const minusBtn = fab("minus", "Remove a meal", MINUS_SVG, "donut-remove",
+      anyLogged ? { on: { click: () => openRemoveMealSheet() } } : { disabled: "", "aria-disabled": "true" });
+    const plusBtn = fab("plus" + (anyLogged ? "" : " is-pulsing"), "Log a meal", PLUS_SVG, "donut-add",
+      { on: { click: () => openMealFork(nextSection) } });
+    ov.appendChild(el("div", { class: "ndonut-row nmeals-hub" }, minusBtn, buildMealsDonut(donutEntries, eaten), plusBtn));
+
     const ringWrap = buildEnergyRing(pct, over);
     ringWrap.appendChild(el("div", { class: "energy-ring-center" },
-      el("div", { class: "energy-ring-main" + (remaining < 0 ? " over" : "") }, (remaining >= 0 ? remaining : Math.abs(remaining)).toLocaleString("en-GB")),
+      el("div", { class: "energy-ring-main count-up" + (remaining < 0 ? " over" : "") }, (remaining >= 0 ? remaining : Math.abs(remaining)).toLocaleString("en-GB")),
       el("div", { class: "energy-ring-sub" }, remaining >= 0 ? "LEFT" : "OVER"),
       el("div", { class: "nring-detail" }, `${eaten.toLocaleString("en-GB")} / ${goal.toLocaleString("en-GB")} kcal`)
     ));
@@ -6282,29 +7332,18 @@
     }
     const mealsWrap = el("div", { class: "nmeals-today" });
     mealsWrap.appendChild(el("div", { class: "nmeals-head" },
-      el("div", { class: "nsection-label" }, "MEALS TODAY"),
-      el("button", { class: "nsaved-chip", type: "button", on: { click: () => openSavedMealsSheet() } },
-        el("span", { html: icons.bookmark }), "Saved")
+      el("div", { class: "nsection-label" }, "MEALS TODAY")
     ));
-    // Donut: today's calories split by meal.
-    const donutEntries = mealSections.map(key => ({
-      key, label: U.MEAL_SECTIONS[key].label,
-      kcal: (groups[key] || []).reduce((s, m) => s + (m.kcal || 0), 0),
-      color: mealColor(key)
+    // Vertical timeline rail — meals flow down the day, colour-keyed to the donut hub above.
+    const timeline = el("div", { class: "nmeal-timeline" });
+    for (const key of mealSections) timeline.appendChild(mealTimelineItem(key));
+    timeline.appendChild(timelineNode({
+      badge: "Su", color: mealColor("supplements"), name: "Supplements",
+      sub: suppTotal ? bindSuppCount(el("div"), (t, n) => `${t} of ${n} taken`) : "None added",
+      kcal: null, logged: suppTotal > 0 && takenSuppIds.size > 0,
+      onClick: () => goToPanel(idxOf("supplements"))
     }));
-    if (donutEntries.some(e => e.kcal > 0)) {
-      mealsWrap.appendChild(buildMealsDonut(donutEntries, eaten));
-    }
-    for (const key of mealSections) mealsWrap.appendChild(mealsTodayRow(key));
-    // Supplements summary row → jumps to the supplements checklist card.
-    mealsWrap.appendChild(el("button", { class: "nmeal-row", type: "button", on: { click: () => goToPanel(idxOf("supplements")) } },
-      el("span", { class: "nmeal-badge" }, "Su"),
-      el("div", { class: "nmeal-row-main" },
-        el("div", { class: "nmeal-row-name" }, "Supplements"),
-        el("div", { class: "nmeal-row-sub" }, suppSorted.length ? `${takenSuppIds.size} of ${suppSorted.length} taken` : "None added")
-      ),
-      el("span", { class: "nmeal-row-chev", html: NCHEV })
-    ));
+    mealsWrap.appendChild(timeline);
     ov.appendChild(mealsWrap);
     const ovFoot = el("div", { class: "npanel-foot" });
     ovFoot.appendChild(el("button", { class: "btn btn-primary btn-block", on: { click: () => goToPanel(panelIndexForSection(nextSection)) } },
@@ -6370,6 +7409,7 @@
     renderDots();
     let sRAF = null;
     pager.addEventListener("scroll", () => {
+      nutritionScrollTop = pager.scrollTop; // exact position for in-place refresh
       if (sRAF) return;
       sRAF = requestAnimationFrame(() => {
         sRAF = null;
@@ -6385,13 +7425,28 @@
     }, { passive: true });
 
     view.appendChild(screen);
-    // Restore the card the user was on before an action re-rendered the tab.
-    if (nutritionScrollKey && panelKeys.includes(nutritionScrollKey)) {
-      const ri = idxOf(nutritionScrollKey);
-      requestAnimationFrame(() => {
-        if (pager.children[ri]) { pager.scrollTop = pager.children[ri].offsetTop; activeIdx = ri; syncDots(); }
-      });
-    }
+    // Restore exact scroll (set synchronously to avoid a painted frame at 0),
+    // falling back to the remembered panel the first time we land here.
+    const restoreScroll = () => {
+      if (nutritionScrollTop > 0) { pager.scrollTop = nutritionScrollTop; }
+      else if (nutritionScrollKey && panelKeys.includes(nutritionScrollKey)) {
+        const ri = idxOf(nutritionScrollKey);
+        if (pager.children[ri]) pager.scrollTop = pager.children[ri].offsetTop;
+      }
+      // keep dots in sync with wherever we landed
+      const center = pager.scrollTop + pager.clientHeight / 2;
+      let best = 0, bd = Infinity;
+      for (let i = 0; i < pager.children.length; i++) {
+        const cc = pager.children[i].offsetTop + pager.children[i].offsetHeight / 2;
+        const d = Math.abs(cc - center);
+        if (d < bd) { bd = d; best = i; }
+      }
+      activeIdx = best; syncDots();
+    };
+    restoreScroll();
+    requestAnimationFrame(restoreScroll);
+    // Count-ups must run after this async render has attached its numbers.
+    requestAnimationFrame(() => { if (document.contains(view)) applyCountUps(view); });
     return;
   }
 
@@ -6884,7 +7939,51 @@
     };
     await Storage.saveMeal(meal);
     toast(`Logged ${name} · about ${meal.kcal} kcal`);
-    renderMain();
+    afterNutritionChange();
+  }
+
+  // Sheet reached from the "−" beside the meals donut: pick a logged meal to remove.
+  async function openRemoveMealSheet(dateHint = null) {
+    const date = dateHint || U.todayISO();
+    const ORDER = ["breakfast", "lunch", "dinner", "snack", "pre_workout", "post_workout", "other"];
+    let listEl;
+    async function buildList() {
+      const meals = (await Storage.getMeals()).filter(m => m.date === date);
+      const box = el("div", { class: "remove-meal-list" });
+      if (!meals.length) {
+        box.appendChild(el("div", { class: "ncard-empty" },
+          el("div", { class: "ncard-empty-title" }, "Nothing to remove"),
+          el("div", { class: "ncard-empty-sub" }, "No meals are logged for today yet.")));
+        return box;
+      }
+      meals.sort((a, b) =>
+        (ORDER.indexOf(U.normalizeMealSection(a.section)) - ORDER.indexOf(U.normalizeMealSection(b.section))) ||
+        String(a.time || "").localeCompare(String(b.time || "")));
+      for (const m of meals) {
+        const meta = U.mealSectionLabel(m.section) + (m.time ? ` · ${m.time}` : "");
+        box.appendChild(el("div", { class: "nfood" },
+          el("div", { class: "nfood-main" },
+            el("div", { class: "nfood-name" }, m.name),
+            el("div", { class: "nfood-meta" }, meta)),
+          el("div", { class: "nfood-kcal" }, String(m.kcal || 0)),
+          el("button", {
+            class: "nfood-del", type: "button", "aria-label": `Remove ${m.name}`, html: icons.x,
+            on: { click: async () => {
+              await Storage.deleteMeal(m.id);
+              toast(`Removed ${m.name}`);
+              afterNutritionChange();
+              const fresh = await buildList();
+              listEl.replaceWith(fresh);
+              listEl = fresh;
+            } }
+          })
+        ));
+      }
+      return box;
+    }
+    listEl = await buildList();
+    const footer = el("div", {}, el("button", { class: "btn btn-primary", on: { click: closeModal } }, "Done"));
+    openModal("Remove a meal", listEl, footer);
   }
 
   // Full-screen "fork in the road" for logging a meal — mirrors the + button.
@@ -7150,7 +8249,7 @@
       el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "Meal name"), nameI)),
       el("div", { class: "form-row" },
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Calories"), kcalI),
-        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Category"), sectionS)
+        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Category"), wheelizeSelect(sectionS, { title: "Meal category" }))
       ),
       el("div", { class: "settings-section-title", style: "margin-top: 4px" }, "Macros (g)"),
       el("div", { class: "form-row macro-fields" },
@@ -7219,7 +8318,7 @@
           renderMain();
           openNutritionDayDetail(mealDate);
         } else {
-          renderMain();
+          afterNutritionChange();
         }
       } } }, existing?.id ? "Update" : "Save meal")
     );
@@ -7247,7 +8346,7 @@
       el("div", { class: "form-row" }, el("div", { style: "flex:1" }, el("label", { class: "label" }, "Name"), nameI)),
       el("div", { class: "form-row" },
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Calories"), kcalI),
-        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Default category"), sectionS)
+        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Default category"), wheelizeSelect(sectionS, { title: "Default category" }))
       ),
       el("div", { class: "form-row macro-fields" },
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Protein"), proteinI),
@@ -7633,6 +8732,7 @@
     // Workout log
     const card = el("div", { class: "card" });
     card.appendChild(el("div", { class: "card-title" }, `Workout log (${completed.length})`));
+    let firstItem = true;
     for (const w of completed) {
       const totalVol = (w.exercises || []).reduce((s, e) => s + U.volume(e.sets), 0);
       const totalSets = (w.exercises || []).reduce((s, e) => s + e.sets.length, 0);
@@ -7640,13 +8740,17 @@
       const hasStrength = (w.exercises || []).some(e => e.type !== "cardio");
       const volBit = hasStrength && totalVol > 0 ? ` · ${totalVol.toLocaleString()}kg volume` : "";
       const burnBit = burned > 0 ? ` · ≈ ${burned} kcal` : "";
-      card.appendChild(el("div", { class: "history-item", on: { click: () => openWorkoutDetail(w) } },
+      // The freshly-finished session (top of the list) gets a one-off flourish.
+      const flourish = firstItem && finishFlourish ? " finish-flourish" : "";
+      firstItem = false;
+      card.appendChild(el("div", { class: "history-item" + flourish, on: { click: () => openWorkoutDetail(w) } },
         el("div", { class: "history-item-date" }, U.formatDate(w.date, { year: "numeric" })),
         el("div", { class: "history-item-name" }, w.name || "Workout"),
         el("div", { class: "history-item-summary" },
           `${w.exercises.length} ${w.exercises.length === 1 ? "exercise" : "exercises"} · ${totalSets} ${totalSets === 1 ? "set" : "sets"}${volBit}${burnBit} · ${U.formatDuration(w.durationSec)}`)
       ));
     }
+    finishFlourish = false;
     view.appendChild(card);
   }
 
@@ -8176,6 +9280,25 @@
     return btn;
   }
 
+  // Replace a <select> with a wheel field. The select stays in the DOM
+  // (hidden) so its value + change listeners keep working; the wheel writes
+  // back to it. Returns a wrapper to drop in wherever the select went.
+  function wheelizeSelect(selectEl, opts = {}) {
+    const items = Array.from(selectEl.options).map(o => ({ value: o.value, label: o.textContent }));
+    selectEl.style.display = "none";
+    selectEl.setAttribute("aria-hidden", "true");
+    const field = wheelField({
+      value: selectEl.value, items, title: opts.title || "Choose", testid: opts.testid,
+      onPick: (v) => {
+        selectEl.value = String(v);
+        selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+        selectEl.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    });
+    if (opts.class) field.classList.add(opts.class);
+    return el("span", { class: "wheel-select" }, field, selectEl);
+  }
+
   async function openSettings(opts = {}) {
     const weightKg = await getBodyweightKg();
     const restI = el("input", { class: "input input-num", type: "number", value: state.prefs.defaultRestSec });
@@ -8594,6 +9717,24 @@
       )
     );
 
+    // Appearance / theme — moved here from the (now removed) header toggle.
+    const isDarkNow = document.documentElement.classList.contains("dark");
+    const themeLight = el("button", { type: "button", class: "seg-btn" + (!isDarkNow ? " active" : ""), "data-testid": "theme-light" }, "Light");
+    const themeDark = el("button", { type: "button", class: "seg-btn" + (isDarkNow ? " active" : ""), "data-testid": "theme-dark" }, "Dark");
+    const setThemeChoice = async (t) => {
+      document.documentElement.classList.toggle("dark", t === "dark");
+      state.prefs.theme = t;
+      await Storage.setPref("theme", t);
+      themeLight.classList.toggle("active", t !== "dark");
+      themeDark.classList.toggle("active", t === "dark");
+    };
+    themeLight.addEventListener("click", () => setThemeChoice("light"));
+    themeDark.addEventListener("click", () => setThemeChoice("dark"));
+    const appearanceSection = el("div", {},
+      el("div", { class: "settings-section-title mt-16" }, "Appearance"),
+      el("div", { class: "seg-control seg-control-block" }, themeLight, themeDark)
+    );
+
     const body = el("div", { class: "settings-body" },
       // Hero — always first so setup feels outcome-led
       settingsHero,
@@ -8611,6 +9752,8 @@
         )
       ),
 
+      appearanceSection,
+
       el("div", { class: "settings-section-title mt-16", "data-step": "1" }, "1 · Body"),
       el("div", { class: "text-xs text-faint", style: "margin: -4px 0 10px" },
         "Sex, age and height unlock a suggested food room. Weight uses your latest bodyweight entry on Home."),
@@ -8618,7 +9761,7 @@
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Name (for the home greeting)"), nameI)
       ),
       el("div", { class: "form-row" },
-        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Sex"), sexS),
+        el("div", { style: "flex:1" }, el("label", { class: "label" }, "Sex"), wheelizeSelect(sexS, { title: "Sex" })),
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Age"), ageI)
       ),
       el("div", { class: "form-row" },
@@ -8638,14 +9781,14 @@
       el("div", { class: "form-row" },
         el("div", { style: "flex:1" },
           el("label", { class: "label" }, "How active is a normal day?"),
-          activityS, activityHint)
+          wheelizeSelect(activityS, { title: "Daily activity" }), activityHint)
       ),
 
       el("div", { class: "settings-section-title mt-16", "data-step": "3" }, "3 · Goal"),
       el("div", { class: "form-row" },
         el("div", { style: "flex:1" },
           el("label", { class: "label" }, "What are you aiming for?"),
-          goalIntentS, goalIntentHint),
+          wheelizeSelect(goalIntentS, { title: "Goal" }), goalIntentHint),
         el("div", { style: "flex:1" },
           el("label", { class: "label" }, "Personal tweak"),
           offsetI, offsetHint)
