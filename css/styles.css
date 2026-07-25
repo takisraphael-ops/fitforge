@@ -4585,3 +4585,39 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .hold-input-wrap { display: flex; align-items: center; gap: 8px; }
 .hold-input-wrap .input { flex: 1; min-width: 0; }
 .hold-unit { flex: none; font-size: 11.5px; font-weight: 700; color: var(--text-faint); white-space: nowrap; }
+
+/* ===== Interval protocols (conditioning sessions) ===== */
+/* Plan strip — the whole protocol at a glance, widths proportional to time */
+.ivl-plan {
+  display: flex; gap: 2px; height: 12px; margin: 4px 0 0;
+  border-radius: 999px; overflow: hidden; background: var(--bg-sunken);
+}
+.ivl-step { min-width: 2px; background: color-mix(in srgb, var(--text) 14%, transparent); border-radius: 2px; }
+.ivl-step.is-work.ivl-easy { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+.ivl-step.is-work.ivl-moderate { background: var(--accent); }
+.ivl-step.is-work.ivl-hard { background: #f0883e; }
+.ivl-step.is-work.ivl-max { background: #e5484d; }
+
+.set-row.type-interval, .set-row-header.type-interval { grid-template-columns: 34px 1fr 1fr auto; }
+.ivl-effort { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.ivl-effort-label { font-size: 13px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ivl-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+.ivl-dot.ivl-easy { background: color-mix(in srgb, var(--accent) 50%, transparent); }
+.ivl-dot.ivl-hard { background: #f0883e; }
+.ivl-dot.ivl-max { background: #e5484d; }
+
+/* Preset session badge in template lists */
+.tpl-preset-chip {
+  font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  border-radius: 100px; padding: 2px 8px; margin-left: 8px;
+}
+.ivl-detail-list { display: flex; flex-direction: column; gap: 2px; }
+.ivl-detail-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 2px;
+  border-bottom: 1px solid var(--border); font-size: 14px;
+}
+.ivl-detail-row:last-child { border-bottom: none; }
+.ivl-detail-label { flex: 1; min-width: 0; font-weight: 700; }
+.ivl-detail-time { flex: none; color: var(--text-muted); font-variant-numeric: tabular-nums; font-weight: 700; }

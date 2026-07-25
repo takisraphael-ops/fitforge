@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=122").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=124").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -140,7 +140,7 @@
           const isCardio = ex.type === "cardio";
           const doneSets = (ex.sets || []).filter(s => {
             if (!s.done) return false;
-            if (ex.type === "hold" || s.seconds != null) return !!s.seconds;
+            if (ex.type === "hold" || ex.type === "interval" || s.seconds != null) return !!s.seconds;
             if (isCardio || s.durationMin != null) return !!s.durationMin;
             // Bodyweight sets store weight as 0 — still valid if reps logged.
             return s.reps != null && s.reps > 0;
@@ -648,6 +648,10 @@
       // Mobility: a timed hold in seconds (per side when the exercise says so).
       return { seconds: null, done: false };
     }
+    if (type === "interval") {
+      // Conditioning: one prescribed effort in seconds at a target intensity.
+      return { seconds: null, intensity: "moderate", done: false };
+    }
     return { weight: null, reps: null, done: false };
   }
 
@@ -666,7 +670,7 @@
     const src = (sets || []).filter(s => {
       if (!s) return false;
       if (type === "custom" || s.value != null) return s.done || s.value != null;
-      if (type === "hold" || s.seconds != null) return s.done || s.seconds != null;
+      if (type === "hold" || type === "interval" || s.seconds != null) return s.done || s.seconds != null;
       if (type === "cardio" || s.durationMin != null) {
         return s.done || s.durationMin != null || s.distanceKm != null;
       }
@@ -678,6 +682,9 @@
     }
     if (type === "hold") {
       return src.map(s => ({ seconds: s.seconds ?? null, done: false }));
+    }
+    if (type === "interval") {
+      return src.map(s => ({ seconds: s.seconds ?? null, intensity: s.intensity || "moderate", label: s.label ?? null, done: false }));
     }
     if (type === "cardio") {
       return src.map(s => ({
@@ -1040,6 +1047,8 @@
     // Mobility work is a timed hold, never sets×reps — classify before cardio so
     // a stretch is never mistaken for a duration-based cardio interval.
     if (ex && (ex.type === "hold" || ex.category === "mobility")) return "hold";
+    // Interval protocols keep their own step plan and log in seconds.
+    if (ex && ex.type === "interval") return "interval";
     // Cardio classification always wins over a stale stored type so Running never
     // falls back to kg/reps just because an older session saved type: "weighted".
     if (looksLikeCardio(ex)) return "cardio";
@@ -1114,6 +1123,7 @@
     if (source.type === "custom" || ex?.type === "custom") return ["custom"];
     // Mobility is always a timed hold — no other logging mode makes sense.
     if (source.type === "hold" || ex?.type === "hold" || source.category === "mobility") return ["hold"];
+    if (source.type === "interval" || ex?.type === "interval") return ["interval"];
     if (looksLikeCardio(source) || looksLikeCardio(ex)) return ["cardio"];
     const equipment = String(source.equipment || ex?.equipment || "").toLowerCase();
     const name = String(source.name || ex?.name || "").toLowerCase();
@@ -1159,6 +1169,15 @@
         (ex.sets || []).every(s => !s.done && s.value == null);
       if (onlyEmpty) ex.sets = [emptySetForType("custom")];
       if (def?.met != null && ex.met == null) ex.met = def.met;
+      return ex;
+    }
+    // Interval protocols: lock the type; the plan lives on the entry.
+    if (source.type === "interval" || ex.type === "interval") {
+      ex.type = "interval";
+      if (def?.met != null && ex.met == null) ex.met = def.met;
+      const onlyEmpty = !(ex.sets || []).length ||
+        (ex.sets || []).every(s => !s.done && s.seconds == null);
+      if (onlyEmpty && !(ex.sets || []).length) ex.sets = [emptySetForType("interval")];
       return ex;
     }
     // Mobility holds: lock the type and keep the seconds-based set shape.
@@ -2805,7 +2824,7 @@
     view.appendChild(topbar);
 
     // Weekly-plan data for the today hero + week strip
-    const [allEx, templates] = await Promise.all([getAllExercises(), Storage.getTemplates()]);
+    const [allEx, templates] = await Promise.all([getAllExercises(), getAllTemplates()]);
     const exById = new Map(allEx.map(e => [e.id, e]));
     const tplById = new Map(templates.map(t => [t.id, t]));
     const plan = getWeeklyPlan();
@@ -3131,8 +3150,45 @@
     { key: "Core", match: /abdominal|oblique|core|quadratus/i }
   ];
 
+  // ============ Pre-built sessions ============
+  // Presets share the template shape, so the planner, Templates sheet and
+  // "Start" flow treat them like any other template — they're just read-only.
+  function presetSessions() {
+    return (typeof window !== "undefined" && Array.isArray(window.PRESET_SESSIONS))
+      ? window.PRESET_SESSIONS : [];
+  }
+  /** User templates plus the built-in sessions, newest user templates first. */
+  async function getAllTemplates() {
+    const mine = (await Storage.getTemplates()).slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    return [...mine, ...presetSessions()];
+  }
+  const isPresetId = (id) => typeof id === "string" && id.startsWith("preset-");
+
+  /** Total prescribed seconds for an interval plan. */
+  function intervalTotalSec(intervals) {
+    return (intervals?.steps || []).reduce((s, st) => s + (st.sec || 0), 0);
+  }
+  /** Compact human summary, e.g. "4 × 4:00 hard · 43 min". */
+  function intervalSummary(intervals) {
+    const steps = intervals?.steps || [];
+    const work = steps.filter(s => s.work);
+    const mins = Math.round(intervalTotalSec(intervals) / 60);
+    if (!work.length) return `${mins} min`;
+    const first = work[0];
+    const uniform = work.every(s => s.sec === first.sec && s.intensity === first.intensity);
+    if (uniform && work.length > 1) {
+      return `${work.length} × ${U.formatTime(first.sec)} ${(U.INTENSITY[first.intensity]?.label || "").toLowerCase()} · ${mins} min`;
+    }
+    if (work.length === 1) return `${U.formatTime(first.sec)} ${(U.INTENSITY[first.intensity]?.label || "").toLowerCase()} · ${mins} min`;
+    return `${work.length} efforts · ${mins} min`;
+  }
+
   // Short "Chest & Triceps"-style label from a template's exercises.
   function templateFocus(template, byId) {
+    // A conditioning protocol's focus is the protocol, not whichever muscles
+    // running happens to list — "Core" on a 4×4 would be nonsense.
+    if (template?.pillar === "conditioning") return "Conditioning";
+    if (template?.pillar === "recovery") return "Recovery";
     const counts = {};
     for (const te of (template.exercises || [])) {
       const def = byId.get(te.exerciseId);
@@ -3149,7 +3205,9 @@
   function templateEstMin(template) {
     let min = 0;
     for (const te of (template.exercises || [])) {
-      if (te.targetDurationMin != null) min += te.targetDurationMin;
+      // Interval protocols carry their own prescribed length.
+      if (te.intervals) min += intervalTotalSec(te.intervals) / 60;
+      else if (te.targetDurationMin != null) min += te.targetDurationMin;
       else min += (te.targetSets || 3) * 3.5;
     }
     return Math.max(5, Math.round(min / 5) * 5);
@@ -3585,6 +3643,21 @@
         const def = all.find(x => x.id === te.exerciseId);
         const type = def ? inferExerciseType(def) : "weighted";
         const prev = lastById.get(te.exerciseId);
+        // Interval protocols carry their own step plan; one loggable set per
+        // work effort, with the prescribed duration pre-filled.
+        if (te.intervals && (te.intervals.steps || []).length) {
+          const work = te.intervals.steps.filter(s => s.work);
+          return {
+            exerciseId: te.exerciseId,
+            name: te.name || def?.name || "Exercise",
+            type: "interval",
+            met: def?.met,
+            plan: te.intervals,
+            sets: (work.length ? work : te.intervals.steps).map(s => ({
+              seconds: s.sec, intensity: s.intensity || "moderate", label: s.label || null, done: false
+            }))
+          };
+        }
         if (type === "cardio") {
           // Prefer last logged interval when template has no targets.
           if (prev && prev.sets && prev.sets.length &&
@@ -3708,37 +3781,104 @@
     }, 1000);
   }
 
+  // What a preset session actually asks of you, before you commit to it.
+  function openSessionDetail(t) {
+    const ivl = (t.exercises || []).find(e => e.intervals)?.intervals;
+    const body = el("div", {});
+    if (t.detail) body.appendChild(el("p", { class: "text-sm text-muted", style: "margin:0 0 14px" }, t.detail));
+    if (ivl) {
+      body.appendChild(el("div", { class: "nsection-label", style: "margin-bottom:6px" }, "THE PLAN"));
+      const strip = el("div", { class: "ivl-plan" });
+      for (const st of ivl.steps) {
+        strip.appendChild(el("div", {
+          class: "ivl-step" + (st.work ? " is-work" : "") + ` ivl-${st.intensity || "moderate"}`,
+          style: `flex-grow:${Math.max(1, st.sec)}`, title: `${st.label || ""} · ${U.formatTime(st.sec)}`
+        }));
+      }
+      body.appendChild(strip);
+      body.appendChild(el("div", { class: "text-xs text-faint", style: "margin:8px 0 12px" }, intervalSummary(ivl)));
+      // Collapse consecutive identical steps so a 66-step protocol stays readable.
+      const rows = [];
+      for (const st of ivl.steps) {
+        const last = rows[rows.length - 1];
+        if (last && last.sec === st.sec && last.intensity === st.intensity && last.label === st.label) last.n++;
+        else rows.push({ ...st, n: 1 });
+      }
+      const list = el("div", { class: "ivl-detail-list" });
+      for (const r of rows) {
+        list.appendChild(el("div", { class: "ivl-detail-row" },
+          el("span", { class: `ivl-dot ivl-${r.intensity || "moderate"}` }),
+          el("span", { class: "ivl-detail-label" }, (r.n > 1 ? `${r.n} × ` : "") + (r.label || U.INTENSITY[r.intensity]?.label || "")),
+          el("span", { class: "ivl-detail-time" }, U.formatTime(r.sec))
+        ));
+      }
+      body.appendChild(list);
+    } else {
+      body.appendChild(el("div", { class: "nsection-label", style: "margin-bottom:6px" }, "EXERCISES"));
+      const list = el("div", { class: "ivl-detail-list" });
+      for (const e of (t.exercises || [])) {
+        list.appendChild(el("div", { class: "ivl-detail-row" },
+          el("span", { class: "ivl-detail-label" }, e.name),
+          el("span", { class: "ivl-detail-time" }, `${e.targetSets || 3} × ${e.targetReps || 8}`)
+        ));
+      }
+      body.appendChild(list);
+    }
+    const footer = el("div", {},
+      el("button", { class: "btn", on: { click: closeModal } }, "Close"),
+      el("button", { class: "btn btn-primary", on: { click: () => { closeModal(); startNewWorkout(t); } } }, "Start session")
+    );
+    openModal(t.name, body, footer);
+  }
+
   // Templates hub — reached from the right-edge handle on the start screen.
   async function openTemplatesSheet() {
     let sheetBody;
     const build = async () => {
-      const templates = await Storage.getTemplates();
+      const mine = (await Storage.getTemplates()).slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      const presets = presetSessions();
       const box = el("div", { class: "templates-sheet" });
-      if (!templates.length) {
+      const cardFor = (t) => {
+        const preset = !!t.preset;
+        const ivl = (t.exercises || []).find(e => e.intervals)?.intervals;
+        const isCardioEntry = e => e.targetDurationMin != null || looksLikeCardio({ id: e.exerciseId, name: e.name });
+        const setsTotal = t.exercises.reduce((s, e) => s + (e.intervals || isCardioEntry(e) ? 0 : (e.targetSets || 3)), 0);
+        const cardioMin = t.exercises.reduce((s, e) => s + (isCardioEntry(e) ? (e.targetDurationMin || 0) : 0), 0);
+        const meta = ivl ? intervalSummary(ivl) : [
+          `${t.exercises.length} exercise${t.exercises.length === 1 ? "" : "s"}`,
+          setsTotal > 0 ? `${setsTotal} sets` : null,
+          cardioMin > 0 ? `${cardioMin} min cardio` : null
+        ].filter(Boolean).join(" · ");
+        return el("div", { class: "template-card", "data-testid": preset ? `preset-${t.id}` : undefined },
+          el("div", { class: "template-card-name" }, t.name,
+            preset ? el("span", { class: "tpl-preset-chip" }, "Preset") : null),
+          el("div", { class: "template-card-meta" }, meta),
+          el("div", { class: "template-card-exercises" },
+            t.desc || (t.exercises.slice(0, 4).map(e => e.name).join(" · ") + (t.exercises.length > 4 ? ` +${t.exercises.length - 4} more` : ""))),
+          el("div", { class: "row mt-8", style: "gap: 6px" },
+            el("button", { class: "btn btn-primary btn-sm", on: { click: () => { closeModal(); startNewWorkout(t); } } }, "Start"),
+            preset
+              ? el("button", { class: "btn btn-sm", on: { click: () => openSessionDetail(t) } }, "Details")
+              : el("button", { class: "btn btn-sm", on: { click: () => { closeModal(); openTemplateEditor(t); } } }, "Edit"),
+            preset ? null : el("button", { class: "icon-btn", title: "Delete template", html: icons.trash, on: { click: async () => {
+              if (!(await confirmDialog(`Delete template “${t.name}”?`, { title: "Delete template?", okLabel: "Delete", danger: true }))) return;
+              await Storage.deleteTemplate(t.id);
+              const fresh = await build(); sheetBody.replaceWith(fresh); sheetBody = fresh;
+            } } })
+          )
+        );
+      };
+      if (!mine.length) {
         box.appendChild(el("div", { class: "ncard-empty" },
-          el("div", { class: "ncard-empty-title" }, "No templates yet"),
-          el("div", { class: "ncard-empty-sub" }, "Build a reusable workout, or finish a session and save it as a template.")));
+          el("div", { class: "ncard-empty-title" }, "No templates of your own yet"),
+          el("div", { class: "ncard-empty-sub" }, "Build a reusable workout, or start from a preset session below.")));
       } else {
-        for (const t of templates.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))) {
-          const isCardioEntry = e => e.targetDurationMin != null || looksLikeCardio({ id: e.exerciseId, name: e.name });
-          const setsTotal = t.exercises.reduce((s, e) => s + (isCardioEntry(e) ? 0 : (e.targetSets || 3)), 0);
-          const cardioMin = t.exercises.reduce((s, e) => s + (isCardioEntry(e) ? (e.targetDurationMin || 0) : 0), 0);
-          const meta = [`${t.exercises.length} exercise${t.exercises.length === 1 ? "" : "s"}`, setsTotal > 0 ? `${setsTotal} sets` : null, cardioMin > 0 ? `${cardioMin} min cardio` : null].filter(Boolean).join(" · ");
-          box.appendChild(el("div", { class: "template-card" },
-            el("div", { class: "template-card-name" }, t.name),
-            el("div", { class: "template-card-meta" }, meta),
-            el("div", { class: "template-card-exercises" }, t.exercises.slice(0, 4).map(e => e.name).join(" · ") + (t.exercises.length > 4 ? ` +${t.exercises.length - 4} more` : "")),
-            el("div", { class: "row mt-8", style: "gap: 6px" },
-              el("button", { class: "btn btn-primary btn-sm", on: { click: () => { closeModal(); startNewWorkout(t); } } }, "Start"),
-              el("button", { class: "btn btn-sm", on: { click: () => { closeModal(); openTemplateEditor(t); } } }, "Edit"),
-              el("button", { class: "icon-btn", title: "Delete template", html: icons.trash, on: { click: async () => {
-                if (!(await confirmDialog(`Delete template “${t.name}”?`, { title: "Delete template?", okLabel: "Delete", danger: true }))) return;
-                await Storage.deleteTemplate(t.id);
-                const fresh = await build(); sheetBody.replaceWith(fresh); sheetBody = fresh;
-              } } })
-            )
-          ));
-        }
+        box.appendChild(el("div", { class: "nsection-label", style: "margin:2px 0 2px" }, "YOUR TEMPLATES"));
+        for (const t of mine) box.appendChild(cardFor(t));
+      }
+      if (presets.length) {
+        box.appendChild(el("div", { class: "nsection-label", style: "margin:14px 0 2px" }, "PRESET SESSIONS"));
+        for (const t of presets) box.appendChild(cardFor(t));
       }
       return box;
     };
@@ -3868,8 +4008,7 @@
   // Guided, one-day-per-screen weekly plan builder — same stepped feel as the
   // profile quiz. Assigns a template / Rest / Open to each weekday.
   async function openWeeklyPlanQuiz() {
-    const templates = (await Storage.getTemplates())
-      .slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    const templates = await getAllTemplates();
     const tplById = new Map(templates.map(t => [t.id, t]));
     const draft = { ...getWeeklyPlan() };
     const todayKey = weekdayKeyFor();
@@ -4266,12 +4405,13 @@
     normalizeWorkoutExercise(ex, def);
     if (def?.met != null && ex.met == null) ex.met = def.met;
     const isCustom = (def?.type === "custom") || ex.type === "custom";
+    const isInterval = !isCustom && ex.type === "interval";
     // Mobility holds are checked before cardio so a timed stretch stays a hold.
-    const isHold = !isCustom && (ex.type === "hold" || def?.type === "hold" || def?.category === "mobility");
+    const isHold = !isCustom && !isInterval && (ex.type === "hold" || def?.type === "hold" || def?.category === "mobility");
     if (isHold) ex.type = "hold";
-    const isCardio = !isCustom && !isHold && (looksLikeCardio(def) || looksLikeCardio(ex) || ex.type === "cardio");
+    const isCardio = !isCustom && !isHold && !isInterval && (looksLikeCardio(def) || looksLikeCardio(ex) || ex.type === "cardio");
     if (isCardio) ex.type = "cardio";
-    const exType = isCustom ? "custom" : (isHold ? "hold" : (isCardio ? "cardio" : (ex.type || (def ? inferExerciseType(def) : "weighted") || "weighted")));
+    const exType = isCustom ? "custom" : (isInterval ? "interval" : (isHold ? "hold" : (isCardio ? "cardio" : (ex.type || (def ? inferExerciseType(def) : "weighted") || "weighted"))));
     const metric = isCustom ? normalizeMetric(def?.metric || ex.metric) : null;
     if (isCustom && def?.metric && !ex.metric) ex.metric = def.metric;
     const bwKg = await getBodyweightKg();
@@ -4292,6 +4432,7 @@
       weighted_bodyweight: "BW +kg",
       cardio: "Cardio",
       hold: "Hold",
+      interval: "Intervals",
       custom: metric ? metric.label : "Custom"
     };
     const allowedTypes = allowedTypesFor(def, ex);
@@ -4420,7 +4561,34 @@
         `≈ ${kpm} kcal/min at ${bwKg}kg` + (isCardio ? " · type your machine/watch reading to override" : " · estimate from effort")));
     }
 
-    if (isHold) {
+    if (isInterval) {
+      const plan = ex.plan || { steps: [] };
+      const steps = plan.steps || [];
+      // Plan overview — the whole protocol at a glance, recovery steps included.
+      if (steps.length) {
+        const strip = el("div", { class: "ivl-plan", "data-testid": "interval-plan" });
+        for (const st of steps) {
+          strip.appendChild(el("div", {
+            class: "ivl-step" + (st.work ? " is-work" : "") + ` ivl-${st.intensity || "moderate"}`,
+            style: `flex-grow:${Math.max(1, st.sec)}`,
+            title: `${st.label || ""} · ${U.formatTime(st.sec)}`
+          }));
+        }
+        body.appendChild(strip);
+        body.appendChild(el("div", { class: "text-xs text-faint", style: "margin:6px 0 10px" },
+          intervalSummary(plan)));
+      }
+      const header = el("div", { class: "set-row set-row-header type-interval" },
+        el("div", { class: "set-index" }, "#"),
+        el("div", {}, "Effort"),
+        el("div", {}, "Target"),
+        el("div", { style: "text-align:right" }, "Log")
+      );
+      body.appendChild(header);
+      for (const [si, s] of ex.sets.entries()) {
+        body.appendChild(renderIntervalRow(ex, si, s, defForMet, bwKg));
+      }
+    } else if (isHold) {
       const perSide = !!(def?.perSide || ex.perSide);
       const header = el("div", { class: "set-row set-row-header type-hold" },
         el("div", { class: "set-index" }, "#"),
@@ -4528,6 +4696,74 @@
 
     block.appendChild(body);
     return block;
+  }
+
+  // One prescribed interval effort: target duration/intensity, logged actual.
+  function renderIntervalRow(ex, si, s, def, bwKg) {
+    const target = s.seconds != null ? s.seconds : null;
+    const intens = U.INTENSITY[s.intensity]?.label || "Mod";
+    const secInput = el("input", {
+      type: "number", inputmode: "numeric",
+      class: "input input-sm input-num",
+      placeholder: target != null ? String(target) : "sec",
+      value: s.seconds != null ? String(s.seconds) : "",
+      title: "Seconds held at this effort",
+      autocomplete: "off",
+      "aria-label": `Interval ${si + 1} seconds`,
+      "data-testid": `set-interval-${si}`
+    });
+    attachNumPad(secInput, {
+      label: `${ex.name} · interval ${si + 1}`, unit: "sec", step: 5,
+      chips: target != null ? [{ label: `Target ${target}s`, value: target }] : []
+    });
+    const persist = U.debounce(async () => {
+      const v = secInput.value === "" ? null : parseInt(secInput.value, 10);
+      s.seconds = Number.isFinite(v) && v > 0 ? v : null;
+      await Storage.saveWorkout(state.activeWorkout);
+    }, 300);
+    secInput.addEventListener("input", persist);
+
+    const doneBtn = el("button", {
+      type: "button",
+      class: "set-done" + (s.done ? " checked" : ""),
+      title: s.done ? "Undo interval" : "Mark interval complete",
+      "aria-label": s.done ? "Undo interval" : "Mark interval complete",
+      "data-testid": `set-done-${si}`,
+      on: { click: async () => {
+        if (!s.done) {
+          const v = secInput.value === "" ? null : parseInt(secInput.value, 10);
+          s.seconds = Number.isFinite(v) && v > 0 ? v : null;
+          if (!s.seconds) { toast("Enter how long the effort lasted"); return; }
+          // Estimate burn from time at this intensity so totals stay meaningful.
+          const kpm = U.kcalPerMin({ ...def, type: "cardio", category: "cardio" }, bwKg, s.intensity);
+          s.kcal = Math.round((s.seconds / 60) * kpm);
+          s.done = true;
+        } else {
+          s.done = false;
+          s.kcal = null;
+        }
+        await Storage.saveWorkout(state.activeWorkout);
+        const didComplete = s.done;
+        await refreshExerciseBlock(ex);
+        if (didComplete) flashCompletedSet(ex, si);
+      } }
+    },
+      s.done ? el("span", { html: icons.check }) : null,
+      el("span", { class: "set-done-label" }, s.done ? "Done" : "Log")
+    );
+
+    return el("div", { class: "set-row type-interval" },
+      el("div", { class: "set-index" }, String(si + 1)),
+      el("div", { class: "ivl-effort" },
+        el("span", { class: `ivl-dot ivl-${s.intensity || "moderate"}` }),
+        el("span", { class: "ivl-effort-label" }, s.label || intens)
+      ),
+      el("div", { class: "hold-input-wrap" },
+        secInput,
+        el("span", { class: "hold-unit" }, "sec")
+      ),
+      el("div", { class: "set-row-actions" }, doneBtn)
+    );
   }
 
   // Mobility hold row — a timed hold in seconds, optionally per side.
