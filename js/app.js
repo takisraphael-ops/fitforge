@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=121").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=122").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -4413,9 +4413,12 @@
     }
 
     // Approx burn rate for this exercise
-    const kpm = U.kcalPerMin({ ...defForMet, type: exType, category: def?.category || (isCardio ? "cardio" : defForMet.category) }, bwKg);
-    body.appendChild(el("div", { class: "text-xs text-faint", style: "margin-bottom:8px" },
-      `≈ ${kpm} kcal/min at ${bwKg}kg` + (isCardio ? " · type your machine/watch reading to override" : " · estimate from effort")));
+    // Mobility is about time under stretch, not energy burn — no kcal estimate.
+    if (!isHold) {
+      const kpm = U.kcalPerMin({ ...defForMet, type: exType, category: def?.category || (isCardio ? "cardio" : defForMet.category) }, bwKg);
+      body.appendChild(el("div", { class: "text-xs text-faint", style: "margin-bottom:8px" },
+        `≈ ${kpm} kcal/min at ${bwKg}kg` + (isCardio ? " · type your machine/watch reading to override" : " · estimate from effort")));
+    }
 
     if (isHold) {
       const perSide = !!(def?.perSide || ex.perSide);
@@ -5729,7 +5732,8 @@
           exerciseFigureIcon(ex.category),
           el("div", { class: "exercise-card-main" },
             nameRow,
-            el("div", { class: "exercise-card-meta" }, `${EXERCISE_CATEGORIES[ex.category]} · ${ex.equipment || "—"} · ≈ ${kpm} kcal/min`),
+            el("div", { class: "exercise-card-meta" },
+              `${EXERCISE_CATEGORIES[ex.category]} · ${ex.equipment || "—"}` + (isMob ? "" : ` · ≈ ${kpm} kcal/min`)),
             infoRow
           ),
           spark
@@ -5767,6 +5771,7 @@
     const history = await getHistoryFor(exerciseId);
     const bwKg = await getBodyweightKg();
     const isCardio = inferExerciseType(ex) === "cardio" || ex.category === "cardio";
+    const isMobility = ex.category === "mobility" || inferExerciseType(ex) === "hold";
     const kpmEasy = U.kcalPerMin({ ...ex, category: "cardio", type: "cardio" }, bwKg, "easy");
     const kpmMod = U.kcalPerMin(ex, bwKg, isCardio ? "moderate" : "moderate");
     const kpmHard = U.kcalPerMin({ ...ex, category: "cardio", type: "cardio" }, bwKg, "hard");
@@ -5775,8 +5780,9 @@
       el("div", { class: "chip" }, EXERCISE_CATEGORIES[ex.category]),
       el("div", { class: "chip" }, ex.equipment || "—"),
       (ex.muscles || []).map(m => el("div", { class: "chip" }, m)),
-      // Approx calories
-      el("div", { class: "card mt-16" },
+      // Approx calories — skipped for mobility, where burn is negligible and
+      // the point is time under stretch, not energy cost.
+      isMobility ? null : el("div", { class: "card mt-16" },
         el("div", { class: "card-title", style: "margin-bottom: 8px" }, "Approx. calories burned"),
         el("div", { class: "stat-row" },
           isCardio ? el("div", { class: "stat" },
