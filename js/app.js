@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=125").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=126").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -4020,9 +4020,22 @@
         box.appendChild(el("div", { class: "nsection-label", style: "margin:2px 0 2px" }, "YOUR TEMPLATES"));
         for (const t of mine) box.appendChild(cardFor(t));
       }
-      if (presets.length) {
-        box.appendChild(el("div", { class: "nsection-label", style: "margin:14px 0 2px" }, "PRESET SESSIONS"));
-        for (const t of presets) box.appendChild(cardFor(t));
+      // 26 presets in one list is a wall — group them by pillar.
+      const PILLARS = [
+        { key: "conditioning", label: "CONDITIONING" },
+        { key: "strength", label: "STRENGTH" },
+        { key: "recovery", label: "RECOVERY" }
+      ];
+      for (const p of PILLARS) {
+        const inPillar = presets.filter(t => t.pillar === p.key);
+        if (!inPillar.length) continue;
+        box.appendChild(el("div", { class: "nsection-label", style: "margin:16px 0 2px" }, p.label));
+        for (const t of inPillar) box.appendChild(cardFor(t));
+      }
+      const other = presets.filter(t => !PILLARS.some(p => p.key === t.pillar));
+      if (other.length) {
+        box.appendChild(el("div", { class: "nsection-label", style: "margin:16px 0 2px" }, "OTHER"));
+        for (const t of other) box.appendChild(cardFor(t));
       }
       return box;
     };
@@ -4210,7 +4223,12 @@
       const items = [];
       for (const t of templates) {
         const n = (t.exercises || []).length;
-        items.push({ value: t.id, label: t.name, hint: `${n} exercise${n === 1 ? "" : "s"} · template`, icon: TEMPLATE_ICON, testid: `wplan-pick-${t.id}` });
+        // Presets read by what they are ("Conditioning · 43 min"); your own
+        // templates keep the plain exercise count.
+        const hint = t.preset
+          ? `${(t.pillar || "preset").replace(/^./, c => c.toUpperCase())} · ${t.desc || templateEstMin(t) + " min"}`
+          : `${n} exercise${n === 1 ? "" : "s"} · template`;
+        items.push({ value: t.id, label: t.name, hint, icon: TEMPLATE_ICON, testid: `wplan-pick-${t.id}` });
       }
       for (const f of DAY_FOCUSES) {
         items.push({ value: "focus:" + f.key, label: f.label, hint: f.desc, icon: f.icon, testid: `wplan-pick-focus-${f.key}` });

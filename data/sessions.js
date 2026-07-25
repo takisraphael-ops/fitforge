@@ -175,5 +175,190 @@ window.PRESET_SESSIONS = (function () {
     ]
   });
 
+  // ============ STRENGTH ============
+  // ex(id, name, sets, reps) — strength entries expand to sets×reps targets.
+  const ex = (exerciseId, name, targetSets, targetReps) => ({ exerciseId, name, targetSets, targetReps });
+  const strength = (id, name, desc, detail, exercises, extra = {}) =>
+    S.push({ id, name, preset: true, pillar: "strength", desc, detail, exercises, ...extra });
+
+  strength("preset-full-body-a", "Full Body A", "Squat · Bench · Row · 5 exercises",
+    "The first of three rotating full-body days for 3×/week training. Every session hits legs, a push and a pull, so missing one day costs you less than it would on a split.",
+    [
+      ex("squat-back", "Barbell Back Squat", 3, 5),
+      ex("bench-press-barbell", "Barbell Bench Press", 3, 5),
+      ex("row-barbell", "Barbell Bent-Over Row", 3, 8),
+      ex("ohp-dumbbell", "Dumbbell Shoulder Press", 2, 10),
+      ex("plank", "Plank", 3, 1)
+    ]);
+
+  strength("preset-full-body-b", "Full Body B", "Deadlift · OHP · Pulldown · 5 exercises",
+    "The second full-body day. Deadlift replaces squat and pressing goes overhead, so the same muscles get worked from different angles across the week.",
+    [
+      ex("deadlift-conventional", "Conventional Deadlift", 3, 5),
+      ex("ohp-barbell", "Barbell Overhead Press", 3, 5),
+      ex("lat-pulldown", "Lat Pulldown", 3, 10),
+      ex("lunge-walking", "Walking Lunge", 2, 10),
+      ex("hanging-leg-raise", "Hanging Leg Raise", 3, 10)
+    ]);
+
+  strength("preset-full-body-c", "Full Body C", "Front squat · Incline · Chin-up · 5 exercises",
+    "The third full-body day, biased toward the front squat and vertical pulling. Rotate A → B → C across the week and repeat.",
+    [
+      ex("squat-front", "Barbell Front Squat", 3, 5),
+      ex("incline-bench-dumbbell", "Incline Dumbbell Press", 3, 8),
+      ex("chin-up", "Chin-Up", 3, 6),
+      ex("hip-thrust", "Barbell Hip Thrust", 3, 10),
+      ex("side-plank", "Side Plank", 2, 1)
+    ]);
+
+  strength("preset-upper", "Upper Body", "Push & pull · 6 exercises",
+    "The upper half of a 4×/week upper–lower split. Two presses, two pulls and direct arm work, balanced so nothing gets left behind.",
+    [
+      ex("bench-press-barbell", "Barbell Bench Press", 4, 6),
+      ex("row-barbell", "Barbell Bent-Over Row", 4, 8),
+      ex("ohp-dumbbell", "Dumbbell Shoulder Press", 3, 10),
+      ex("lat-pulldown", "Lat Pulldown", 3, 10),
+      ex("curl-dumbbell", "Dumbbell Curl", 3, 12),
+      ex("tricep-pushdown", "Tricep Pushdown", 3, 12)
+    ]);
+
+  strength("preset-lower", "Lower Body", "Squat, hinge & accessories · 6 exercises",
+    "The lower half of a 4×/week upper–lower split. A squat, a hinge, single-leg work, then the smaller muscles that usually get skipped.",
+    [
+      ex("squat-back", "Barbell Back Squat", 4, 6),
+      ex("deadlift-romanian", "Romanian Deadlift", 3, 8),
+      ex("bulgarian-split-squat", "Bulgarian Split Squat", 3, 10),
+      ex("leg-curl-lying", "Lying Leg Curl", 3, 12),
+      ex("calf-raise-standing", "Standing Calf Raise", 4, 15),
+      ex("dead-bug", "Dead Bug", 3, 10)
+    ]);
+
+  strength("preset-push", "Push Day", "Chest, shoulders & triceps · 6 exercises",
+    "The push day of a push/pull/legs rotation. Heavy horizontal press first, then vertical, then the isolation work that finishes the job.",
+    [
+      ex("bench-press-barbell", "Barbell Bench Press", 4, 6),
+      ex("ohp-barbell", "Barbell Overhead Press", 3, 8),
+      ex("incline-bench-dumbbell", "Incline Dumbbell Press", 3, 10),
+      ex("lateral-raise", "Lateral Raise", 3, 15),
+      ex("tricep-pushdown", "Tricep Pushdown", 3, 12),
+      ex("overhead-tricep-extension", "Overhead Tricep Extension", 3, 12)
+    ]);
+
+  strength("preset-pull", "Pull Day", "Back & biceps · 6 exercises",
+    "The pull day of a push/pull/legs rotation. Vertical and horizontal pulling, rear delts, then curls — the mirror of push day.",
+    [
+      ex("pull-up", "Pull-Up", 4, 6),
+      ex("row-barbell", "Barbell Bent-Over Row", 4, 8),
+      ex("row-seated-cable", "Seated Cable Row", 3, 10),
+      ex("face-pull", "Face Pull", 3, 15),
+      ex("curl-barbell", "Barbell Biceps Curl", 3, 10),
+      ex("hammer-curl", "Hammer Curl", 3, 12)
+    ]);
+
+  strength("preset-legs", "Leg Day", "Quads, hamstrings & glutes · 6 exercises",
+    "The leg day of a push/pull/legs rotation. Squat, hinge, then quad and hamstring isolation so both sides of the thigh get direct work.",
+    [
+      ex("squat-back", "Barbell Back Squat", 4, 6),
+      ex("deadlift-romanian", "Romanian Deadlift", 3, 8),
+      ex("leg-press", "Leg Press", 3, 12),
+      ex("leg-curl-lying", "Lying Leg Curl", 3, 12),
+      ex("leg-extension", "Leg Extension", 3, 15),
+      ex("calf-raise-seated", "Seated Calf Raise", 4, 15)
+    ]);
+
+  strength("preset-machines", "Machines Only", "Full body, no free weights · 6 exercises",
+    "Every movement on a machine — useful when the free-weight area is packed, when you're new and would rather not fight a barbell, or on a deload where you want the work without the coordination cost.",
+    [
+      ex("leg-press", "Leg Press", 3, 12),
+      ex("machine-chest-press", "Machine Chest Press", 3, 12),
+      ex("lat-pulldown", "Lat Pulldown", 3, 12),
+      ex("machine-shoulder-press", "Machine Shoulder Press", 3, 12),
+      ex("leg-curl-seated", "Seated Leg Curl", 3, 12),
+      ex("cable-crunch", "Cable Crunch", 3, 15)
+    ]);
+
+  strength("preset-dumbbell", "Dumbbell Only", "Full body with a pair of dumbbells · 6 exercises",
+    "Everything here needs one pair of dumbbells. Built for hotel gyms and home setups where that's all there is.",
+    [
+      ex("goblet-squat", "Goblet Squat", 3, 12),
+      ex("bench-press-dumbbell", "Dumbbell Bench Press", 3, 10),
+      ex("row-dumbbell", "Dumbbell Row", 3, 10),
+      ex("ohp-dumbbell", "Dumbbell Shoulder Press", 3, 10),
+      ex("bulgarian-split-squat", "Bulgarian Split Squat", 3, 10),
+      ex("hammer-curl", "Hammer Curl", 3, 12)
+    ]);
+
+  strength("preset-bodyweight", "Bodyweight — No Equipment", "Nothing but the floor · 6 exercises",
+    "No equipment at all. For travel, illness, or a closed gym — the session that means you don't lose the week.",
+    [
+      ex("push-up", "Push-Up", 4, 12),
+      ex("lunge-walking", "Walking Lunge", 3, 12),
+      ex("glute-bridge", "Glute Bridge", 3, 15),
+      ex("plank", "Plank", 3, 1),
+      ex("hollow-hold", "Hollow Hold", 3, 1),
+      ex("dead-bug", "Dead Bug", 3, 12)
+    ]);
+
+  strength("preset-30-min", "30-Minute Express", "Four compounds, in and out",
+    "A deliberately short session: four compound lifts, nothing isolation. Pair the first two and the last two to save time. Built for the days you nearly skipped entirely.",
+    [
+      ex("squat-back", "Barbell Back Squat", 3, 8),
+      ex("bench-press-barbell", "Barbell Bench Press", 3, 8),
+      ex("row-barbell", "Barbell Bent-Over Row", 3, 8),
+      ex("ohp-dumbbell", "Dumbbell Shoulder Press", 2, 12)
+    ]);
+
+  strength("preset-deload", "Deload — Full Body", "Same movements, half the work",
+    "A planned easy week. The same pattern as a full-body day at noticeably lighter loads and fewer sets — the point is to move well and recover, not to chase anything.",
+    [
+      ex("squat-back", "Barbell Back Squat", 2, 5),
+      ex("bench-press-barbell", "Barbell Bench Press", 2, 5),
+      ex("row-barbell", "Barbell Bent-Over Row", 2, 8),
+      ex("face-pull", "Face Pull", 2, 15)
+    ]);
+
+  // ============ RECOVERY ============
+  const recovery = (id, name, desc, detail, exercises) =>
+    S.push({ id, name, preset: true, pillar: "recovery", desc, detail, exercises });
+
+  recovery("preset-mobility-flow", "Mobility Flow", "8 stretches · ~12 min",
+    "A full-body flow through the areas that tighten most. Hold each for around forty-five seconds and breathe — this is the session to do on a rest day or after a hard week.",
+    [
+      { exerciseId: "mob-cat-cow", name: "Cat-Cow", targetSets: 1, targetReps: 1 },
+      { exerciseId: "mob-worlds-greatest", name: "World's Greatest Stretch", targetSets: 1, targetReps: 1 },
+      { exerciseId: "mob-hip-flexor-kneel", name: "Kneeling Hip Flexor Stretch", targetSets: 1, targetReps: 1 },
+      { exerciseId: "mob-pigeon", name: "Pigeon Pose", targetSets: 1, targetReps: 1 },
+      { exerciseId: "mob-hamstring-seated", name: "Seated Hamstring Stretch", targetSets: 1, targetReps: 1 },
+      { exerciseId: "mob-thoracic-rotation", name: "Thoracic Rotation (Open Book)", targetSets: 1, targetReps: 1 },
+      { exerciseId: "mob-doorway-chest", name: "Doorway Chest Stretch", targetSets: 1, targetReps: 1 },
+      { exerciseId: "mob-childs-pose", name: "Child's Pose", targetSets: 1, targetReps: 1 }
+    ]);
+
+  recovery("preset-active-recovery", "Active Recovery", "25 min easy",
+    "Deliberately easy movement to push blood around without adding fatigue. If you're working hard enough to notice, you're going too hard.",
+    [{
+      exerciseId: "cycling", name: "Cycling",
+      intervals: { steps: [step(25 * 60, "easy", "Easy spin")] }
+    }]);
+
+  recovery("preset-core-finisher", "Core & Anti-Rotation", "5 exercises · ~10 min",
+    "A short finisher built around bracing and resisting rotation rather than crunching. Do it at the end of a session or on its own.",
+    [
+      ex("pallof-press", "Pallof Press", 3, 12),
+      ex("dead-bug", "Dead Bug", 3, 10),
+      ex("side-plank", "Side Plank", 3, 1),
+      ex("hollow-hold", "Hollow Hold", 3, 1),
+      ex("ab-wheel", "Ab Wheel Rollout", 3, 8)
+    ]);
+
+  recovery("preset-grip", "Grip & Forearms", "4 exercises · ~10 min",
+    "Direct grip and forearm work — usually the first thing to fail on heavy pulls, and almost never trained on purpose.",
+    [
+      ex("farmers-carry", "Farmer's Carry", 4, 1),
+      ex("wrist-curl", "Wrist Curl", 3, 15),
+      ex("hammer-curl", "Hammer Curl", 3, 12),
+      ex("shrug-barbell", "Barbell Shrug", 3, 12)
+    ]);
+
   return S;
 })();
