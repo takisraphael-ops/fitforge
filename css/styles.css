@@ -3224,13 +3224,20 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .xpick-chip-plus { display: inline-flex; }
 .xpick-chip-plus svg { width: 15px; height: 15px; stroke-width: 2.6; }
 
-/* Confirm CTA — a normal flex footer at the bottom of the picker column */
+/* Confirm CTA — a normal flex footer at the bottom of the picker column.
+   Full-screen, it has to clear the fixed dock: the button used to run 25px
+   underneath it, so taps on its lower half hit the FAB and reopened the
+   add-fork instead of starting the workout. */
 .xpick-cta {
   flex: none;
-  padding: 10px 2px calc(6px + env(safe-area-inset-bottom, 0px));
+  padding: 10px 2px calc(6px + var(--dock-clear));
   background: var(--bg);
 }
-.modal .xpick-cta { background: var(--bg-elev); }
+/* Inside a modal there is no dock to clear. */
+.modal .xpick-cta {
+  background: var(--bg-elev);
+  padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+}
 .xpick-cta-btn { padding: 14px 16px; font-size: 15px; font-weight: 700; }
 
 /* Collapsible section (Templates) */
@@ -4273,6 +4280,9 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 /* Motion system — shared "alive" micro-interactions (Tiers A/B/C) */
 /* ============================================================= */
 :root { --ease-spring: cubic-bezier(.22,1,.36,1); }
+/* Vertical space the fixed dock occupies, for any full-screen footer that
+   must sit clear of it. Dock is bottom:14px + ~68px tall, plus a gap. */
+:root { --dock-clear: calc(92px + env(safe-area-inset-bottom, 0px)); }
 
 /* Tier A · universal press feedback (buttons spring via their `all` transition) */
 .btn:active, .icon-btn:active, .seg-btn:active, .dock-item:active,

@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=138").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=139").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -6302,7 +6302,17 @@
           : null;
         grid.appendChild(el("div", {
           class: "exercise-card" + (trained ? " is-trained" : ""),
-          on: { click: () => openExerciseDetail(ex.id) }
+          // A div with a click handler is invisible to keyboards and screen
+          // readers; the whole library was mouse/touch-only without this.
+          role: "button",
+          tabindex: "0",
+          "aria-label": ex.name,
+          on: {
+            click: () => openExerciseDetail(ex.id),
+            keydown: (e) => {
+              if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openExerciseDetail(ex.id); }
+            }
+          }
         },
           exerciseFigureIcon(ex.category),
           el("div", { class: "exercise-card-main" },

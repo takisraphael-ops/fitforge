@@ -578,7 +578,10 @@ window.U = {
     }
     for (const c of children.flat()) {
       if (c == null || c === false) continue;
-      e.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+      // Numbers are the easy slip — el("div", {}, count) reads fine but
+      // appendChild throws on anything that isn't a Node, taking the whole
+      // render down. Coerce any primitive to text instead.
+      e.appendChild(c instanceof Node ? c : document.createTextNode(String(c)));
     }
     return e;
   },
