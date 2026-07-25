@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=137").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=138").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -7938,6 +7938,36 @@
       const p = pager.children[i];
       if (p) { nutritionScrollKey = panelKeys[i]; pager.scrollTo({ top: p.offsetTop, behavior: "smooth" }); }
     }
+
+    // Wrap the pager at both ends: pulling down on Overview lands on Trends
+    // (where the past-day list lives), pulling up past Trends returns to
+    // Overview. Without this the history sits six panels away from the screen
+    // you always start on. Only fires when the pager was already pinned to an
+    // edge when the drag started, so mid-panel scrolling never triggers it.
+    function initPagerWrap() {
+      const EDGE = 3;       // px tolerance for "at the end"
+      const PULL = 72;      // px of overscroll drag before we wrap
+      let sy = 0, atTop = false, atBottom = false, armed = false;
+      const maxTop = () => pager.scrollHeight - pager.clientHeight;
+      pager.addEventListener("touchstart", (e) => {
+        if (e.touches.length !== 1) { armed = false; return; }
+        // Sheets and overlays own the gesture while open.
+        if (document.querySelector(".modal-overlay, .wsheet-overlay, .qa-overlay, .qa-fork-overlay")) { armed = false; return; }
+        sy = e.touches[0].clientY;
+        atTop = pager.scrollTop <= EDGE;
+        atBottom = pager.scrollTop >= maxTop() - EDGE;
+        armed = atTop || atBottom;
+      }, { passive: true });
+      pager.addEventListener("touchend", (e) => {
+        if (!armed) return;
+        armed = false;
+        const dy = e.changedTouches[0].clientY - sy;
+        // Still pinned at the edge? A real scroll would have moved us off it.
+        if (atTop && dy > PULL && pager.scrollTop <= EDGE) goToPanel(panelKeys.length - 1);
+        else if (atBottom && dy < -PULL && pager.scrollTop >= maxTop() - EDGE) goToPanel(0);
+      }, { passive: true });
+    }
+
     const idxOf = (key) => panelKeys.indexOf(key);
     function panelIndexForSection(key) { return idxOf(key); }
     function nextLabelFor(nk) {
@@ -8260,6 +8290,49 @@
     }));
     mealsWrap.appendChild(timeline);
     ov.appendChild(mealsWrap);
+
+    // Past days — a short strip on the landing screen. The full list lives in
+    // Trends, but nothing here hinted that earlier days can be opened and
+    // edited at all, so the recent few get a one-tap route from the top.
+    {
+      const byDate = {};
+      for (const m of meals) {
+        if (m.date === today) continue;
+        const b = byDate[m.date] || (byDate[m.date] = { kcal: 0, count: 0 });
+        b.kcal += (m.kcal || 0);
+        b.count++;
+      }
+      const recent = Object.entries(byDate).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 3);
+      if (recent.length) {
+        const past = el("div", { class: "npast", "data-testid": "overview-past-days" });
+        past.appendChild(el("div", { class: "nmeals-head" },
+          el("div", { class: "nsection-label" }, "PAST DAYS"),
+          el("button", {
+            class: "npast-all", type: "button", "data-testid": "past-days-all",
+            on: { click: () => goToPanel(idxOf("trends")) }
+          }, "See all")
+        ));
+        const row = el("div", { class: "npast-row" });
+        for (const [d, b] of recent) {
+          const pctDay = goal ? Math.round(b.kcal / goal * 100) : 0;
+          row.appendChild(el("button", {
+            class: "npast-card", type: "button",
+            "data-date": d, "data-testid": "past-day-card",
+            title: `Open ${U.formatDate(d)}`,
+            on: { click: () => openNutritionDayDetail(d) }
+          },
+            el("div", { class: "npast-day" }, U.formatDate(d).replace(/,.*/, "")),
+            el("div", { class: "npast-date" }, U.formatDate(d).replace(/^[^,]*,\s*/, "")),
+            el("div", { class: "npast-kcal" }, String(b.kcal)),
+            el("div", { class: "npast-pct" + (b.kcal > goal ? " is-over" : "") }, goal ? `${pctDay}%` : `${b.count}`)
+          ));
+        }
+        past.appendChild(row);
+        past.appendChild(el("div", { class: "npast-hint text-xs text-faint" }, "Tap a day to add, retime or remove meals."));
+        ov.appendChild(past);
+      }
+    }
+
     const ovFoot = el("div", { class: "npanel-foot" });
     ovFoot.appendChild(el("button", { class: "btn btn-primary btn-block", on: { click: () => goToPanel(panelIndexForSection(nextSection)) } },
       el("span", { html: NUP }), `Log ${U.MEAL_SECTIONS[nextSection].label}`));
@@ -8322,6 +8395,7 @@
 
     // ---- Dots + scroll sync ----
     renderDots();
+    initPagerWrap();
     let sRAF = null;
     pager.addEventListener("scroll", () => {
       nutritionScrollTop = pager.scrollTop; // exact position for in-place refresh

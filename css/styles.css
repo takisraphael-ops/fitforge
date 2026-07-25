@@ -4798,3 +4798,28 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   border-radius: 10px; padding: 7px 10px; margin: 2px 0 10px;
 }
 .nfood-time { flex: none; font-size: 12px; margin-right: 2px; }
+
+/* ---- Past days strip on the Nutrition overview ---- */
+.npast { margin-top: 14px; }
+.npast .nmeals-head { display: flex; align-items: baseline; justify-content: space-between; }
+.npast-all {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font-size: 12px; font-weight: 600; color: var(--accent);
+}
+.npast-all:active { opacity: .6; }
+.npast-row { display: flex; gap: 8px; margin-top: 6px; }
+.npast-card {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  padding: 9px 10px; border-radius: 12px; cursor: pointer; text-align: left;
+  background: var(--surface-2, rgba(255,255,255,.03));
+  border: 1px solid var(--border);
+  transition: transform .16s var(--ease-spring), border-color .18s ease, background .18s ease;
+}
+.npast-card:hover { border-color: var(--border-strong); }
+.npast-card:active { transform: scale(0.96); }
+.npast-day { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); }
+.npast-date { font-size: 11px; color: var(--text-faint); margin-bottom: 3px; }
+.npast-kcal { font-family: var(--font-mono); font-size: 18px; font-weight: 600; line-height: 1.1; }
+.npast-pct { font-size: 11px; color: var(--text-faint); }
+.npast-pct.is-over { color: var(--warn, #e0863d); }
+.npast-hint { margin-top: 6px; }
