@@ -435,7 +435,7 @@ window.U = {
   profileComplete(prefs) {
     if (!prefs) return false;
     const sex = prefs.sex;
-    const age = Number(prefs.age);
+    const age = Number(U.effectiveAge(prefs));
     const heightCm = Number(prefs.heightCm);
     const activity = prefs.activityLevel;
     return (sex === "male" || sex === "female") &&
@@ -459,6 +459,28 @@ window.U = {
    * Male: 10w + 6.25h − 5a + 5
    * Female: 10w + 6.25h − 5a − 161
    */
+  /** Whole years from an ISO yyyy-mm-dd date of birth, or null. */
+  ageFromDob(dob) {
+    if (!dob || typeof dob !== "string") return null;
+    const m = dob.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    const y = +m[1], mo = +m[2], d = +m[3];
+    const now = new Date();
+    let age = now.getFullYear() - y;
+    // Not had this year's birthday yet? Then they're a year younger.
+    const beforeBirthday = (now.getMonth() + 1) < mo || ((now.getMonth() + 1) === mo && now.getDate() < d);
+    if (beforeBirthday) age -= 1;
+    return (age >= 0 && age <= 120) ? age : null;
+  },
+
+  /** Age the app should use: derived from DOB when set, else the stored age. */
+  effectiveAge(prefs) {
+    const fromDob = U.ageFromDob(prefs && prefs.dob);
+    if (fromDob != null) return fromDob;
+    const a = Number(prefs && prefs.age);
+    return Number.isFinite(a) ? a : null;
+  },
+
   bmrMifflin({ sex, weightKg, heightCm, age }) {
     const w = Number(weightKg);
     const h = Number(heightCm);

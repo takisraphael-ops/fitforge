@@ -265,6 +265,91 @@ window.BodyMap = (function () {
     }
   };
 
+  //
+  // Female figure. Rather than hand-drawing a second anatomy (which would
+  // drift out of alignment with the muscle regions), the male geometry is
+  // morphed horizontally by body band: narrower shoulders and waist, wider
+  // hips. Every path — silhouette, contour lines and muscle regions — goes
+  // through the same transform, so the regions stay registered to the body.
+  //
+  const FEMALE_BANDS = [
+    { y: 0,   f: 0.98 },  // head
+    { y: 60,  f: 0.97 },  // neck
+    { y: 90,  f: 0.90 },  // shoulders — noticeably narrower
+    { y: 140, f: 0.93 },  // ribcage
+    { y: 200, f: 0.88 },  // waist — narrowest point
+    { y: 250, f: 1.10 },  // hips — widest point
+    { y: 300, f: 1.05 },  // upper thigh
+    { y: 350, f: 0.99 },  // knee
+    { y: 480, f: 0.97 }   // calf / ankle
+  ];
+  const FEMALE_AXIS = 110; // centre line of the 220-wide viewBox
+  const FEMALE_LIMB_F = 0.94; // arms/hands: slightly slimmer, and exempt from hip flare
+
+  /** Horizontal scale for a given y, linearly interpolated between bands. */
+  function femaleFactor(y) {
+    const b = FEMALE_BANDS;
+    if (y <= b[0].y) return b[0].f;
+    for (let i = 1; i < b.length; i++) {
+      if (y <= b[i].y) {
+        const t = (y - b[i - 1].y) / (b[i].y - b[i - 1].y);
+        return b[i - 1].f + (b[i].f - b[i - 1].f) * t;
+      }
+    }
+    return b[b.length - 1].f;
+  }
+
+  // Absolute-only path parser (these paths use M/L/C/Q/Z, all uppercase).
+  const PATH_CMD_ARGS = { M: 2, L: 2, C: 6, Q: 4, T: 2, S: 4, Z: 0 };
+  function morphPath(d) {
+    const tokens = String(d).match(/[MLCQTSZ]|-?\d*\.?\d+/gi);
+    if (!tokens) return d;
+    const out = [];
+    let i = 0, cmd = null;
+    while (i < tokens.length) {
+      if (/[MLCQTSZ]/i.test(tokens[i])) { cmd = tokens[i].toUpperCase(); out.push(tokens[i]); i++; continue; }
+      const n = PATH_CMD_ARGS[cmd];
+      if (!n) { out.push(tokens[i]); i++; continue; }
+      // Coordinates come in (x, y) pairs; scale x about the centre line using
+      // the factor for that point's own y.
+      for (let k = 0; k < n; k += 2) {
+        const x = parseFloat(tokens[i]), y = parseFloat(tokens[i + 1]);
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+          const dx = x - FEMALE_AXIS;
+          // The arms hang beside the hips, so a naive y-band scale flares them
+          // out with the pelvis. Points far from the centre line are limbs:
+          // blend them toward their own factor instead of the torso's.
+          const limbT = Math.min(1, Math.max(0, (Math.abs(dx) - 40) / 25));
+          const f = femaleFactor(y) * (1 - limbT) + FEMALE_LIMB_F * limbT;
+          const nx = FEMALE_AXIS + dx * f;
+          out.push(String(Math.round(nx * 100) / 100), String(y));
+        } else {
+          out.push(tokens[i], tokens[i + 1]);
+        }
+        i += 2;
+      }
+    }
+    return out.join(" ").replace(/([MLCQTSZ]) /gi, "$1");
+  }
+
+  function morphGeometry(geo) {
+    const outView = {};
+    for (const view of Object.keys(geo)) {
+      const v = geo[view];
+      outView[view] = {
+        silhouette: (v.silhouette || []).map(morphPath),
+        detail: (v.detail || []).map(morphPath),
+        regions: Object.fromEntries(Object.entries(v.regions || {}).map(([k, shapes]) => [
+          k, shapes.map(sh => sh.type === "path" ? { ...sh, d: morphPath(sh.d) } : sh)
+        ]))
+      };
+    }
+    return outView;
+  }
+  const GEOMETRY_FEMALE = morphGeometry(GEOMETRY);
+  const GEOMETRY_BY_SEX = { male: GEOMETRY, female: GEOMETRY_FEMALE };
+
+
   /** Does an exercise belong to this zone? */
   function exerciseMatchesZone(ex, zoneId) {
     const z = ZONES[zoneId];
@@ -387,6 +472,8 @@ window.BodyMap = (function () {
     let heatEnabled = opts.heatEnabled !== false;
     let activeZone = opts.activeZone || "all";
     let view = opts.view || "front";
+    let figureSex = opts.sex === "female" ? "female" : "male";
+    const onSexChange = opts.onSexChange || (() => {});
 
     const root = document.createElement("div");
     root.className = "body-map";
@@ -419,9 +506,32 @@ window.BodyMap = (function () {
 
     toggle.appendChild(frontBtn);
     toggle.appendChild(backBtn);
+
+    // Figure toggle — the map should look like the person reading it.
+    const sexToggle = document.createElement("div");
+    sexToggle.className = "body-map-toggle body-map-sex";
+    sexToggle.setAttribute("role", "group");
+    sexToggle.setAttribute("aria-label", "Body figure");
+    const maleBtn = document.createElement("button");
+    maleBtn.type = "button";
+    maleBtn.className = "body-map-toggle-btn";
+    maleBtn.textContent = "Male";
+    maleBtn.setAttribute("data-testid", "body-map-male");
+    const femaleBtn = document.createElement("button");
+    femaleBtn.type = "button";
+    femaleBtn.className = "body-map-toggle-btn";
+    femaleBtn.textContent = "Female";
+    femaleBtn.setAttribute("data-testid", "body-map-female");
+    sexToggle.appendChild(maleBtn);
+    sexToggle.appendChild(femaleBtn);
+
     header.appendChild(title);
     header.appendChild(toggle);
     root.appendChild(header);
+    const sexRow = document.createElement("div");
+    sexRow.className = "body-map-sexrow";
+    sexRow.appendChild(sexToggle);
+    root.appendChild(sexRow);
 
     // Heat toolbar
     const tools = document.createElement("div");
@@ -500,6 +610,10 @@ window.BodyMap = (function () {
     }
 
     function paintToggle() {
+      maleBtn.classList.toggle("active", figureSex === "male");
+      femaleBtn.classList.toggle("active", figureSex === "female");
+      maleBtn.setAttribute("aria-pressed", figureSex === "male" ? "true" : "false");
+      femaleBtn.setAttribute("aria-pressed", figureSex === "female" ? "true" : "false");
       frontBtn.classList.toggle("active", view === "front");
       backBtn.classList.toggle("active", view === "back");
       frontBtn.setAttribute("aria-pressed", view === "front" ? "true" : "false");
@@ -588,7 +702,8 @@ window.BodyMap = (function () {
 
     function renderSvg() {
       stage.innerHTML = "";
-      const geo = GEOMETRY[view] || GEOMETRY.front;
+      const geoSet = GEOMETRY_BY_SEX[figureSex] || GEOMETRY;
+      const geo = geoSet[view] || geoSet.front;
 
       const svg = svgEl("svg", {
         viewBox: "0 0 220 480",
@@ -695,6 +810,17 @@ window.BodyMap = (function () {
       paintToggle();
       renderSvg();
     });
+    const setSex = (next) => {
+      const v = next === "female" ? "female" : "male";
+      if (v === figureSex) return;
+      figureSex = v;
+      paintToggle();
+      renderSvg();
+      onSexChange(v);
+    };
+    maleBtn.addEventListener("click", () => setSex("male"));
+    femaleBtn.addEventListener("click", () => setSex("female"));
+
     heatCb.addEventListener("change", () => {
       heatEnabled = heatCb.checked;
       paintToggle();
@@ -748,7 +874,9 @@ window.BodyMap = (function () {
         paintToggle();
         paintRegions();
       },
-      getActive() { return activeZone; }
+      getActive() { return activeZone; },
+      setSex,
+      getSex() { return figureSex; }
     };
   }
 

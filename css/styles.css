@@ -4752,3 +4752,12 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 }
 .hero-quiet-link:hover { color: var(--accent); border-bottom-color: color-mix(in srgb, var(--accent) 50%, transparent); }
 .hero-quiet-sep { color: var(--text-faint); font-size: 12px; }
+
+/* Date-of-birth: three wheels side by side in the guided setup */
+.dob-wheels { display: flex; gap: 6px; align-items: stretch; justify-content: center; width: 100%; }
+.dob-col { flex: 1; min-width: 0; }
+.dob-col-month { flex: 1.15; }
+
+/* Body-map figure toggle (male / female) */
+.body-map-sexrow { display: flex; justify-content: flex-end; margin: -2px 0 8px; }
+.body-map-sex .body-map-toggle-btn { font-size: 12px; padding: 5px 12px; }

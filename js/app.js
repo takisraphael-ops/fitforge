@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=131").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=134").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -441,6 +441,11 @@
       kcalGoalMode: await Storage.getPref("kcalGoalMode", "auto"),
       sex: await Storage.getPref("sex", null),
       age: await Storage.getPref("age", null),
+      // Date of birth (yyyy-mm-dd). Preferred over `age`, which stays for
+      // profiles created before DOB existed.
+      dob: await Storage.getPref("dob", null),
+      // Which figure the body map draws ("male" | "female"); defaults to sex.
+      bodyMapSex: await Storage.getPref("bodyMapSex", null),
       heightCm: await Storage.getPref("heightCm", null),
       // Lifestyle / NEAT only — training burn optional (default off for real-world accuracy)
       activityLevel: await Storage.getPref("activityLevel", "light"),
@@ -522,7 +527,7 @@
     const kcalOffset = U.normalizeKcalOffset(prefs.kcalOffset);
     const calc = U.computeEnergyBudget({
       sex: prefs.sex,
-      age: prefs.age,
+      age: U.effectiveAge(prefs),
       heightCm: prefs.heightCm,
       activityLevel: prefs.activityLevel,
       weightKg,
@@ -6093,7 +6098,13 @@
         counts: zoneCounts,
         heat,
         heatEnabled: true,
-        onSelect: setFromMap
+        onSelect: setFromMap,
+        // Default the figure to the profile's sex; an explicit choice wins.
+        sex: state.prefs.bodyMapSex || (state.prefs.sex === "female" ? "female" : "male"),
+        onSexChange: async (v) => {
+          state.prefs.bodyMapSex = v;
+          await Storage.setPref("bodyMapSex", v);
+        }
       });
       view.appendChild(bodyMapApi.el);
 
@@ -9608,6 +9619,7 @@
       profileName: state.prefs.profileName || "",
       sex: (state.prefs.sex === "male" || state.prefs.sex === "female") ? state.prefs.sex : null,
       age: (state.prefs.age != null && Number(state.prefs.age) >= 13) ? Number(state.prefs.age) : 25,
+      dob: state.prefs.dob || null,
       heightCm: (state.prefs.heightCm != null && Number(state.prefs.heightCm) >= 100) ? Number(state.prefs.heightCm) : 175,
       weightKg: startWeight > 0 ? startWeight : U.DEFAULT_BW_KG,
       activityLevel: U.ACTIVITY_LEVELS[state.prefs.activityLevel] ? state.prefs.activityLevel : "light",
@@ -9745,16 +9757,53 @@
     }
 
     function renderAge() {
-      const wheelC = buildWheel({
-        items: wheelRange(13, 100, 1), value: draft.age,
-        variant: "wheel-quiz", itemHeight: 54, testid: "quiz-wheel-age",
-        onChange: (v) => { draft.age = v; }
+      // Date of birth rather than age: it stays correct as time passes, and a
+      // birthday is easier to recall accurately than "how old am I now?".
+      const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const now = new Date();
+      const maxYear = now.getFullYear() - 13;   // matches the old 13+ floor
+      const minYear = now.getFullYear() - 100;
+      const parsed = (draft.dob || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      let y = parsed ? +parsed[1] : (now.getFullYear() - 25);
+      let mo = parsed ? +parsed[2] : 1;
+      let d = parsed ? +parsed[3] : 1;
+      const daysIn = (yy, mm) => new Date(yy, mm, 0).getDate();
+
+      const caption = el("div", { class: "quiz-wheel-unit text-faint", "data-testid": "quiz-dob-caption" });
+      let dayWheel;
+      const sync = () => {
+        const max = daysIn(y, mo);
+        if (d > max) { d = max; if (dayWheel) dayWheel.setValue(d); }
+        draft.dob = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+        const age = U.ageFromDob(draft.dob);
+        draft.age = age;   // keep the derived age for anything reading it
+        caption.textContent = age != null ? `${age} years old` : "";
+      };
+      dayWheel = buildWheel({
+        items: wheelRange(1, 31, 1), value: d, variant: "wheel-quiz", itemHeight: 54,
+        testid: "quiz-wheel-dob-day", onChange: (v) => { d = v; sync(); }
       });
+      const monWheel = buildWheel({
+        items: MONTHS.map((m, i) => ({ value: i + 1, label: m })), value: mo,
+        variant: "wheel-quiz", itemHeight: 54, testid: "quiz-wheel-dob-month",
+        onChange: (v) => { mo = v; sync(); }
+      });
+      const yearWheel = buildWheel({
+        items: wheelRange(minYear, maxYear, 1), value: y, variant: "wheel-quiz", itemHeight: 54,
+        testid: "quiz-wheel-dob-year", onChange: (v) => { y = v; sync(); }
+      });
+      sync();
       return stepShell({
         eyebrow: "About you",
-        title: "How old are you?",
-        content: el("div", { class: "quiz-wheel" }, wheelC.el, el("div", { class: "quiz-wheel-unit text-faint" }, "years")),
-        footer: primaryBtn("Continue", () => { draft.age = wheelC.getValue(); goto(idx + 1, "next"); })
+        title: "When were you born?",
+        content: el("div", { class: "quiz-wheel" },
+          el("div", { class: "dob-wheels" },
+            el("div", { class: "dob-col" }, dayWheel.el),
+            el("div", { class: "dob-col dob-col-month" }, monWheel.el),
+            el("div", { class: "dob-col" }, yearWheel.el)
+          ),
+          caption),
+        footer: primaryBtn("Continue", () => { sync(); goto(idx + 1, "next"); })
       });
     }
 
@@ -9826,7 +9875,7 @@
 
     function computeTargets() {
       const calc = U.computeEnergyBudget({
-        sex: draft.sex, age: draft.age, heightCm: draft.heightCm,
+        sex: draft.sex, age: draft.age, dob: draft.dob, heightCm: draft.heightCm,
         activityLevel: draft.activityLevel, weightKg: draft.weightKg,
         workoutKcal: 0, goalIntent: draft.goalIntent,
         kcalOffset: state.prefs.kcalOffset || 0
@@ -9889,6 +9938,7 @@
       state.prefs.profileName = (draft.profileName || "").trim();
       state.prefs.sex = draft.sex;
       state.prefs.age = draft.age;
+      state.prefs.dob = draft.dob || null;
       state.prefs.heightCm = draft.heightCm;
       state.prefs.activityLevel = draft.activityLevel;
       state.prefs.goalIntent = draft.goalIntent;
@@ -9897,6 +9947,7 @@
       await Storage.setPref("profileName", state.prefs.profileName);
       await Storage.setPref("sex", draft.sex);
       await Storage.setPref("age", draft.age);
+      await Storage.setPref("dob", draft.dob || null);
       await Storage.setPref("heightCm", draft.heightCm);
       await Storage.setPref("activityLevel", draft.activityLevel);
       await Storage.setPref("goalIntent", draft.goalIntent);
@@ -10110,7 +10161,8 @@
     const ageI = el("input", {
       class: "input input-num", type: "number", inputmode: "numeric",
       min: "13", max: "100", placeholder: "e.g. 28",
-      value: state.prefs.age ?? ""
+      // Shows the age derived from DOB when one is set.
+      value: U.effectiveAge(state.prefs) ?? ""
     });
     const heightI = el("input", {
       class: "input input-num", type: "number", inputmode: "decimal",
@@ -10738,6 +10790,12 @@
 
         state.prefs.sex = sex;
         state.prefs.age = age;
+        // Typing an age here overrides a stored birth date — otherwise the DOB
+        // would silently win and the edit would look ignored.
+        if (state.prefs.dob && U.ageFromDob(state.prefs.dob) !== age) {
+          state.prefs.dob = null;
+          await Storage.setPref("dob", null);
+        }
         state.prefs.heightCm = heightCm;
         state.prefs.activityLevel = activityLevel;
         state.prefs.goalIntent = goalIntent;
