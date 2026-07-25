@@ -4882,3 +4882,30 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .qa-fork-panel.qa2-saved { border-left: 1px solid var(--border); }
 .qa2-saved { animation: qaForkFade .32s cubic-bezier(.22, 1, .36, 1) both; }
 .qa2-saved .qa2-art { color: var(--accent); }
+
+/* Muscle fact line — the legend turns into anatomy when a zone is picked */
+.body-map-legend.is-fact { color: var(--text-muted); font-style: normal; }
+
+/* ---- Exercise preview on the body map ----
+   Spinning the exercise wheel lights the muscles the centred lift works.
+   Preview outranks the heat overlay while it is showing, so the figure
+   answers one question at a time. */
+.body-map-stage.has-preview .body-map-region .body-map-region-part {
+  fill-opacity: 0.35;
+  stroke-opacity: 0.4;
+}
+.body-map-stage.has-preview .body-map-region.is-secondary .body-map-region-part {
+  fill: color-mix(in srgb, var(--accent) 34%, transparent) !important;
+  fill-opacity: 1;
+  stroke: color-mix(in srgb, var(--accent) 45%, transparent);
+  stroke-opacity: 1;
+}
+.body-map-stage.has-preview .body-map-region.is-primary .body-map-region-part {
+  fill: var(--accent) !important;
+  fill-opacity: 0.92;
+  stroke: var(--accent);
+  stroke-opacity: 1;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 55%, transparent));
+}
+/* Badges shouldn't compete with the preview */
+.body-map-stage.has-preview .body-map-badge { opacity: 0.35; }

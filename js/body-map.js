@@ -23,26 +23,103 @@ window.BodyMap = (function () {
    */
   const ZONES = {
     // —— Upper body ——
-    shoulders: { label: "Shoulders", category: "shoulders", coarse: true, muscleMatch: /deltoid|shoulder/i, views: ["front", "back"] },
-    chest: { label: "Chest", category: "chest", coarse: true, muscleMatch: /pector|chest/i, views: ["front"] },
-    arms: { label: "Arms", category: "arms", coarse: true, muscleMatch: /bicep|tricep|forearm|brachial/i, views: ["front", "back"] },
+    shoulders: {
+      label: "Shoulders", category: "shoulders", coarse: true,
+      formal: "Deltoids", blurb: "Raises the arm in every direction — front, side and rear.",
+      muscleMatch: /deltoid|shoulder/i, views: ["front", "back"]
+    },
+    chest: {
+      label: "Chest", category: "chest", coarse: true,
+      formal: "Pectorals", blurb: "Presses the arms forward and draws them across the body.",
+      muscleMatch: /pector|chest/i, views: ["front"]
+    },
+    // —— Arm splits. "Arms: 20 sets" says nothing; biceps 9 / triceps 11 does. ——
+    biceps: {
+      label: "Biceps", category: "arms",
+      formal: "Biceps brachii", blurb: "Bends the elbow and turns the palm upward.",
+      muscleMatch: /bicep|brachialis|brachii/i, views: ["front"]
+    },
+    triceps: {
+      label: "Triceps", category: "arms",
+      formal: "Triceps brachii", blurb: "Straightens the elbow — two thirds of the upper arm.",
+      muscleMatch: /tricep/i, views: ["back"]
+    },
+    forearms: {
+      label: "Forearms", category: "arms",
+      formal: "Forearms", blurb: "Grip, wrist control, and everything you hold onto.",
+      muscleMatch: /forearm|wrist|\bgrip\b|brachioradialis/i, views: ["front", "back"]
+    },
+    // Whole-arm zone for the coarse "Arms" chip (not drawn as its own shape)
+    arms: { label: "Arms", category: "arms", coarse: true, muscleMatch: /bicep|tricep|forearm|brachial/i, views: [] },
     // —— Back splits ——
-    upper_back: { label: "Upper back", category: "back", muscleMatch: /trap|rhomboid|upper back|rear deltoid|external rotator/i, views: ["back"] },
-    lats: { label: "Lats", category: "back", muscleMatch: /\blats?\b|latissimus/i, views: ["back"] },
-    lower_back: { label: "Lower back", category: "back", muscleMatch: /erector|lower back|quadratus/i, views: ["back"] },
+    traps: {
+      label: "Traps", category: "back",
+      formal: "Trapezius", blurb: "Shrugs, retracts and rotates the shoulder blades.",
+      muscleMatch: /trap/i, views: ["back"]
+    },
+    lats: {
+      label: "Lats", category: "back",
+      formal: "Latissimus dorsi", blurb: "Pulls the arms down and back — the width muscle.",
+      muscleMatch: /\blats?\b|latissimus/i, views: ["back"]
+    },
+    midback: {
+      label: "Mid back", category: "back",
+      formal: "Rhomboids", blurb: "Squeezes the shoulder blades together; holds posture.",
+      muscleMatch: /rhomboid|upper back|mid.?back|external rotator/i, views: ["back"]
+    },
+    lower_back: {
+      label: "Lower back", category: "back",
+      formal: "Erector spinae", blurb: "Keeps the spine extended when the hips are loaded.",
+      muscleMatch: /erector|lower back|quadratus/i, views: ["back"]
+    },
     // Whole-back zone for the coarse "Back" chip (not drawn as its own shape)
     back: { label: "Back", category: "back", coarse: true, muscleMatch: /lat|rhomboid|traps?|erector|back/i, views: [] },
-    // —— Core ——
-    core: { label: "Core", category: "core", coarse: true, muscleMatch: /abdominal|oblique|core|hip flexor|quadratus/i, views: ["front"] },
+    // —— Core splits ——
+    abs: {
+      label: "Abs", category: "core",
+      formal: "Rectus abdominis", blurb: "Flexes the spine and braces the torso under load.",
+      muscleMatch: /abdominal|rectus|\bcore\b/i, views: ["front"]
+    },
+    obliques: {
+      label: "Obliques", category: "core",
+      formal: "Obliques", blurb: "Rotates and side-bends the trunk; resists twist.",
+      muscleMatch: /oblique/i, views: ["front"]
+    },
+    // Whole-core zone for the coarse "Core" chip (not drawn as its own shape)
+    core: { label: "Core", category: "core", coarse: true, muscleMatch: /abdominal|oblique|core|hip flexor|quadratus/i, views: [] },
     // —— Legs splits ——
-    quads: { label: "Quads", category: "legs", muscleMatch: /quad/i, views: ["front"] },
+    quads: {
+      label: "Quads", category: "legs",
+      formal: "Quadriceps", blurb: "Straightens the knee; the front of the thigh.",
+      muscleMatch: /quad/i, views: ["front"]
+    },
     // Hip flexors / adductors — the two most-stretched areas, which strength
     // training rarely targets directly but mobility work does.
-    hip_flexors: { label: "Hip flexors", category: "mobility", muscleMatch: /hip flexor|psoas|iliopsoas/i, views: ["front"] },
-    adductors: { label: "Adductors", category: "mobility", muscleMatch: /adductor|groin|inner thigh/i, views: ["front"] },
-    glutes: { label: "Glutes", category: "legs", muscleMatch: /glute/i, views: ["back"] },
-    hams: { label: "Hamstrings", category: "legs", muscleMatch: /hamstring/i, views: ["back"] },
-    calves: { label: "Calves", category: "legs", muscleMatch: /calf|calves|gastroc|soleus/i, views: ["front", "back"] },
+    hip_flexors: {
+      label: "Hip flexors", category: "mobility",
+      formal: "Iliopsoas", blurb: "Lifts the knee; shortens if you sit all day.",
+      muscleMatch: /hip flexor|psoas|iliopsoas/i, views: ["front"]
+    },
+    adductors: {
+      label: "Adductors", category: "mobility",
+      formal: "Adductors", blurb: "Pulls the legs together; stabilises every stride.",
+      muscleMatch: /adductor|groin|inner thigh/i, views: ["front"]
+    },
+    glutes: {
+      label: "Glutes", category: "legs",
+      formal: "Gluteals", blurb: "Drives the hips forward — the engine of the body.",
+      muscleMatch: /glute/i, views: ["back"]
+    },
+    hams: {
+      label: "Hamstrings", category: "legs",
+      formal: "Hamstrings", blurb: "Bends the knee and extends the hip.",
+      muscleMatch: /hamstring/i, views: ["back"]
+    },
+    calves: {
+      label: "Calves", category: "legs",
+      formal: "Gastrocnemius & soleus", blurb: "Pushes off the ground at the ankle.",
+      muscleMatch: /calf|calves|gastroc|soleus/i, views: ["front", "back"]
+    },
     // Coarse legs (chip only)
     legs: { label: "Legs", category: "legs", coarse: true, muscleMatch: /quad|hamstring|glute|calf|calves|adductor|abductor|hip/i, views: [] }
   };
@@ -99,12 +176,22 @@ window.BodyMap = (function () {
             "M111 100 C124 98 137 102 144 110 C148 117 147 129 143 137 C139 144 129 148 118 148 C112 148 111 144 110 137 L110 102 Z",
             "M109 100 C96 98 83 102 76 110 C72 117 73 129 77 137 C81 144 91 148 102 148 C108 148 109 144 110 137 L110 102 Z"
           ],
-          arms: [
-            "M170 134 C174 154 176 172 177 188 C181 214 182 238 181 260 C176 262 171 260 167 256 C166 236 164 214 162 192 C160 174 157 154 154 136 C159 138 165 137 170 134 Z",
-            "M50 134 C46 154 44 172 43 188 C39 214 38 238 39 260 C44 262 49 260 53 256 C54 236 56 214 58 192 C60 174 63 154 66 136 C61 138 55 137 50 134 Z"
+          // Upper arm to the elbow (~y188); the forearm carries on below it.
+          biceps: [
+            "M170 134 C174 152 176 170 177 186 C173 190 166 190 162 187 C160 172 157 152 154 136 C159 138 165 137 170 134 Z",
+            "M50 134 C46 152 44 170 43 186 C47 190 54 190 58 187 C60 172 63 152 66 136 C61 138 55 137 50 134 Z"
           ],
-          core: [
-            "M110 151 C118 151 128 153 134 159 C138 169 138 183 136 197 C134 213 129 229 122 239 C118 244 112 245 110 245 C108 245 102 244 98 239 C91 229 86 213 84 197 C82 183 82 169 86 159 C92 153 102 151 110 151 Z"
+          forearms: [
+            "M177 190 C181 214 182 238 181 260 C176 262 171 260 167 256 C166 236 164 214 162 191 C166 194 173 194 177 190 Z",
+            "M43 190 C39 214 38 238 39 260 C44 262 49 260 53 256 C54 236 56 214 58 191 C54 194 47 194 43 190 Z"
+          ],
+          // Central column is the rectus; the flanking strips are the obliques.
+          abs: [
+            "M110 151 C116 151 122 152 126 156 C128 167 128 183 126 198 C124 215 119 231 113 240 C112 243 111 245 110 245 C109 245 108 243 107 240 C101 231 96 215 94 198 C92 183 92 167 94 156 C98 152 104 151 110 151 Z"
+          ],
+          obliques: [
+            "M128 156 C131 157 133 158 134 159 C138 169 138 183 136 197 C134 213 129 229 122 239 C121 240 120 242 119 243 C124 232 128 216 129 198 C130 183 130 167 128 156 Z",
+            "M92 156 C89 157 87 158 86 159 C82 169 82 183 84 197 C86 213 91 229 98 239 C99 240 100 242 101 243 C96 232 92 216 91 198 C90 183 90 167 92 156 Z"
           ],
           quads: [
             "M116 254 C126 250 137 254 142 263 C146 278 145 298 142 314 C140 328 138 336 136 344 C129 349 120 348 116 342 C114 324 115 304 116 286 C117 270 116 262 116 254 Z",
@@ -128,8 +215,10 @@ window.BodyMap = (function () {
         badges: {
           shoulders: { x: 162, y: 105 },
           chest: { x: 126, y: 120 },
-          arms: { x: 48, y: 204 },
-          core: { x: 110, y: 196 },
+          biceps: { x: 48, y: 160 },
+          forearms: { x: 48, y: 226 },
+          abs: { x: 110, y: 188 },
+          obliques: { x: 131, y: 208 },
           hip_flexors: { x: 128, y: 248 },
           adductors: { x: 110, y: 272 },
           quads: { x: 126, y: 300 },
@@ -175,8 +264,11 @@ window.BodyMap = (function () {
             "M148 84 C159 86 169 92 172 104 C174 115 172 125 166 131 C158 133 151 130 148 123 C145 113 145 94 148 84 Z",
             "M72 84 C61 86 51 92 48 104 C46 115 48 125 54 131 C62 133 69 130 72 123 C75 113 75 94 72 84 Z"
           ],
-          upper_back: [
-            "M110 74 C115 74 120 77 124 81 C135 85 146 91 151 100 C154 107 153 116 149 122 C139 129 129 133 118 135 C113 136 111 131 110 124 C109 131 107 136 102 135 C91 133 81 129 71 122 C67 116 66 107 69 100 C74 91 85 85 96 81 C100 77 105 74 110 74 Z"
+          traps: [
+            "M110 74 C115 74 120 77 124 81 C135 85 146 91 151 100 C153 104 153 109 152 113 C141 109 129 106 118 104 C114 103 111 102 110 98 C109 102 106 103 102 104 C91 106 79 109 68 113 C67 109 67 104 69 100 C74 91 85 85 96 81 C100 77 105 74 110 74 Z"
+          ],
+          midback: [
+            "M110 106 C114 106 117 108 119 111 C130 110 141 112 151 115 C152 118 151 120 149 122 C139 129 129 133 118 135 C113 136 111 131 110 124 C109 131 107 136 102 135 C91 133 81 129 71 122 C69 120 68 118 69 115 C79 112 90 110 101 111 C103 108 106 106 110 106 Z"
           ],
           lats: [
             "M110 136 C121 134 132 130 141 125 C145 134 146 147 143 160 C140 174 134 185 126 192 C121 197 112 196 110 189 C108 196 99 197 94 192 C86 185 80 174 77 160 C74 147 75 134 79 125 C88 130 99 134 110 136 Z"
@@ -184,9 +276,13 @@ window.BodyMap = (function () {
           lower_back: [
             "M110 192 C116 192 121 196 123 202 C125 214 124 226 121 235 C118 242 113 244 110 244 C107 244 102 242 99 235 C96 226 95 214 97 202 C99 196 104 192 110 192 Z"
           ],
-          arms: [
-            "M170 134 C174 154 176 172 177 188 C181 214 182 238 181 260 C176 262 171 260 167 256 C166 236 164 214 162 192 C160 174 157 154 154 136 C159 138 165 137 170 134 Z",
-            "M50 134 C46 154 44 172 43 188 C39 214 38 238 39 260 C44 262 49 260 53 256 C54 236 56 214 58 192 C60 174 63 154 66 136 C61 138 55 137 50 134 Z"
+          triceps: [
+            "M170 134 C174 152 176 170 177 186 C173 190 166 190 162 187 C160 172 157 152 154 136 C159 138 165 137 170 134 Z",
+            "M50 134 C46 152 44 170 43 186 C47 190 54 190 58 187 C60 172 63 152 66 136 C61 138 55 137 50 134 Z"
+          ],
+          forearms: [
+            "M177 190 C181 214 182 238 181 260 C176 262 171 260 167 256 C166 236 164 214 162 191 C166 194 173 194 177 190 Z",
+            "M43 190 C39 214 38 238 39 260 C44 262 49 260 53 256 C54 236 56 214 58 191 C54 194 47 194 43 190 Z"
           ],
           glutes: [
             "M110 246 C121 242 133 244 140 253 C144 264 143 279 137 289 C131 297 121 299 113 293 C111 291 110 288 110 285 C110 288 109 291 107 293 C99 299 89 297 83 289 C77 279 76 264 80 253 C87 244 99 242 110 246 Z"
@@ -202,10 +298,12 @@ window.BodyMap = (function () {
         },
         badges: {
           shoulders: { x: 162, y: 105 },
-          upper_back: { x: 110, y: 101 },
-          lats: { x: 110, y: 152 },
-          lower_back: { x: 110, y: 212 },
-          arms: { x: 48, y: 204 },
+          traps: { x: 110, y: 92 },
+          midback: { x: 110, y: 124 },
+          lats: { x: 110, y: 160 },
+          lower_back: { x: 110, y: 214 },
+          triceps: { x: 48, y: 160 },
+          forearms: { x: 48, y: 226 },
           glutes: { x: 110, y: 268 },
           hams: { x: 126, y: 330 },
           calves: { x: 126, y: 394 }
@@ -265,12 +363,20 @@ window.BodyMap = (function () {
             "M111 100 C122 97 133 100 139 109 C143 117 142 129 137 137 C132 144 122 148 114 147 C111 147 110 143 110 136 L110 102 Z",
             "M109 100 C98 97 87 100 81 109 C77 117 78 129 83 137 C88 144 98 148 106 147 C109 147 110 143 110 136 L110 102 Z"
           ],
-          arms: [
-            "M155 128 C158 148 160 166 161 182 C164 206 166 230 165 252 C160 254 156 252 152 248 C151 230 149 208 147 186 C145 168 142 148 139 130 C144 132 150 131 155 128 Z",
-            "M65 128 C62 148 60 166 59 182 C56 206 54 230 55 252 C60 254 64 252 68 248 C69 230 71 208 73 186 C75 168 78 148 81 130 C76 132 70 131 65 128 Z"
+          biceps: [
+            "M155 128 C158 146 160 164 161 180 C157 184 151 184 147 181 C145 166 142 146 139 130 C144 132 150 131 155 128 Z",
+            "M65 128 C62 146 60 164 59 180 C63 184 69 184 73 181 C75 166 78 146 81 130 C76 132 70 131 65 128 Z"
           ],
-          core: [
-            "M110 149 C117 149 124 152 129 158 C133 169 133 183 131 197 C129 213 125 231 118 241 C115 246 112 247 110 247 C108 247 105 246 102 241 C95 231 91 213 89 197 C87 183 87 169 91 158 C96 152 103 149 110 149 Z"
+          forearms: [
+            "M161 184 C164 208 166 230 165 252 C160 254 156 252 152 248 C151 230 149 208 147 185 C151 188 157 188 161 184 Z",
+            "M59 184 C56 208 54 230 55 252 C60 254 64 252 68 248 C69 230 71 208 73 185 C69 188 63 188 59 184 Z"
+          ],
+          abs: [
+            "M110 149 C115 149 120 151 124 155 C126 166 126 182 124 197 C122 214 118 231 113 241 C112 244 111 247 110 247 C109 247 108 244 107 241 C102 231 98 214 96 197 C94 182 94 166 96 155 C100 151 105 149 110 149 Z"
+          ],
+          obliques: [
+            "M126 155 C128 156 129 157 129 158 C133 169 133 183 131 197 C129 213 125 231 118 241 C117 242 116 244 115 245 C120 234 124 217 125 197 C126 182 126 166 126 155 Z",
+            "M94 155 C92 156 91 157 91 158 C87 169 87 183 89 197 C91 213 95 231 102 241 C103 242 104 244 105 245 C100 234 96 217 95 197 C94 182 94 166 94 155 Z"
           ],
           quads: [
             "M117 258 C126 254 136 259 140 269 C144 284 143 304 140 320 C138 334 136 342 134 350 C128 355 120 354 116 348 C114 330 115 310 116 292 C117 276 117 266 117 258 Z",
@@ -294,8 +400,10 @@ window.BodyMap = (function () {
         badges: {
           shoulders: { x: 146, y: 105 },
           chest: { x: 124, y: 120 },
-          arms: { x: 67, y: 200 },
-          core: { x: 110, y: 196 },
+          biceps: { x: 66, y: 156 },
+          forearms: { x: 66, y: 220 },
+          abs: { x: 110, y: 186 },
+          obliques: { x: 128, y: 206 },
           hip_flexors: { x: 127, y: 252 },
           adductors: { x: 110, y: 276 },
           quads: { x: 127, y: 304 },
@@ -341,8 +449,11 @@ window.BodyMap = (function () {
             "M138 84 C147 86 153 92 155 103 C156 113 154 122 150 128 C144 130 138 127 136 121 C133 111 135 93 138 84 Z",
             "M82 84 C73 86 67 92 65 103 C64 113 66 122 70 128 C76 130 82 127 84 121 C87 111 85 93 82 84 Z"
           ],
-          upper_back: [
-            "M110 73 C115 73 119 76 123 80 C132 84 140 90 145 98 C148 105 147 113 143 119 C135 125 125 129 117 131 C112 132 111 128 110 122 C109 128 108 132 103 131 C95 129 85 125 77 119 C73 113 72 105 75 98 C80 90 88 84 97 80 C101 76 105 73 110 73 Z"
+          traps: [
+            "M110 73 C115 73 119 76 123 80 C132 84 140 90 145 98 C147 102 147 107 146 111 C136 107 126 104 117 102 C113 101 111 100 110 96 C109 100 107 101 103 102 C94 104 84 107 74 111 C73 107 73 102 75 98 C80 90 88 84 97 80 C101 76 105 73 110 73 Z"
+          ],
+          midback: [
+            "M110 104 C114 104 116 106 118 109 C128 108 137 110 145 113 C146 116 145 117 143 119 C135 125 125 129 117 131 C112 132 111 128 110 122 C109 128 108 132 103 131 C95 129 85 125 77 119 C75 117 74 116 75 113 C83 110 92 108 102 109 C104 106 106 104 110 104 Z"
           ],
           lats: [
             "M110 133 C118 131 128 127 137 122 C141 131 142 143 139 155 C136 167 131 177 124 184 C119 189 112 188 110 181 C108 188 101 189 96 184 C89 177 84 167 81 155 C78 143 79 131 83 122 C92 127 102 131 110 133 Z"
@@ -350,9 +461,13 @@ window.BodyMap = (function () {
           lower_back: [
             "M110 186 C116 186 120 190 122 196 C124 208 123 222 120 232 C117 240 113 242 110 242 C107 242 103 240 100 232 C97 222 96 208 98 196 C100 190 104 186 110 186 Z"
           ],
-          arms: [
-            "M155 128 C158 148 160 166 161 182 C164 206 166 230 165 252 C160 254 156 252 152 248 C151 230 149 208 147 186 C145 168 142 148 139 130 C144 132 150 131 155 128 Z",
-            "M65 128 C62 148 60 166 59 182 C56 206 54 230 55 252 C60 254 64 252 68 248 C69 230 71 208 73 186 C75 168 78 148 81 130 C76 132 70 131 65 128 Z"
+          triceps: [
+            "M155 128 C158 146 160 164 161 180 C157 184 151 184 147 181 C145 166 142 146 139 130 C144 132 150 131 155 128 Z",
+            "M65 128 C62 146 60 164 59 180 C63 184 69 184 73 181 C75 166 78 146 81 130 C76 132 70 131 65 128 Z"
+          ],
+          forearms: [
+            "M161 184 C164 208 166 230 165 252 C160 254 156 252 152 248 C151 230 149 208 147 185 C151 188 157 188 161 184 Z",
+            "M59 184 C56 208 54 230 55 252 C60 254 64 252 68 248 C69 230 71 208 73 185 C69 188 63 188 59 184 Z"
           ],
           glutes: [
             "M110 248 C121 243 133 246 140 256 C144 268 143 284 137 295 C131 303 121 305 113 298 C111 296 110 293 110 290 C110 293 109 296 107 298 C99 305 89 303 83 295 C77 284 76 268 80 256 C87 246 99 243 110 248 Z"
@@ -368,10 +483,12 @@ window.BodyMap = (function () {
         },
         badges: {
           shoulders: { x: 146, y: 105 },
-          upper_back: { x: 110, y: 99 },
-          lats: { x: 110, y: 150 },
-          lower_back: { x: 110, y: 208 },
-          arms: { x: 67, y: 200 },
+          traps: { x: 110, y: 90 },
+          midback: { x: 110, y: 122 },
+          lats: { x: 110, y: 158 },
+          lower_back: { x: 110, y: 210 },
+          triceps: { x: 66, y: 156 },
+          forearms: { x: 66, y: 220 },
           glutes: { x: 110, y: 270 },
           hams: { x: 126, y: 336 },
           calves: { x: 126, y: 398 }
@@ -390,6 +507,30 @@ window.BodyMap = (function () {
     if (z.coarse) return (ex.category || "") === z.category;
     const hay = `${ex.name || ""} ${(ex.muscles || []).join(" ")}`;
     return !!(z.muscleMatch && z.muscleMatch.test(hay));
+  }
+
+  // How hard an exercise works a zone, 0–1. The library lists muscles
+  // prime-mover first, so the head of the list is the muscle the lift is
+  // actually for and the tail is assistance. Counting a bench press as a full
+  // triceps set the way a close-grip press is overstates every helper muscle;
+  // weighting keeps the heat map honest about what you actually trained.
+  const SECONDARY_WEIGHT = 0.4;
+  function zoneWeight(ex, zoneId) {
+    const z = ZONES[zoneId];
+    if (!z) return 0;
+    // Deliberately not the same rule as exerciseMatchesZone. Filtering by the
+    // Chest chip should give you the chest *category*; heat should follow
+    // anatomy, so a bench press warms the shoulders it actually uses even
+    // though it is filed under chest. Category is only the fallback for zones
+    // with nothing anatomical to match on.
+    if (!z.muscleMatch) return (ex.category || "") === z.category ? 1 : 0;
+    const muscles = ex.muscles || [];
+    // The name itself naming the muscle ("Barbell Biceps Curl") is a prime mover.
+    if (z.muscleMatch.test(ex.name || "")) return 1;
+    for (let i = 0; i < muscles.length; i++) {
+      if (z.muscleMatch.test(muscles[i])) return i === 0 ? 1 : SECONDARY_WEIGHT;
+    }
+    return 0;
   }
 
   /** Count exercises per zone id. */
@@ -441,7 +582,8 @@ window.BodyMap = (function () {
         const done = (ex.sets || []).filter(s => s.done).length || (ex.sets || []).length || 0;
         if (!done) continue;
         for (const id of Object.keys(ZONES)) {
-          if (exerciseMatchesZone(merged, id)) sets[id] += done;
+          const w8 = zoneWeight(merged, id);
+          if (w8) sets[id] += done * w8;
         }
       }
     }
@@ -450,7 +592,9 @@ window.BodyMap = (function () {
     const heat = {};
     for (const id of Object.keys(sets)) {
       heat[id] = sets[id] / max; // 0–1
-      heat[id + "_sets"] = sets[id];
+      // Weighting makes the tally fractional; the status line reads as whole
+      // sets, so round for display while the ratio above stays precise.
+      heat[id + "_sets"] = Math.round(sets[id]);
     }
     return heat;
   }
@@ -498,6 +642,10 @@ window.BodyMap = (function () {
     let heat = opts.heat || {};
     let heatEnabled = opts.heatEnabled !== false;
     let activeZone = opts.activeZone || "all";
+    // The exercise currently in focus in the list, previewed on the figure.
+    // Separate from activeZone: previewing shows what a lift works without
+    // changing what the list is filtered to.
+    let preview = null;
     let view = opts.view === "back" ? "back" : "front";
     let figureSex = normSex(opts.sex);
 
@@ -599,8 +747,9 @@ window.BodyMap = (function () {
 
     const legend = document.createElement("div");
     legend.className = "body-map-legend";
-    legend.textContent = "Tap a muscle zone to filter. Tap again to clear. Finer zones on Back: lats, glutes, hams.";
+    legend.setAttribute("data-testid", "body-map-legend");
     root.appendChild(legend);
+    const HINT_DEFAULT = "Tap a muscle zone to filter. Tap again to clear. Front shows abs, obliques and biceps; Back shows traps, lats and triceps.";
 
     function geoFor() {
       const bySex = GEOMETRY[figureSex] || GEOMETRY.male;
@@ -643,6 +792,23 @@ window.BodyMap = (function () {
       return s;
     }
 
+    // With a zone selected the legend stops repeating the instructions and
+    // says what the muscle actually is and does.
+    function legendText() {
+      if (preview) {
+        // Drawn zones only — chest and shoulders are coarse for filtering but
+        // are real regions on the figure, so they belong in this sentence.
+        const worked = Object.keys(ZONES)
+          .filter(id => (ZONES[id].views || []).length && zoneWeight(preview, id) >= 1)
+          .map(id => ZONES[id].label);
+        if (worked.length) return `${preview.name} works ${worked.join(", ")}`;
+      }
+      const z = ZONES[activeZone];
+      if (!z || activeZone === "all") return HINT_DEFAULT;
+      if (!z.formal && !z.blurb) return HINT_DEFAULT;
+      return [z.formal, z.blurb].filter(Boolean).join(" — ");
+    }
+
     function paintToggle() {
       maleBtn.classList.toggle("active", figureSex === "male");
       femaleBtn.classList.toggle("active", figureSex === "female");
@@ -674,6 +840,14 @@ window.BodyMap = (function () {
         g.classList.toggle("is-active", on);
         g.setAttribute("aria-pressed", on ? "true" : "false");
 
+        // Preview shading — primary movers solid, assistance faint.
+        g.classList.remove("is-primary", "is-secondary");
+        if (preview) {
+          const w8 = zoneWeight(preview, id);
+          if (w8 >= 1) g.classList.add("is-primary");
+          else if (w8 > 0) g.classList.add("is-secondary");
+        }
+
         // Mirror active state onto the zone's badge (lives on the top layer)
         const badge = stage.querySelector(`[data-zone-badge="${id}"]`);
         if (badge) badge.classList.toggle("is-active", on);
@@ -685,7 +859,10 @@ window.BodyMap = (function () {
       });
 
       stage.classList.toggle("has-selection", !!(active && active !== "all"));
+      stage.classList.toggle("has-preview", !!preview);
       status.textContent = statusText();
+      legend.textContent = legendText();
+      legend.classList.toggle("is-fact", !!(ZONES[active] && (ZONES[active].formal || ZONES[active].blurb)));
       heatLegend.style.opacity = heatEnabled ? "1" : "0.35";
     }
 
@@ -867,6 +1044,14 @@ window.BodyMap = (function () {
         renderSvg();
       },
       setSex(s) { setSexInternal(s, false); },
+      // Highlight the muscles an exercise works. Pass null to clear.
+      setPreview(ex) {
+        const next = ex || null;
+        if (next === preview) return;
+        if (next && preview && next.name === preview.name) return;
+        preview = next;
+        paintRegions();
+      },
       getSex() { return figureSex; },
       setHeat(nextHeat) { heat = nextHeat || {}; paintRegions(); },
       setCounts(nextCounts) { counts = nextCounts || {}; renderSvg(); },
@@ -880,5 +1065,5 @@ window.BodyMap = (function () {
     };
   }
 
-  return { create, ZONES, SEXES, GEOMETRY, exerciseMatchesZone, countByZone, heatFromWorkouts };
+  return { create, ZONES, SEXES, GEOMETRY, exerciseMatchesZone, zoneWeight, countByZone, heatFromWorkouts };
 })();

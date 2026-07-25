@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=141").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=143").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -6327,6 +6327,12 @@
         if (d < closestD) { closestD = d; closest = card; }
       });
       cards.forEach(c => c.classList.toggle("is-center", c === closest));
+      // Spin the wheel and the figure lights up with whatever the centred
+      // lift works — primary movers solid, assistance faint.
+      if (bodyMapApi && typeof bodyMapApi.setPreview === "function") {
+        const id = closest && closest.getAttribute("data-ex-id");
+        bodyMapApi.setPreview(id ? (byId.get(id) || null) : null);
+      }
     }
     let magRAF = null;
     const scheduleMagnify = () => { if (magRAF) return; magRAF = requestAnimationFrame(() => { magRAF = null; applyMagnify(); }); };
@@ -6407,6 +6413,7 @@
           : null;
         grid.appendChild(el("div", {
           class: "exercise-card" + (trained ? " is-trained" : ""),
+          "data-ex-id": ex.id,
           // A div with a click handler is invisible to keyboards and screen
           // readers; the whole library was mouse/touch-only without this.
           role: "button",
