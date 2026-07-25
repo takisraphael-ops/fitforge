@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=139").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=141").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -2242,6 +2242,111 @@
     other: "#8a94a4"
   };
   const mealColor = (key) => MEAL_COLORS[key] || "#8a94a4";
+
+  // Nutrition hub: one widget carrying both readings of today's intake that
+  // used to sit in separate blocks — the outer arc is progress toward the
+  // calorie goal, the inner donut is the split by meal. Merging them saves a
+  // screenful on the Overview panel and puts the number you act on (what's
+  // left) in the middle of the thing you tap to log.
+  function buildEnergyHub({ entries, eaten, goal, pct, over, remaining }) {
+    const size = 190;
+    const oStroke = 11, iStroke = 17, gap = 5;
+    const cx = size / 2;
+    const rO = (size - oStroke) / 2;
+    const rI = rO - oStroke / 2 - gap - iStroke / 2;
+    const cO = 2 * Math.PI * rO, cI = 2 * Math.PI * rI;
+    const fillPct = Math.max(0, Math.min(100, pct));
+    const near = fillPct >= 85 && !over;
+    const endColor = over ? "var(--danger, #e5484d)" : (near ? "var(--warning, #c48a2a)" : "var(--accent)");
+    const startColor = over ? "#f0883e" : (near ? "#e0b04a" : "var(--accent-hover, #74d6e1)");
+    const gid = "ehub-" + (++ringSeq);
+
+    const wrap = el("div", { class: "nhub-wrap", "data-testid": "meals-donut" });
+    const svg = document.createElementNS(SVGNS, "svg");
+    svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
+    svg.setAttribute("class", "nhub-svg");
+    svg.setAttribute("width", String(size)); svg.setAttribute("height", String(size));
+    svg.setAttribute("aria-hidden", "true");
+
+    const circle = (r, stroke, colour, cls) => {
+      const n = document.createElementNS(SVGNS, "circle");
+      n.setAttribute("cx", String(cx)); n.setAttribute("cy", String(cx)); n.setAttribute("r", String(r));
+      n.setAttribute("fill", "none"); n.setAttribute("stroke", colour);
+      n.setAttribute("stroke-width", String(stroke));
+      if (cls) n.setAttribute("class", cls);
+      return n;
+    };
+
+    const defs = document.createElementNS(SVGNS, "defs");
+    const grad = document.createElementNS(SVGNS, "linearGradient");
+    grad.setAttribute("id", gid);
+    grad.setAttribute("x1", "0%"); grad.setAttribute("y1", "0%");
+    grad.setAttribute("x2", "100%"); grad.setAttribute("y2", "100%");
+    for (const [off, col] of [["0%", startColor], ["100%", endColor]]) {
+      const s = document.createElementNS(SVGNS, "stop");
+      s.setAttribute("offset", off); s.setAttribute("stop-color", col);
+      grad.appendChild(s);
+    }
+    defs.appendChild(grad);
+    svg.appendChild(defs);
+
+    // —— outer: progress toward the calorie goal ——
+    svg.appendChild(circle(rO, oStroke, "var(--bg-sunken)"));
+    const fg = circle(rO, oStroke, `url(#${gid})`, "energy-ring-fg");
+    fg.setAttribute("stroke-linecap", "round");
+    fg.setAttribute("stroke-dasharray", String(cO));
+    fg.setAttribute("stroke-dashoffset", String(cO)); // start empty, animate in
+    fg.setAttribute("transform", `rotate(-90 ${cx} ${cx})`);
+    svg.appendChild(fg);
+
+    let dot = null;
+    if (fillPct > 1 && fillPct < 99.5) {
+      const ang = (-90 + 360 * fillPct / 100) * Math.PI / 180;
+      dot = document.createElementNS(SVGNS, "circle");
+      dot.setAttribute("cx", String(cx + rO * Math.cos(ang)));
+      dot.setAttribute("cy", String(cx + rO * Math.sin(ang)));
+      dot.setAttribute("r", String(oStroke / 2 - 1));
+      dot.setAttribute("fill", "#fff");
+      dot.setAttribute("class", "energy-ring-dot");
+      svg.appendChild(dot);
+    }
+
+    // —— inner: today's split by meal ——
+    svg.appendChild(circle(rI, iStroke, "var(--bg-sunken)"));
+    const slices = (entries || []).filter(e => e.kcal > 0);
+    const total = slices.reduce((s, e) => s + e.kcal, 0);
+    if (total > 0) {
+      const sliceGap = slices.length > 1 ? 3 : 0;
+      let accum = 0;
+      for (const e of slices) {
+        const frac = e.kcal / total;
+        const len = Math.max(1, frac * cI - sliceGap);
+        const seg = circle(rI, iStroke, e.color, "nhub-slice");
+        seg.setAttribute("stroke-dasharray", `${len} ${cI - len}`);
+        seg.setAttribute("stroke-dashoffset", String(-accum));
+        seg.setAttribute("transform", `rotate(-90 ${cx} ${cx})`);
+        svg.appendChild(seg);
+        accum += frac * cI;
+      }
+    }
+    wrap.appendChild(svg);
+
+    // Centre: what's left is the number you act on; eaten/goal stays as context.
+    wrap.appendChild(el("div", { class: "nhub-center" },
+      el("div", { class: "nhub-main count-up" + (remaining < 0 ? " over" : "") },
+        Math.abs(Math.round(remaining)).toLocaleString("en-GB")),
+      el("div", { class: "nhub-sub" }, remaining >= 0 ? "LEFT" : "OVER"),
+      el("div", { class: "nhub-detail" },
+        `${Math.round(eaten).toLocaleString("en-GB")} / ${Math.round(goal).toLocaleString("en-GB")} kcal`)
+    ));
+
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      fg.style.transition = "stroke-dashoffset 900ms cubic-bezier(.2,.8,.2,1)";
+      fg.setAttribute("stroke-dashoffset", String(cO * (1 - fillPct / 100)));
+      if (dot) dot.classList.add("is-in");
+    }));
+    return wrap;
+  }
 
   // Donut of today's calories split by meal. entries: [{key,label,kcal,color}].
   function buildMealsDonut(entries, totalEaten) {
@@ -7291,6 +7396,37 @@
     document.body.appendChild(overlay);
   }
 
+  // Open any past day's breakdown, including days with nothing logged — those
+  // never appear in a history list, so this is the only way to reach them.
+  function openDayPicker() {
+    const today = U.todayISO();
+    const items = recentDayItems(90);
+    const overlay = el("div", { class: "wsheet-overlay", "data-testid": "day-picker",
+      on: { click: (e) => { if (e.target === overlay) close(); } } });
+    function onKey(e) { if (e.key === "Escape") { e.preventDefault(); close(); } }
+    const close = () => { document.removeEventListener("keydown", onKey); overlay.remove(); };
+    document.addEventListener("keydown", onKey);
+
+    let picked = items[1] ? items[1].value : today; // default to yesterday
+    const wheelC = buildWheel({
+      items, value: picked, itemHeight: 44, visibleCount: 5,
+      variant: "wheel-sheet wheel-when-day", testid: "day-picker-wheel",
+      onChange: (v) => { picked = v; }
+    });
+    overlay.appendChild(el("div", { class: "wsheet" },
+      el("div", { class: "wsheet-title" }, "Open a day"),
+      el("div", { class: "wsheet-wheel" }, wheelC.el),
+      el("div", { class: "wsheet-actions" },
+        el("button", { class: "btn", on: { click: close } }, "Cancel"),
+        el("button", {
+          class: "btn btn-primary", "data-testid": "day-picker-open",
+          on: { click: () => { const d = picked; close(); openNutritionDayDetail(d); } }
+        }, "Open")
+      )
+    ));
+    document.body.appendChild(overlay);
+  }
+
   // Shared handler: retime/re-date a logged meal from any list it appears in.
   async function editMealWhen(meal, afterSave) {
     openWhenSheet({
@@ -7986,12 +8122,22 @@
       return `Log ${U.MEAL_SECTIONS[nk].label}`;
     }
 
+    const panelLabel = (k) => k === "overview" ? "Overview"
+      : k === "supplements" ? "Supplements"
+      : k === "trends" ? "Trends & past days"
+      : (U.MEAL_SECTIONS[k] ? U.MEAL_SECTIONS[k].label : k);
+
     function renderDots() {
       clear(dots);
       panelKeys.forEach((k, i) => {
+        // The dot is 7px, which is far below a usable tap target, so the
+        // button is padded out to ~44px and only its ::before is the dot.
         dots.appendChild(el("button", {
           class: "npager-dot" + (i === activeIdx ? " active" : ""),
-          type: "button", "aria-label": k, "data-idx": String(i),
+          type: "button", "data-idx": String(i),
+          "aria-label": panelLabel(k),
+          "aria-current": i === activeIdx ? "true" : null,
+          title: panelLabel(k),
           on: { click: () => goToPanel(i) }
         }));
       });
@@ -8257,15 +8403,23 @@
       anyLogged ? { on: { click: () => openRemoveMealSheet() } } : { disabled: "", "aria-disabled": "true" });
     const plusBtn = fab("plus" + (anyLogged ? "" : " is-pulsing"), "Log a meal", PLUS_SVG, "donut-add",
       { on: { click: () => openMealFork(nextSection) } });
-    ov.appendChild(el("div", { class: "ndonut-row nmeals-hub" }, minusBtn, buildMealsDonut(donutEntries, eaten), plusBtn));
+    ov.appendChild(el("div", { class: "ndonut-row nmeals-hub" },
+      minusBtn,
+      buildEnergyHub({ entries: donutEntries, eaten, goal, pct, over, remaining }),
+      plusBtn));
 
-    const ringWrap = buildEnergyRing(pct, over);
-    ringWrap.appendChild(el("div", { class: "energy-ring-center" },
-      el("div", { class: "energy-ring-main count-up" + (remaining < 0 ? " over" : "") }, (remaining >= 0 ? remaining : Math.abs(remaining)).toLocaleString("en-GB")),
-      el("div", { class: "energy-ring-sub" }, remaining >= 0 ? "LEFT" : "OVER"),
-      el("div", { class: "nring-detail" }, `${eaten.toLocaleString("en-GB")} / ${goal.toLocaleString("en-GB")} kcal`)
-    ));
-    ov.appendChild(el("div", { class: "nring-block" }, ringWrap));
+    // Legend for the inner ring — without the old separate donut caption the
+    // slice colours would be unlabelled.
+    if (anyLogged) {
+      const legend = el("div", { class: "nhub-legend", "data-testid": "hub-legend" });
+      for (const e of donutEntries.filter(x => x.kcal > 0)) {
+        legend.appendChild(el("span", { class: "nhub-legend-item" },
+          el("span", { class: "nhub-legend-dot", style: `background:${e.color}` }),
+          el("span", { class: "nhub-legend-label" }, e.label)));
+      }
+      ov.appendChild(legend);
+    }
+
     const g = macroGoals.goals || {};
     ov.appendChild(el("div", { class: "nmacro-row" },
       macroCard("Protein", dayMacros.protein, g.protein, "is-protein"),
@@ -8313,14 +8467,17 @@
         b.count++;
       }
       const recent = Object.entries(byDate).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 3);
-      if (recent.length) {
+      // Show the strip as soon as anything has ever been logged: a day you
+      // forgot entirely has no meals, so it never appears in any history list
+      // — the "another day" card is the only way to reach it.
+      if (recent.length || meals.length) {
         const past = el("div", { class: "npast", "data-testid": "overview-past-days" });
         past.appendChild(el("div", { class: "nmeals-head" },
           el("div", { class: "nsection-label" }, "PAST DAYS"),
-          el("button", {
+          recent.length ? el("button", {
             class: "npast-all", type: "button", "data-testid": "past-days-all",
             on: { click: () => goToPanel(idxOf("trends")) }
-          }, "See all")
+          }, "See all") : null
         ));
         const row = el("div", { class: "npast-row" });
         for (const [d, b] of recent) {
@@ -8337,8 +8494,20 @@
             el("div", { class: "npast-pct" + (b.kcal > goal ? " is-over" : "") }, goal ? `${pctDay}%` : `${b.count}`)
           ));
         }
+        // Any date, not just ones with meals already on them.
+        row.appendChild(el("button", {
+          class: "npast-card npast-more", type: "button", "data-testid": "past-day-pick",
+          title: "Open another day",
+          on: { click: () => openDayPicker() }
+        },
+          el("div", { class: "npast-more-ic", html: icons.plus }),
+          el("div", { class: "npast-more-label" }, "Another day")
+        ));
         past.appendChild(row);
-        past.appendChild(el("div", { class: "npast-hint text-xs text-faint" }, "Tap a day to add, retime or remove meals."));
+        past.appendChild(el("div", { class: "npast-hint text-xs text-faint" },
+          recent.length
+            ? "Tap a day to add, retime or remove meals."
+            : "Forgot to log a day? Open it here and fill it in."));
         ov.appendChild(past);
       }
     }
@@ -9014,6 +9183,9 @@
     const BOLT_ART = `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><path class="qa2-bolt" d="M28 5 13 27h9l-3 16 16-23H25z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/></svg>`;
     const CREATE_ART = `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><g class="qa2-plus"><path d="M9 28h30a15 15 0 0 1-30 0z" fill="currentColor" fill-opacity="0.16"/><path d="M9 28h30a15 15 0 0 1-30 0z" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><line x1="7" y1="28" x2="41" y2="28" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></g><g class="qa2-plusmark" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><line x1="24" y1="7" x2="24" y2="19"/><line x1="18" y1="13" x2="30" y2="13"/></g></svg>`;
     const CLOSE_ART = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>`;
+    // Bookmark for Saved — the third way to log, which used to live on a
+    // different screen entirely.
+    const SAVED_ART = `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="M13 6h22a3 3 0 0 1 3 3v33l-14-9-14 9V9a3 3 0 0 1 3-3z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/></svg>`;
 
     const quickPanel = el("button", {
       class: "qa-fork-panel qa2-workout", "data-testid": "meal-fork-quick",
@@ -9031,12 +9203,57 @@
       el("span", { class: "qa2-label" }, "Create meal"),
       el("span", { class: "qa2-sub" }, "Enter your own calories and macros")
     );
+    // Saved meals used to be a separate button on a separate screen, so
+    // "log a meal" meant learning two vocabularies. It is a third route to the
+    // same outcome, so it belongs in the same sheet as the other two.
+    const savedPanel = el("button", {
+      class: "qa-fork-panel qa2-saved", "data-testid": "meal-fork-saved",
+      on: { click: () => { close(); openSavedMealsSheet(sectionHint, dateHint); } }
+    },
+      el("span", { class: "qa2-art", html: SAVED_ART }),
+      el("span", { class: "qa2-label" }, "Saved meals"),
+      el("span", { class: "qa2-sub" }, "Re-log something you eat often")
+    );
     overlay.appendChild(quickPanel);
+    overlay.appendChild(savedPanel);
     overlay.appendChild(createPanel);
     overlay.appendChild(el("button", {
       class: "qa-fork-close", "aria-label": "Close", title: "Close",
       html: CLOSE_ART, on: { click: close }
     }));
+
+    // Same gesture as the + fork: swipe toward the side you want, with the
+    // middle route reached by tapping it.
+    const CHEV_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
+    const CHEV_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+    overlay.appendChild(el("div", { class: "qa-fork-hint", "aria-hidden": "true" },
+      el("span", { class: "qa-fork-chev qa-fork-chev-l", html: CHEV_L }),
+      el("span", { class: "qa-fork-hint-text" }, "Swipe or tap"),
+      el("span", { class: "qa-fork-chev qa-fork-chev-r", html: CHEV_R })
+    ));
+
+    let sx = 0, sy = 0, swiping = false, didSwipe = false;
+    overlay.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1) { swiping = false; return; }
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY; swiping = true; didSwipe = false;
+    }, { passive: true });
+    overlay.addEventListener("touchend", (e) => {
+      if (!swiping) return; swiping = false;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - sx, dy = t.clientY - sy;
+      if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      didSwipe = true;
+      const panel = dx < 0 ? quickPanel : createPanel;
+      panel.classList.add("qa2-chosen");
+      setTimeout(() => {
+        close();
+        if (dx < 0) openQuickAdd(sectionHint, dateHint);
+        else openMealForm(null, sectionHint || qaSectionForNow(), dateHint);
+      }, 140);
+    }, { passive: true });
+    [quickPanel, savedPanel, createPanel].forEach(p =>
+      p.addEventListener("click", (e) => { if (didSwipe) { e.preventDefault(); e.stopPropagation(); } }, true));
+
     document.body.appendChild(overlay);
   }
 
@@ -9731,7 +9948,14 @@
       view.appendChild(el("div", { class: "card" },
         el("div", { class: "card-title" }, "Personal records"),
         ...prsList.slice(0, 10).map(p =>
-          el("div", { class: "pr-item", on: { click: () => openExerciseDetail(p.ex.id) }, style: "cursor:pointer" },
+          el("div", {
+            class: "pr-item", style: "cursor:pointer",
+            role: "button", tabindex: "0", "aria-label": `${p.ex.name} — personal records`,
+            on: {
+              click: () => openExerciseDetail(p.ex.id),
+              keydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openExerciseDetail(p.ex.id); } }
+            }
+          },
             el("div", {},
               el("div", { class: "pr-name" }, p.ex.name),
               el("div", { class: "pr-date" }, `Best set: ${p.bestWeight}kg × ${p.bestReps} · top weight ${p.maxWeight}kg · best reps ${p.maxReps}`)
@@ -9756,7 +9980,15 @@
       // The freshly-finished session (top of the list) gets a one-off flourish.
       const flourish = firstItem && finishFlourish ? " finish-flourish" : "";
       firstItem = false;
-      card.appendChild(el("div", { class: "history-item" + flourish, on: { click: () => openWorkoutDetail(w) } },
+      card.appendChild(el("div", {
+        class: "history-item" + flourish,
+        role: "button", tabindex: "0",
+        "aria-label": `${w.name || "Workout"}, ${U.formatDate(w.date, { year: "numeric" })}`,
+        on: {
+          click: () => openWorkoutDetail(w),
+          keydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openWorkoutDetail(w); } }
+        }
+      },
         el("div", { class: "history-item-date" }, U.formatDate(w.date, { year: "numeric" })),
         el("div", { class: "history-item-name" }, w.name || "Workout"),
         el("div", { class: "history-item-summary" },
