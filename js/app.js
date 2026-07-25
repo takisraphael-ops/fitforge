@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=130").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=131").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -2613,6 +2613,26 @@
   }
 
   // Today's-workout hero for Home — driven by the weekly plan.
+  // One-tap starter weeks, built from the preset session library. Rest days
+  // are whatever's left, so a tap fills all seven days.
+  const STARTER_SPLITS = [
+    {
+      key: "full-body", label: "3-Day Full Body", hint: "Best if you're starting out",
+      days: { mon: "preset-full-body-a", wed: "preset-full-body-b", fri: "preset-full-body-c" }
+    },
+    {
+      key: "upper-lower", label: "Upper / Lower", hint: "Four days, balanced",
+      days: { mon: "preset-upper", tue: "preset-lower", thu: "preset-upper", fri: "preset-lower" }
+    },
+    {
+      key: "ppl", label: "Push / Pull / Legs", hint: "Six days, most volume",
+      days: {
+        mon: "preset-push", tue: "preset-pull", wed: "preset-legs",
+        thu: "preset-push", fri: "preset-pull", sat: "preset-legs"
+      }
+    }
+  ];
+
   function buildTodayWorkoutHero({ plan, tplById, exById }) {
     const hasPlan = planHasAny(plan);
     const todayKey = weekdayKeyFor();
@@ -2623,30 +2643,80 @@
       on: { click: openWeeklyPlanQuiz }
     }, "Edit week");
 
-    // No plan configured at all → invitation to set one up.
+    // No plan configured at all. Rather than handing over a 7-screen quiz,
+    // show the week you'd get and let one tap fill it from the preset library.
     if (!hasPlan) {
-      return el("div", { class: "card today-hero today-hero-plan", "data-testid": "today-hero" },
+      const card = el("div", { class: "card today-hero today-hero-plan", "data-testid": "today-hero" });
+      const strip = el("div", { class: "plan-preview", "data-testid": "plan-preview" });
+      const dayCells = {};
+      for (const k of WEEKDAY_KEYS) {
+        const cell = el("div", { class: "plan-preview-day", "data-day": k },
+          el("span", { class: "plan-preview-letter" }, WEEKDAY_LETTERS[k]),
+          el("span", { class: "plan-preview-fill" })
+        );
+        dayCells[k] = cell;
+        strip.appendChild(cell);
+      }
+      const previewLabel = el("div", { class: "plan-preview-label" }, "Seven days, yours to fill");
+
+      // Preview a split on the strip without committing to it.
+      const paintPreview = (split) => {
+        for (const k of WEEKDAY_KEYS) {
+          const on = split ? !!split.days[k] : false;
+          dayCells[k].classList.toggle("is-on", on);
+          dayCells[k].classList.toggle("is-rest", !!split && !on);
+        }
+        previewLabel.textContent = split
+          ? `${Object.keys(split.days).length} training days · ${split.label}`
+          : "Seven days, yours to fill";
+      };
+
+      const splitRow = el("div", { class: "split-row", "data-testid": "starter-splits" });
+      for (const split of STARTER_SPLITS) {
+        const btn = el("button", {
+          class: "split-card", type: "button", "data-testid": `split-${split.key}`,
+          on: {
+            click: async () => {
+              const plan2 = {};
+              for (const k of WEEKDAY_KEYS) plan2[k] = split.days[k] || "rest";
+              state.prefs.weeklyPlan = plan2;
+              await Storage.setPref("weeklyPlan", plan2);
+              paintPreview(split);
+              toast(`${split.label} set — ${Object.keys(split.days).length} training days`);
+              setTimeout(renderMainKeepScroll, 420);
+            },
+            pointerenter: () => paintPreview(split),
+            pointerleave: () => paintPreview(null)
+          }
+        },
+          el("span", { class: "split-card-days" }, String(Object.keys(split.days).length)),
+          el("span", { class: "split-card-main" },
+            el("span", { class: "split-card-name" }, split.label),
+            el("span", { class: "split-card-hint" }, split.hint))
+        );
+        splitRow.appendChild(btn);
+      }
+
+      card.append(
         el("div", { class: "today-hero-eyebrow" }, "Your week"),
-        el("div", { class: "today-hero-title" }, "Plan your training week"),
+        el("div", { class: "today-hero-title" }, "Build your week in one tap"),
         el("div", { class: "today-hero-sub" },
-          "Assign a template to each day and Home will show today's session ready to start."),
-        el("div", { class: "today-hero-actions" },
-          el("button", {
-            class: "btn btn-primary btn-block today-hero-start", "data-testid": "hero-plan-week",
-            on: { click: openWeeklyPlanQuiz }
-          }, "Plan your week", el("span", { class: "today-hero-arrow", html: arrow })),
-          el("button", {
-            class: "btn today-hero-browse", title: "Start a workout now",
-            on: { click: () => goTab("workout") }
-          }, "Start a workout"),
-          // No plan yet is exactly when "what should I even do?" bites — put
-          // the ready-made library one tap away.
-          el("button", {
-            class: "btn today-hero-browse", "data-testid": "hero-pick-session-noplan",
-            on: { click: () => { goTab("workout"); setTimeout(openSessionsSheet, 260); } }
-          }, "Pick a ready-made session")
+          "Pick a split and FitForge fills the week from its session library. Change any day later."),
+        strip,
+        previewLabel,
+        splitRow,
+        el("div", { class: "today-hero-quiet" },
+          el("button", { class: "hero-quiet-link", type: "button", "data-testid": "hero-plan-week",
+            on: { click: openWeeklyPlanQuiz } }, "Plan day by day"),
+          el("span", { class: "hero-quiet-sep" }, "·"),
+          el("button", { class: "hero-quiet-link", type: "button", "data-testid": "hero-pick-session-noplan",
+            on: { click: () => { goTab("workout"); setTimeout(openSessionsSheet, 260); } } }, "Pick a session"),
+          el("span", { class: "hero-quiet-sep" }, "·"),
+          el("button", { class: "hero-quiet-link", type: "button",
+            on: { click: () => goTab("workout") } }, "Just start")
         )
       );
+      return card;
     }
 
     // Rest day.
