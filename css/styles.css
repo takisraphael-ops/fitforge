@@ -4621,3 +4621,51 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .ivl-detail-row:last-child { border-bottom: none; }
 .ivl-detail-label { flex: 1; min-width: 0; font-weight: 700; }
 .ivl-detail-time { flex: none; color: var(--text-muted); font-variant-numeric: tabular-nums; font-weight: 700; }
+
+/* ===== Guided warm-up ===== */
+.warmup-overlay {
+  position: fixed; inset: 0; z-index: 2400;
+  display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(0,0,0,.55); backdrop-filter: blur(3px);
+  animation: fade-in .18s ease;
+}
+.warmup-overlay.is-closing { animation: fade-in .18s ease reverse forwards; }
+.warmup-sheet {
+  width: 100%; max-width: 560px; max-height: 88vh; overflow-y: auto;
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: 22px 22px 0 0; padding: 20px 18px calc(18px + env(safe-area-inset-bottom, 0px));
+  animation: sheetUp 260ms cubic-bezier(.22,1,.36,1);
+}
+.warmup-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.warmup-eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .14em; color: var(--accent); }
+.warmup-title { margin: 3px 0 4px; font-size: 22px; font-weight: 800; letter-spacing: -.01em; }
+.warmup-sub { font-size: 13px; color: var(--text-muted); line-height: 1.45; }
+.warmup-skip-x {
+  flex: none; width: 34px; height: 34px; border-radius: 50%; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--bg-sunken); border: 1px solid var(--border); color: var(--text-muted);
+}
+.warmup-skip-x svg { width: 16px; height: 16px; }
+.warmup-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.warmup-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border-radius: 14px;
+  background: var(--bg-sunken); border: 1px solid var(--border);
+}
+.warmup-item-main { flex: 1; min-width: 0; }
+.warmup-item-name { font-size: 14.5px; font-weight: 700; }
+.warmup-item-sub { font-size: 11.5px; color: var(--text-faint); margin-top: 2px; }
+.warmup-item-dose { flex: none; font-size: 12px; font-weight: 800; color: var(--accent); white-space: nowrap; }
+.warmup-sep {
+  font-size: 11px; font-weight: 800; letter-spacing: .12em; color: var(--text-faint);
+  margin: 10px 2px 2px;
+}
+.warmup-ramp-badge {
+  flex: none; width: 40px; height: 40px; border-radius: 12px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800; color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.warmup-actions { display: flex; flex-direction: column; gap: 6px; }
+.warmup-never { color: var(--text-faint); }

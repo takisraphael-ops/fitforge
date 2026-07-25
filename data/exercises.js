@@ -912,7 +912,7 @@ window.EXERCISE_DB = [
     variations: ["Wide-knee child's pose", "Side-reach child's pose (lats)", "Supported with a cushion"],
     alternatives: ["Cat-cow", "Puppy pose", "Seated forward fold"] },
 
-  { id: "mob-cat-cow", name: "Cat-Cow", category: "mobility", type: "hold", met: 2.5, perSide: false, muscles: ["Lower Back", "Upper Back", "Core"], equipment: "Bodyweight", technique: [
+  { id: "mob-cat-cow", name: "Cat-Cow", category: "mobility", dynamic: true, type: "hold", met: 2.5, perSide: false, muscles: ["Lower Back", "Upper Back", "Core"], equipment: "Bodyweight", technique: [
     "Start on all fours, hands under shoulders and knees under hips.",
     "Inhale: drop the belly, lift the chest and tailbone (cow).",
     "Exhale: round the spine, tuck the tailbone and chin (cat).",
@@ -922,7 +922,7 @@ window.EXERCISE_DB = [
     variations: ["Thread the needle", "Seated cat-cow", "Standing cat-cow"],
     alternatives: ["Thoracic rotation", "Child's pose", "Standing roll-down"] },
 
-  { id: "mob-thoracic-rotation", name: "Thoracic Rotation (Open Book)", category: "mobility", type: "hold", met: 2.5, perSide: true, muscles: ["Upper Back", "Pectorals"], equipment: "Bodyweight", technique: [
+  { id: "mob-thoracic-rotation", name: "Thoracic Rotation (Open Book)", category: "mobility", dynamic: true, type: "hold", met: 2.5, perSide: true, muscles: ["Upper Back", "Pectorals"], equipment: "Bodyweight", technique: [
     "Lie on your side with knees bent to 90° and stacked, arms extended in front.",
     "Keep the knees together and pinned to the floor throughout.",
     "Sweep the top arm up and over, opening the chest toward the ceiling.",
@@ -1042,7 +1042,7 @@ window.EXERCISE_DB = [
     variations: ["Levator scapulae stretch (look to armpit)", "Seated with hand anchored", "Chin-tuck variation"],
     alternatives: ["Upper trap release", "Thread the needle", "Shoulder rolls"] },
 
-  { id: "mob-hip-circles", name: "Standing Hip Circles", category: "mobility", type: "hold", met: 3.0, perSide: true, muscles: ["Hip Flexors", "Glutes"], equipment: "Bodyweight", technique: [
+  { id: "mob-hip-circles", name: "Standing Hip Circles", category: "mobility", dynamic: true, type: "hold", met: 3.0, perSide: true, muscles: ["Hip Flexors", "Glutes"], equipment: "Bodyweight", technique: [
     "Stand tall, holding a wall or rail for balance.",
     "Lift one knee to about hip height in front of you.",
     "Sweep the knee out to the side, then back and down in a smooth arc.",
@@ -1052,7 +1052,7 @@ window.EXERCISE_DB = [
     variations: ["Reverse circles", "Lying hip circles", "90/90 transitions"],
     alternatives: ["Leg swings", "World's greatest stretch", "90/90 hip stretch"] },
 
-  { id: "mob-leg-swings", name: "Leg Swings", category: "mobility", type: "hold", met: 3.0, perSide: true, muscles: ["Hamstrings", "Hip Flexors", "Glutes"], equipment: "Bodyweight", technique: [
+  { id: "mob-leg-swings", name: "Leg Swings", category: "mobility", dynamic: true, type: "hold", met: 3.0, perSide: true, muscles: ["Hamstrings", "Hip Flexors", "Glutes"], equipment: "Bodyweight", technique: [
     "Hold a wall or rail for balance and stand on one leg.",
     "Swing the free leg forward and back in a controlled arc.",
     "Start with a small range and build gradually as it loosens.",
@@ -1062,7 +1062,7 @@ window.EXERCISE_DB = [
     variations: ["Lateral leg swings", "Bent-knee swings", "Swings with a rotation"],
     alternatives: ["Hip circles", "World's greatest stretch", "Walking lunges"] },
 
-  { id: "mob-worlds-greatest", name: "World's Greatest Stretch", category: "mobility", type: "hold", met: 3.2, perSide: true, muscles: ["Hip Flexors", "Hamstrings", "Upper Back", "Glutes"], equipment: "Bodyweight", technique: [
+  { id: "mob-worlds-greatest", name: "World's Greatest Stretch", category: "mobility", dynamic: true, type: "hold", met: 3.2, perSide: true, muscles: ["Hip Flexors", "Hamstrings", "Upper Back", "Glutes"], equipment: "Bodyweight", technique: [
     "Step into a deep forward lunge with the front foot flat.",
     "Place both hands on the floor inside the front foot.",
     "Drop the rear knee toward the floor to open the hip flexor.",
@@ -1071,6 +1071,66 @@ window.EXERCISE_DB = [
   ], mistakes: ["Front knee collapsing inward", "Rotating from the lower back rather than the upper", "Rushing between positions", "Rear hip sagging out to the side"],
     variations: ["With the rear knee down", "Hold each position statically", "Add a thoracic reach-through"],
     alternatives: ["Thoracic rotation", "Kneeling hip flexor stretch", "Walking lunge with twist"] },
+
+  { id: "mob-arm-circles", name: "Arm Circles", category: "mobility", dynamic: true, type: "hold", met: 2.8, perSide: false, muscles: ["Shoulders", "Pectorals", "Upper Back"], equipment: "Bodyweight", technique: [
+    "Stand tall with arms out to the sides at shoulder height.",
+    "Draw small circles forward, growing them gradually.",
+    "Reverse after half the time, circling backward.",
+    "Keep the ribs down and the shoulders away from the ears.",
+    "Move continuously — this is to warm the joint, not to stretch it."
+  ], mistakes: ["Shrugging the shoulders", "Arching the lower back", "Starting with huge circles while cold", "Holding the breath"],
+    variations: ["Single-arm circles", "Circles with a light plate", "Forward/backward alternating"],
+    alternatives: ["Band pull-aparts", "Scapular wall slides", "Shoulder dislocates"] },
+
+  { id: "mob-scap-wall-slide", name: "Scapular Wall Slides", category: "mobility", dynamic: true, type: "hold", met: 2.5, perSide: false, muscles: ["Upper Back", "Shoulders", "Upper Traps"], equipment: "Bodyweight", technique: [
+    "Stand with your back to a wall, feet a few inches out from it.",
+    "Press the lower back, upper back and head lightly into the wall.",
+    "Put the backs of the hands and forearms on the wall in a goalpost shape.",
+    "Slide the arms overhead, keeping contact with the wall as long as you can.",
+    "Lower slowly and repeat, squeezing the shoulder blades down at the bottom."
+  ], mistakes: ["Lower back arching off the wall", "Forearms losing contact immediately", "Shrugging at the top", "Rushing the slide"],
+    variations: ["Floor version (lying)", "With a band around the wrists", "Half-kneeling at the wall"],
+    alternatives: ["Arm circles", "Band pull-aparts", "Thoracic rotation"] },
+
+  { id: "mob-bodyweight-squat", name: "Bodyweight Squat (Warm-up)", category: "mobility", dynamic: true, type: "hold", met: 3.5, perSide: false, muscles: ["Quadriceps", "Glutes", "Hip Flexors", "Adductors"], equipment: "Bodyweight", technique: [
+    "Stand with feet about shoulder width, toes slightly out.",
+    "Sit down and back, keeping the chest tall and heels planted.",
+    "Descend as deep as you can control, knees tracking over the toes.",
+    "Drive up through the whole foot without rushing.",
+    "Pause a beat at the bottom of the last few to open the hips."
+  ], mistakes: ["Heels lifting", "Knees caving inward", "Rounding the lower back at the bottom", "Bouncing out of the hole"],
+    variations: ["Prying goblet squat", "Squat to a box", "Squat with an overhead reach"],
+    alternatives: ["World's greatest stretch", "Hip circles", "Glute bridge"] },
+
+  { id: "mob-glute-bridge", name: "Glute Bridge (Warm-up)", category: "mobility", dynamic: true, type: "hold", met: 3.0, perSide: false, muscles: ["Glutes", "Hamstrings", "Hip Flexors"], equipment: "Bodyweight", technique: [
+    "Lie on your back, knees bent, feet flat and hip-width apart.",
+    "Tuck the pelvis slightly and brace the core.",
+    "Drive through the heels and lift the hips until the body is a straight line.",
+    "Squeeze the glutes hard at the top for a beat.",
+    "Lower with control — do not let the lower back take over."
+  ], mistakes: ["Arching the lower back at the top", "Pushing through the toes", "Rushing the reps", "Letting the knees splay out"],
+    variations: ["Single-leg bridge", "Feet elevated", "Bridge with a band around the knees"],
+    alternatives: ["Hip circles", "Bodyweight squat", "Kneeling hip flexor stretch"] },
+
+  { id: "mob-inchworm", name: "Inchworm", category: "mobility", dynamic: true, type: "hold", met: 3.5, perSide: false, muscles: ["Hamstrings", "Shoulders", "Core", "Calves"], equipment: "Bodyweight", technique: [
+    "Stand tall, then hinge and place your hands on the floor (bend the knees as needed).",
+    "Walk the hands forward until you reach a high plank.",
+    "Hold the plank position for a beat with the ribs down.",
+    "Walk the feet up toward the hands in small steps.",
+    "Stand up and repeat."
+  ], mistakes: ["Hips sagging in the plank", "Locking the knees on the walk-out", "Rushing and losing the brace", "Holding the breath"],
+    variations: ["Inchworm with a push-up", "Inchworm with a shoulder tap", "Walk-out only"],
+    alternatives: ["Downward dog", "World's greatest stretch", "Standing forward fold"] },
+
+  { id: "mob-ankle-rocks", name: "Ankle Rocks", category: "mobility", dynamic: true, type: "hold", met: 2.3, perSide: true, muscles: ["Calves"], equipment: "Bodyweight", technique: [
+    "Take a half-kneeling position with the front foot flat.",
+    "Keeping the heel down, drive the front knee forward over the toes.",
+    "Rock forward to the end of your range, then back.",
+    "Work through the range repeatedly rather than holding.",
+    "Keep the arch of the front foot from collapsing inward."
+  ], mistakes: ["Front heel lifting", "Arch collapsing inward", "Forcing painfully far", "Rocking too fast to feel the range"],
+    variations: ["Standing at a wall", "Weighted (hand on the knee)", "Toes elevated"],
+    alternatives: ["Standing calf stretch", "Downward dog pedal", "Deep squat hold"] },
 
   { id: "mob-thread-needle", name: "Thread the Needle", category: "mobility", type: "hold", met: 2.3, perSide: true, muscles: ["Upper Back", "Rear Deltoids", "Lats"], equipment: "Bodyweight", technique: [
     "Start on all fours with hands under shoulders.",

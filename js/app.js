@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=124").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=125").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -470,6 +470,8 @@
       onboarded: !!(await Storage.getPref("onboarded", false)),
       // Weekly split/program: { mon: templateId | "rest", ... } (missing = open day).
       weeklyPlan: await Storage.getPref("weeklyPlan", {}),
+      // Offer a guided warm-up before a session (dynamic prep + ramp sets).
+      warmupPrompt: !!(await Storage.getPref("warmupPrompt", true)),
       // Meal reminder times: { breakfast: "08:00", ... } — only sections the user opted in.
       mealReminders: await Storage.getPref("mealReminders", {}),
       theme: await Storage.getPref("theme", null)
@@ -3769,6 +3771,9 @@
     }
     startWorkoutTimer();
     renderMain();
+    // Offer movement prep once the session screen is up, so skipping it lands
+    // you straight in the workout.
+    offerWarmup(workout);
   }
 
   function startWorkoutTimer() {
@@ -3779,6 +3784,145 @@
         elapsed.textContent = U.formatTime(Math.floor((Date.now() - state.activeWorkout.startedAt) / 1000));
       }
     }, 1000);
+  }
+
+  // ============ Guided warm-up ============
+  // Dynamic mobility matched to the session's muscles, plus ramp sets on the
+  // first main lift. Deliberately NOT static stretching: holding a stretch
+  // before lifting measurably reduces force output — those belong afterwards.
+  const RAMP_STEPS = [
+    { pct: 0.4, reps: 8, label: "Empty-ish bar" },
+    { pct: 0.6, reps: 5, label: "Building" },
+    { pct: 0.8, reps: 3, label: "Last primer" }
+  ];
+
+  async function buildWarmupPlan(workout) {
+    const all = await getAllExercises();
+    const byId = new Map(all.map(e => [e.id, e]));
+    const entries = (workout.exercises || []);
+    if (!entries.length) return null;
+
+    // Muscles the session actually trains (skip mobility entries themselves).
+    const muscles = new Set();
+    let hasStrength = false;
+    for (const e of entries) {
+      const def = byId.get(e.exerciseId);
+      if (!def || def.category === "mobility") continue;
+      if (e.type !== "cardio" && e.type !== "interval" && e.type !== "hold") hasStrength = true;
+      for (const m of (def.muscles || [])) muscles.add(m.toLowerCase());
+    }
+    if (!muscles.size) return null;
+
+    // Score each dynamic drill by how much it overlaps the session.
+    const drills = all.filter(e => e.category === "mobility" && e.dynamic);
+    const scored = drills.map(d => {
+      let score = 0;
+      for (const m of (d.muscles || [])) {
+        const lm = m.toLowerCase();
+        for (const sm of muscles) {
+          if (sm.includes(lm) || lm.includes(sm)) { score += 2; break; }
+        }
+      }
+      return { d, score };
+    }).filter(x => x.score > 0).sort((a, b) => b.score - a.score);
+    // Always include a spine/whole-body opener even if nothing else matched.
+    const picked = scored.slice(0, 4).map(x => x.d);
+    if (!picked.length) picked.push(...drills.slice(0, 3));
+
+    // Ramp sets for the first loaded compound, based on your last working set.
+    let ramp = null;
+    if (hasStrength) {
+      const first = entries.find(e => {
+        const def = byId.get(e.exerciseId);
+        return def && def.category !== "mobility" && e.type !== "cardio" && e.type !== "interval" && e.type !== "hold";
+      });
+      if (first) {
+        const prs = await getPRsFor(first.exerciseId);
+        const hist = await getHistoryFor(first.exerciseId);
+        const lastWorking = (() => {
+          for (const h of hist) {
+            const best = (h.sets || []).filter(s => s.weight).sort((a, b) => b.weight - a.weight)[0];
+            if (best) return best.weight;
+          }
+          return prs.maxWeight || null;
+        })();
+        if (lastWorking > 20) {
+          ramp = {
+            name: first.name,
+            working: lastWorking,
+            sets: RAMP_STEPS.map(r => ({
+              // Round to the nearest 2.5kg so it's actually loadable.
+              weight: Math.max(20, Math.round((lastWorking * r.pct) / 2.5) * 2.5),
+              reps: r.reps, label: r.label
+            }))
+          };
+        }
+      }
+    }
+    return { drills: picked, ramp };
+  }
+
+  // Offer the warm-up before a session. Skipping is one tap and is remembered
+  // for the session; "Don't ask again" turns the prompt off for good.
+  async function offerWarmup(workout) {
+    if (!state.prefs.warmupPrompt) return;
+    const plan = await buildWarmupPlan(workout);
+    if (!plan || (!plan.drills.length && !plan.ramp)) return;
+
+    const overlay = el("div", { class: "warmup-overlay", "data-testid": "warmup" });
+    const close = () => { overlay.classList.add("is-closing"); setTimeout(() => overlay.remove(), 200); };
+
+    const list = el("div", { class: "warmup-list" });
+    for (const d of plan.drills) {
+      list.appendChild(el("div", { class: "warmup-item" },
+        exerciseFigureIcon(d.category),
+        el("div", { class: "warmup-item-main" },
+          el("div", { class: "warmup-item-name" }, d.name),
+          el("div", { class: "warmup-item-sub" }, (d.muscles || []).slice(0, 3).join(" · "))),
+        el("div", { class: "warmup-item-dose" }, d.perSide ? "30s / side" : "30s")
+      ));
+    }
+    if (plan.ramp) {
+      list.appendChild(el("div", { class: "warmup-sep" }, `RAMP · ${plan.ramp.name}`));
+      for (const r of plan.ramp.sets) {
+        list.appendChild(el("div", { class: "warmup-item" },
+          el("div", { class: "warmup-ramp-badge" }, `${r.weight}`),
+          el("div", { class: "warmup-item-main" },
+            el("div", { class: "warmup-item-name" }, `${r.weight}kg × ${r.reps}`),
+            el("div", { class: "warmup-item-sub" }, r.label)),
+          el("div", { class: "warmup-item-dose" }, "kg")
+        ));
+      }
+    }
+
+    const body = el("div", { class: "warmup-sheet" },
+      el("div", { class: "warmup-head" },
+        el("div", {},
+          el("div", { class: "warmup-eyebrow" }, "BEFORE YOU START"),
+          el("h2", { class: "warmup-title" }, "Quick warm-up"),
+          el("div", { class: "warmup-sub" },
+            plan.ramp
+              ? "Movement prep for today's muscles, then ramp sets into your first lift."
+              : "Movement prep matched to today's session.")),
+        el("button", { class: "warmup-skip-x", type: "button", "aria-label": "Skip warm-up",
+          "data-testid": "warmup-skip-x", on: { click: close },
+          html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>' })
+      ),
+      list,
+      el("div", { class: "warmup-actions" },
+        el("button", { class: "btn btn-primary btn-block", "data-testid": "warmup-go", on: { click: close } }, "Got it — let's go"),
+        el("button", { class: "btn btn-ghost btn-sm", "data-testid": "warmup-skip", on: { click: close } }, "Skip warm-up"),
+        el("button", { class: "btn btn-ghost btn-sm warmup-never", "data-testid": "warmup-never", on: { click: async () => {
+          state.prefs.warmupPrompt = false;
+          await Storage.setPref("warmupPrompt", false);
+          toast("Warm-up prompt turned off — re-enable it in Settings");
+          close();
+        } } }, "Don't ask again")
+      )
+    );
+    overlay.appendChild(body);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    document.body.appendChild(overlay);
   }
 
   // What a preset session actually asks of you, before you commit to it.
@@ -9828,6 +9972,12 @@
       "Off by default. Workout burn estimates are rough; leaving this off usually matches the scale better. You still see the estimate on Home."
     );
 
+    const warmupCb = el("input", { type: "checkbox", id: "warmup-toggle" });
+    warmupCb.checked = state.prefs.warmupPrompt !== false;
+    const warmupHint = el("div", { class: "text-xs text-faint mt-8" },
+      "Before a session, suggest dynamic movement prep for the muscles you're about to train, plus ramp sets into your first lift. Always skippable in one tap."
+    );
+
     const backupReminderCb = el("input", {
       type: "checkbox",
       id: "backup-reminder-toggle"
@@ -10261,7 +10411,14 @@
       macroPreview,
 
       el("div", { class: "settings-section-title mt-16" }, "Training"),
-      el("div", { class: "form-row" },
+      el("div", { class: "settings-check-row" },
+        el("label", { class: "settings-check-label", for: "warmup-toggle" },
+          warmupCb,
+          el("span", {}, "Offer a warm-up before each session")
+        ),
+        warmupHint
+      ),
+      el("div", { class: "form-row mt-8" },
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Default rest timer"),
           wheelWrap(restI, { title: "Default rest", items: wheelRange(15, 300, 15, s => U.formatTime(s)), testid: "wheel-rest" })),
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Weekly workout goal"),
@@ -10435,6 +10592,8 @@
         await Storage.setPref("carbsGoal", carbsGoal);
         await Storage.setPref("fatGoal", fatGoal);
         await Storage.setPref("defaultRestSec", state.prefs.defaultRestSec);
+        state.prefs.warmupPrompt = warmupCb.checked;
+        await Storage.setPref("warmupPrompt", warmupCb.checked);
         await Storage.setPref("weeklyWorkoutGoal", weeklyWorkoutGoal);
         await Storage.setPref("backupReminder", backupReminder);
 
