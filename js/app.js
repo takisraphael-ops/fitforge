@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=126").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=130").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1831,7 +1831,17 @@
       el("span", { class: "qa2-label" }, "Log meal"),
       el("span", { class: "qa2-sub" }, "Add food to today")
     );
+    const SESSION_ART = `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="8" width="30" height="32" rx="4"/><line x1="16" y1="18" x2="32" y2="18"/><line x1="16" y1="25" x2="32" y2="25"/><line x1="16" y1="32" x2="26" y2="32"/></g></svg>`;
+    const sessionsPanel = el("button", {
+      class: "qa-fork-panel qa2-sessions", "data-testid": "quick-sessions",
+      on: { click: () => { close(); goTab("workout"); window.scrollTo(0, 0); setTimeout(openSessionsSheet, 260); } }
+    },
+      el("span", { class: "qa2-art", html: SESSION_ART }),
+      el("span", { class: "qa2-label" }, "Sessions"),
+      el("span", { class: "qa2-sub" }, "Ready-made workouts")
+    );
     overlay.appendChild(workoutPanel);
+    overlay.appendChild(sessionsPanel);
     overlay.appendChild(mealPanel);
     overlay.appendChild(el("button", { class: "qa-fork-close", "aria-label": "Close", title: "Close", html: CLOSE_ART, on: { click: close } }));
 
@@ -2628,7 +2638,13 @@
           el("button", {
             class: "btn today-hero-browse", title: "Start a workout now",
             on: { click: () => goTab("workout") }
-          }, "Start a workout")
+          }, "Start a workout"),
+          // No plan yet is exactly when "what should I even do?" bites — put
+          // the ready-made library one tap away.
+          el("button", {
+            class: "btn today-hero-browse", "data-testid": "hero-pick-session-noplan",
+            on: { click: () => { goTab("workout"); setTimeout(openSessionsSheet, 260); } }
+          }, "Pick a ready-made session")
         )
       );
     }
@@ -2738,7 +2754,13 @@
       el("button", {
         class: "btn btn-primary btn-block today-hero-start mt-8", "data-testid": "hero-start-open",
         on: { click: () => goTab("workout") }
-      }, "Start a workout", el("span", { class: "today-hero-arrow", html: arrow }))
+      }, "Start a workout", el("span", { class: "today-hero-arrow", html: arrow })),
+      // On an open day the real question is "what should I do?" — offer the
+      // ready-made library right here rather than making them go find it.
+      el("button", {
+        class: "btn btn-block mt-8", "data-testid": "hero-pick-session",
+        on: { click: () => { goTab("workout"); setTimeout(openSessionsSheet, 260); } }
+      }, "Pick a ready-made session")
     );
   }
 
@@ -3276,7 +3298,37 @@
           await beginWorkoutSession({ name: suggestedName(), exercises, source: "empty" });
         }
       });
-      view.appendChild(el("div", { class: "xpick-screen" }, picker.body));
+      // Two equal ways to start: build it yourself, or take one off the shelf.
+      const pickerHost = el("div", { class: "xpick-screen" }, picker.body);
+      const sessionsHost = el("div", { style: "display:none" });
+      const modeRow = el("div", { class: "start-mode", "data-testid": "start-mode" },
+        el("button", { class: "start-mode-btn active", type: "button", "data-mode": "exercises", "data-testid": "start-mode-exercises" }, "Exercises"),
+        el("button", { class: "start-mode-btn", type: "button", "data-mode": "sessions", "data-testid": "start-mode-sessions" }, "Sessions")
+      );
+      let sessionsBuilt = false;
+      const setMode = async (m) => {
+        modeRow.querySelectorAll(".start-mode-btn").forEach(b =>
+          b.classList.toggle("active", b.getAttribute("data-mode") === m));
+        pickerHost.style.display = m === "exercises" ? "" : "none";
+        sessionsHost.style.display = m === "sessions" ? "" : "none";
+        extras.style.display = m === "exercises" ? "" : "none";
+        if (m === "sessions" && !sessionsBuilt) {
+          sessionsBuilt = true;
+          const mine = (await Storage.getTemplates()).slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+          const sp = buildSessionPickerUI(mine, presetSessions(), {});
+          sessionsHost.appendChild(sp.body);
+          sp.refresh();
+        }
+      };
+      modeRow.querySelectorAll(".start-mode-btn").forEach(b =>
+        b.addEventListener("click", () => setMode(b.getAttribute("data-mode"))));
+      // Trailing cards belong to the "build it yourself" flow — Sessions mode
+      // replaces them, so they hide rather than trail underneath.
+      const extras = el("div", { "data-testid": "start-extras" });
+      view.appendChild(modeRow);
+      view.appendChild(pickerHost);
+      view.appendChild(sessionsHost);
+      view.appendChild(extras);
       picker.refresh();
 
       // Edge handles: Weekly plan (left) and Templates (right). They surface two
@@ -3289,9 +3341,9 @@
         on: { click: openWeeklyPlanQuiz }
       }, el("span", { class: "wk-edge-chev", html: CHEV_R }), el("span", { class: "wk-edge-text" }, "Plan")));
       view.appendChild(el("button", {
-        class: "wk-edge wk-edge-right", type: "button", "data-testid": "edge-templates", "aria-label": "Templates",
-        on: { click: openTemplatesSheet }
-      }, el("span", { class: "wk-edge-chev", html: CHEV_L }), el("span", { class: "wk-edge-text" }, "Templates")));
+        class: "wk-edge wk-edge-right", type: "button", "data-testid": "edge-templates", "aria-label": "Sessions",
+        on: { click: openSessionsSheet }
+      }, el("span", { class: "wk-edge-chev", html: CHEV_L }), el("span", { class: "wk-edge-text" }, "Sessions")));
 
       // Edge-swipe: a horizontal swipe that STARTS at the screen edge opens the
       // matching flow. Starting at the edge is what keeps it clear of the picker.
@@ -3318,7 +3370,7 @@
         const exCount = (last.exercises || []).length;
         const names = (last.exercises || []).slice(0, 4).map(e => e.name).join(" · ");
         const more = exCount > 4 ? ` +${exCount - 4} more` : "";
-        view.appendChild(el("div", { class: "card session-speed-card" },
+        extras.appendChild(el("div", { class: "card session-speed-card" },
           el("div", { class: "row-between", style: "gap: 12px; align-items: center" },
             el("div", { style: "min-width: 0" },
               el("div", { class: "card-title", style: "margin: 0 0 4px 0" }, "Repeat last session"),
@@ -3341,7 +3393,7 @@
       const planSummary = planHasAny(wplan)
         ? `${trainingDays} training day${trainingDays === 1 ? "" : "s"}` + (restDays ? ` · ${restDays} rest` : "")
         : "Not set up yet";
-      view.appendChild(el("div", { class: "card wplan-entry", "data-testid": "workout-weekly-plan" },
+      extras.appendChild(el("div", { class: "card wplan-entry", "data-testid": "workout-weekly-plan" },
         el("div", { class: "row-between", style: "gap:12px;align-items:center" },
           el("div", { style: "min-width:0" },
             el("div", { class: "card-title", style: "margin:0 0 4px 0" }, "Weekly plan"),
@@ -3407,7 +3459,7 @@
         const open = tplCard.classList.toggle("open");
         tplHead.setAttribute("aria-expanded", open ? "true" : "false");
       });
-      view.appendChild(tplCard);
+      extras.appendChild(tplCard);
       return;
     }
 
@@ -3975,78 +4027,122 @@
     openModal(t.name, body, footer);
   }
 
-  // Templates hub — reached from the right-edge handle on the start screen.
-  async function openTemplatesSheet() {
-    let sheetBody;
-    const build = async () => {
-      const mine = (await Storage.getTemplates()).slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-      const presets = presetSessions();
-      const box = el("div", { class: "templates-sheet" });
-      const cardFor = (t) => {
-        const preset = !!t.preset;
-        const ivl = (t.exercises || []).find(e => e.intervals)?.intervals;
-        const isCardioEntry = e => e.targetDurationMin != null || looksLikeCardio({ id: e.exerciseId, name: e.name });
-        const setsTotal = t.exercises.reduce((s, e) => s + (e.intervals || isCardioEntry(e) ? 0 : (e.targetSets || 3)), 0);
-        const cardioMin = t.exercises.reduce((s, e) => s + (isCardioEntry(e) ? (e.targetDurationMin || 0) : 0), 0);
-        const meta = ivl ? intervalSummary(ivl) : [
-          `${t.exercises.length} exercise${t.exercises.length === 1 ? "" : "s"}`,
-          setsTotal > 0 ? `${setsTotal} sets` : null,
-          cardioMin > 0 ? `${cardioMin} min cardio` : null
-        ].filter(Boolean).join(" · ");
-        return el("div", { class: "template-card", "data-testid": preset ? `preset-${t.id}` : undefined },
-          el("div", { class: "template-card-name" }, t.name,
-            preset ? el("span", { class: "tpl-preset-chip" }, "Preset") : null),
-          el("div", { class: "template-card-meta" }, meta),
-          el("div", { class: "template-card-exercises" },
-            t.desc || (t.exercises.slice(0, 4).map(e => e.name).join(" · ") + (t.exercises.length > 4 ? ` +${t.exercises.length - 4} more` : ""))),
-          el("div", { class: "row mt-8", style: "gap: 6px" },
-            el("button", { class: "btn btn-primary btn-sm", on: { click: () => { closeModal(); startNewWorkout(t); } } }, "Start"),
-            preset
-              ? el("button", { class: "btn btn-sm", on: { click: () => openSessionDetail(t) } }, "Details")
-              : el("button", { class: "btn btn-sm", on: { click: () => { closeModal(); openTemplateEditor(t); } } }, "Edit"),
-            preset ? null : el("button", { class: "icon-btn", title: "Delete template", html: icons.trash, on: { click: async () => {
-              if (!(await confirmDialog(`Delete template “${t.name}”?`, { title: "Delete template?", okLabel: "Delete", danger: true }))) return;
-              await Storage.deleteTemplate(t.id);
-              const fresh = await build(); sheetBody.replaceWith(fresh); sheetBody = fresh;
-            } } })
-          )
-        );
-      };
-      if (!mine.length) {
-        box.appendChild(el("div", { class: "ncard-empty" },
-          el("div", { class: "ncard-empty-title" }, "No templates of your own yet"),
-          el("div", { class: "ncard-empty-sub" }, "Build a reusable workout, or start from a preset session below.")));
-      } else {
-        box.appendChild(el("div", { class: "nsection-label", style: "margin:2px 0 2px" }, "YOUR TEMPLATES"));
-        for (const t of mine) box.appendChild(cardFor(t));
+  // Sessions hub — your templates plus the built-in library, as swipeable
+  // category panels rather than one very long scroll.
+  function buildSessionPickerUI(mine, presets, opts = {}) {
+    const onPicked = opts.onPicked || (() => {});
+    const GROUPS = [
+      { key: "conditioning", label: "Conditioning", items: presets.filter(t => t.pillar === "conditioning") },
+      { key: "strength", label: "Strength", items: presets.filter(t => t.pillar === "strength") },
+      { key: "recovery", label: "Recovery", items: presets.filter(t => t.pillar === "recovery") },
+      { key: "mine", label: "Yours", items: mine }
+    ].filter(g => g.items.length);
+    if (!GROUPS.length) {
+      return { body: el("div", { class: "ncard-empty" },
+        el("div", { class: "ncard-empty-title" }, "No sessions yet"),
+        el("div", { class: "ncard-empty-sub" }, "Build a template and it will appear here.")), refresh: () => {} };
+    }
+    let activeKey = GROUPS[0].key;
+    const chipRow = el("div", { class: "xpick-chips", "data-testid": "sess-chips" });
+    const dotsRow = el("div", { class: "xpick-dots", "data-testid": "sess-dots" });
+    const pager = el("div", { class: "xpick-pager", "data-testid": "sess-pager" });
+
+    function cardFor(t) {
+      const preset = !!t.preset;
+      const ivl = (t.exercises || []).find(e => e.intervals)?.intervals;
+      const isCardioEntry = e => e.targetDurationMin != null || looksLikeCardio({ id: e.exerciseId, name: e.name });
+      const setsTotal = t.exercises.reduce((s2, e) => s2 + (e.intervals || isCardioEntry(e) ? 0 : (e.targetSets || 3)), 0);
+      const meta = ivl ? intervalSummary(ivl)
+        : `${t.exercises.length} exercise${t.exercises.length === 1 ? "" : "s"}` + (setsTotal > 0 ? ` · ${setsTotal} sets` : "") + ` · ~${templateEstMin(t)} min`;
+      return el("div", { class: "sess-card", "data-testid": preset ? `preset-${t.id}` : `tpl-${t.id}` },
+        el("div", { class: "sess-card-top" },
+          el("div", { class: "sess-card-name" }, t.name),
+          el("div", { class: "sess-card-meta" }, meta)),
+        el("div", { class: "sess-card-desc" },
+          t.desc || t.exercises.slice(0, 4).map(e => e.name).join(" · ")),
+        el("div", { class: "sess-card-actions" },
+          el("button", { class: "btn btn-primary btn-sm", on: { click: () => { onPicked(); startNewWorkout(t); } } }, "Start"),
+          preset
+            ? el("button", { class: "btn btn-sm", on: { click: () => openSessionDetail(t) } }, "Details")
+            : el("button", { class: "btn btn-sm", on: { click: () => { onPicked(); openTemplateEditor(t); } } }, "Edit"),
+          preset ? null : el("button", { class: "icon-btn", title: "Delete template", html: icons.trash, on: { click: async () => {
+            if (!(await confirmDialog(`Delete template \u201c${t.name}\u201d?`, { title: "Delete template?", okLabel: "Delete", danger: true }))) return;
+            await Storage.deleteTemplate(t.id);
+            onPicked(); openSessionsSheet();
+          } } })
+        )
+      );
+    }
+
+    function panelFor(g) {
+      return el("div", { class: "xpick-panel", "data-cat": g.key },
+        el("div", { class: "xpick-card" },
+          el("div", { class: "xpick-panel-head" },
+            el("span", { class: "xpick-panel-title" }, g.label),
+            el("span", { class: "xpick-panel-count" }, String(g.items.length))),
+          el("div", { class: "xpick-panel-list" }, ...g.items.map(cardFor))
+        )
+      );
+    }
+    function sync() {
+      for (const c of Array.from(chipRow.children)) {
+        const on = c.getAttribute("data-cat") === activeKey;
+        c.classList.toggle("active", on);
+        if (on) {
+          const target = c.offsetLeft - (chipRow.clientWidth - c.clientWidth) / 2;
+          chipRow.scrollTo({ left: Math.max(0, target), behavior: "smooth" });
+        }
       }
-      // 26 presets in one list is a wall — group them by pillar.
-      const PILLARS = [
-        { key: "conditioning", label: "CONDITIONING" },
-        { key: "strength", label: "STRENGTH" },
-        { key: "recovery", label: "RECOVERY" }
-      ];
-      for (const p of PILLARS) {
-        const inPillar = presets.filter(t => t.pillar === p.key);
-        if (!inPillar.length) continue;
-        box.appendChild(el("div", { class: "nsection-label", style: "margin:16px 0 2px" }, p.label));
-        for (const t of inPillar) box.appendChild(cardFor(t));
+      for (const d of Array.from(dotsRow.children)) {
+        d.classList.toggle("active", d.getAttribute("data-cat") === activeKey);
       }
-      const other = presets.filter(t => !PILLARS.some(p => p.key === t.pillar));
-      if (other.length) {
-        box.appendChild(el("div", { class: "nsection-label", style: "margin:16px 0 2px" }, "OTHER"));
-        for (const t of other) box.appendChild(cardFor(t));
-      }
-      return box;
-    };
-    sheetBody = await build();
+    }
+    function goTo(key) {
+      activeKey = key; sync();
+      const panel = pager.querySelector(`.xpick-panel[data-cat="${key}"]`);
+      if (panel) pager.scrollTo({ left: panel.offsetLeft, behavior: "smooth" });
+    }
+    for (const g of GROUPS) {
+      chipRow.appendChild(el("button", { class: "xpick-chip", type: "button", "data-cat": g.key,
+        "data-testid": `sess-chip-${g.key}`, on: { click: () => goTo(g.key) } }, g.label));
+      dotsRow.appendChild(el("button", { class: "xpick-dot", type: "button", "data-cat": g.key,
+        "aria-label": g.label, on: { click: () => goTo(g.key) } }));
+      pager.appendChild(panelFor(g));
+    }
+    let raf = null;
+    pager.addEventListener("scroll", () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = null;
+        const center = pager.scrollLeft + pager.clientWidth / 2;
+        let best = 0, bd = Infinity;
+        for (let i = 0; i < pager.children.length; i++) {
+          const c = pager.children[i].offsetLeft + pager.children[i].offsetWidth / 2;
+          const d = Math.abs(c - center);
+          if (d < bd) { bd = d; best = i; }
+        }
+        const key = GROUPS[best] && GROUPS[best].key;
+        if (key && key !== activeKey) { activeKey = key; sync(); }
+      });
+    }, { passive: true });
+
+    const body = el("div", { class: "xpick sess-pick" }, chipRow, pager, dotsRow);
+    return { body, refresh: () => { sync(); requestAnimationFrame(() => { const p = pager.querySelector(`.xpick-panel[data-cat="${activeKey}"]`); if (p) pager.scrollLeft = p.offsetLeft; }); } };
+  }
+
+  async function openSessionsSheet() {
+    const mine = (await Storage.getTemplates()).slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    const picker = buildSessionPickerUI(mine, presetSessions(), { onPicked: closeModal });
     const footer = el("div", {},
       el("button", { class: "btn", on: { click: closeModal } }, "Close"),
       el("button", { class: "btn btn-primary", on: { click: () => { closeModal(); openTemplateEditor(null); } } },
-        el("span", { html: icons.plus }), "Create template")
+        el("span", { html: icons.plus }), "New template")
     );
-    openModal("Templates", sheetBody, footer);
+    openModal("Sessions", picker.body, footer);
+    picker.refresh();
   }
+  // Back-compat alias — older call sites still say "templates".
+  const openTemplatesSheet = openSessionsSheet;
 
   async function openTemplateEditor(existing = null) {
     const all = await getAllExercises();
