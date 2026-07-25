@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=134").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=135").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -9937,6 +9937,9 @@
       // Persist profile basics
       state.prefs.profileName = (draft.profileName || "").trim();
       state.prefs.sex = draft.sex;
+      // Telling us your sex here is more authoritative than a map toggle you
+      // may have flipped earlier, so the body map follows the profile.
+      if (draft.sex === "male" || draft.sex === "female") state.prefs.bodyMapSex = draft.sex;
       state.prefs.age = draft.age;
       state.prefs.dob = draft.dob || null;
       state.prefs.heightCm = draft.heightCm;
@@ -9946,6 +9949,7 @@
 
       await Storage.setPref("profileName", state.prefs.profileName);
       await Storage.setPref("sex", draft.sex);
+      if (draft.sex === "male" || draft.sex === "female") await Storage.setPref("bodyMapSex", draft.sex);
       await Storage.setPref("age", draft.age);
       await Storage.setPref("dob", draft.dob || null);
       await Storage.setPref("heightCm", draft.heightCm);
@@ -10788,6 +10792,10 @@
           }
         }
 
+        if ((sex === "male" || sex === "female") && sex !== state.prefs.sex) {
+          state.prefs.bodyMapSex = sex;
+          await Storage.setPref("bodyMapSex", sex);
+        }
         state.prefs.sex = sex;
         state.prefs.age = age;
         // Typing an age here overrides a stored birth date — otherwise the DOB
