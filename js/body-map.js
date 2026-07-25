@@ -86,6 +86,22 @@ window.BodyMap = (function () {
       views: ["front"],
       badge: { front: { x: 110, y: 286 } }
     },
+    // Hip flexors / adductors — the two most-stretched areas, which strength
+    // training rarely targets directly but mobility work does.
+    hip_flexors: {
+      label: "Hip flexors",
+      category: "mobility",
+      muscleMatch: /hip flexor|psoas|iliopsoas/i,
+      views: ["front"],
+      badge: { front: { x: 138, y: 244 } }
+    },
+    adductors: {
+      label: "Adductors",
+      category: "mobility",
+      muscleMatch: /adductor|groin|inner thigh/i,
+      views: ["front"],
+      badge: { front: { x: 110, y: 268 } }
+    },
     glutes: {
       label: "Glutes",
       category: "legs",
@@ -179,6 +195,14 @@ window.BodyMap = (function () {
           { type: "path", d: "M118 240 C127 236 137 240 142 248 C146 262 145 282 142 298 C140 312 138 324 136 332 C129 337 120 336 116 330 C114 312 115 292 116 274 C117 260 118 249 118 240 Z" },
           { type: "path", d: "M102 240 C93 236 83 240 78 248 C74 262 75 282 78 298 C80 312 82 324 84 332 C91 337 100 336 104 330 C106 312 105 292 104 274 C103 260 102 249 102 240 Z" }
         ],
+        hip_flexors: [
+          { type: "path", d: "M114 236 C124 234 133 240 137 250 C138 258 136 266 132 271 C125 271 118 267 115 261 C114 253 114 244 114 236 Z" },
+          { type: "path", d: "M106 236 C96 234 87 240 83 250 C82 258 84 266 88 271 C95 271 102 267 105 261 C106 253 106 244 106 236 Z" }
+        ],
+        adductors: [
+          { type: "path", d: "M112 250 C118 253 121 263 121 277 C121 292 119 306 117 316 C114 314 112 308 112 300 C112 284 112 266 112 250 Z" },
+          { type: "path", d: "M108 250 C102 253 99 263 99 277 C99 292 101 306 103 316 C106 314 108 308 108 300 C108 284 108 266 108 250 Z" }
+        ],
         calves: [
           { type: "path", d: "M116 356 C122 348 131 348 137 356 C141 368 140 386 137 400 C135 411 133 421 132 430 C127 434 120 434 116 429 C114 419 113 409 114 400 C116 386 117 370 116 356 Z" },
           { type: "path", d: "M104 356 C98 348 89 348 83 356 C79 368 80 386 83 400 C85 411 87 421 88 430 C93 434 100 434 104 429 C106 419 107 409 106 400 C104 386 103 370 104 356 Z" }
@@ -270,7 +294,13 @@ window.BodyMap = (function () {
    * @param {Map|Object} exerciseById
    * @param {number} days lookback
    */
-  function heatFromWorkouts(workouts, exerciseById, days = 14) {
+  /**
+   * @param {object} [opts]
+   * @param {(ex: object) => boolean} [opts.include] Keep only matching exercises
+   *        (e.g. exclude mobility so stretching doesn't read as "trained hard").
+   */
+  function heatFromWorkouts(workouts, exerciseById, days = 14, opts = {}) {
+    const include = typeof opts.include === "function" ? opts.include : null;
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
     const sets = {};
@@ -299,6 +329,7 @@ window.BodyMap = (function () {
           category: def.category || ex.category || "",
           muscles: (def.muscles && def.muscles.length) ? def.muscles : (ex.muscles || [])
         };
+        if (include && !include({ ...merged, id: def.id || ex.exerciseId, type: def.type || ex.type })) continue;
         const done = (ex.sets || []).filter(s => s.done).length || (ex.sets || []).length || 0;
         if (!done) continue;
         for (const id of Object.keys(ZONES)) {

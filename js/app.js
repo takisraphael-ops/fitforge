@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=120").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=121").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -140,6 +140,7 @@
           const isCardio = ex.type === "cardio";
           const doneSets = (ex.sets || []).filter(s => {
             if (!s.done) return false;
+            if (ex.type === "hold" || s.seconds != null) return !!s.seconds;
             if (isCardio || s.durationMin != null) return !!s.durationMin;
             // Bodyweight sets store weight as 0 — still valid if reps logged.
             return s.reps != null && s.reps > 0;
@@ -201,10 +202,18 @@
     const history = await getHistoryFor(exerciseId);
     let maxWeight = 0, maxE1RM = 0, maxReps = 0, maxVolume = 0;
     let maxDuration = 0, maxDistance = 0, maxKcal = 0;
-    let maxValue = 0, minValue = 0;
+    let maxValue = 0, minValue = 0, maxSeconds = 0, totalHoldSec = 0;
     let maxWeightDate = null, maxE1RMDate = null;
     for (const h of history) {
       for (const s of h.sets) {
+        if (s.seconds != null && s.seconds !== "") {
+          const sec = Number(s.seconds);
+          if (Number.isFinite(sec) && sec > 0) {
+            if (sec > maxSeconds) maxSeconds = sec;
+            totalHoldSec += sec;
+          }
+          continue;
+        }
         if (s.value != null && s.value !== "") {
           const v = Number(s.value);
           if (Number.isFinite(v)) {
@@ -238,7 +247,7 @@
     return {
       maxWeight, maxE1RM, maxReps, maxVolume,
       maxDuration, maxDistance, maxKcal,
-      maxValue, minValue,
+      maxValue, minValue, maxSeconds, totalHoldSec,
       maxWeightDate, maxE1RMDate
     };
   }
@@ -635,6 +644,10 @@
     if (type === "custom") {
       return { value: null, done: false };
     }
+    if (type === "hold") {
+      // Mobility: a timed hold in seconds (per side when the exercise says so).
+      return { seconds: null, done: false };
+    }
     return { weight: null, reps: null, done: false };
   }
 
@@ -653,6 +666,7 @@
     const src = (sets || []).filter(s => {
       if (!s) return false;
       if (type === "custom" || s.value != null) return s.done || s.value != null;
+      if (type === "hold" || s.seconds != null) return s.done || s.seconds != null;
       if (type === "cardio" || s.durationMin != null) {
         return s.done || s.durationMin != null || s.distanceKm != null;
       }
@@ -661,6 +675,9 @@
     if (!src.length) return [emptySetForType(type)];
     if (type === "custom") {
       return src.map(s => ({ value: s.value ?? null, done: false }));
+    }
+    if (type === "hold") {
+      return src.map(s => ({ seconds: s.seconds ?? null, done: false }));
     }
     if (type === "cardio") {
       return src.map(s => ({
@@ -791,6 +808,7 @@
       category: def?.category,
       met: def?.met,
       ...(def?.metric ? { metric: def.metric } : {}),
+      ...(def?.perSide ? { perSide: true } : {}),
       sets
     };
   }
@@ -1019,6 +1037,9 @@
   function inferExerciseType(ex) {
     // An explicit custom-metric exercise always logs with its own metric.
     if (ex && ex.type === "custom") return "custom";
+    // Mobility work is a timed hold, never sets×reps — classify before cardio so
+    // a stretch is never mistaken for a duration-based cardio interval.
+    if (ex && (ex.type === "hold" || ex.category === "mobility")) return "hold";
     // Cardio classification always wins over a stale stored type so Running never
     // falls back to kg/reps just because an older session saved type: "weighted".
     if (looksLikeCardio(ex)) return "cardio";
@@ -1091,6 +1112,8 @@
     const source = def || ex || {};
     // Custom-metric exercises are logged only with their own metric.
     if (source.type === "custom" || ex?.type === "custom") return ["custom"];
+    // Mobility is always a timed hold — no other logging mode makes sense.
+    if (source.type === "hold" || ex?.type === "hold" || source.category === "mobility") return ["hold"];
     if (looksLikeCardio(source) || looksLikeCardio(ex)) return ["cardio"];
     const equipment = String(source.equipment || ex?.equipment || "").toLowerCase();
     const name = String(source.name || ex?.name || "").toLowerCase();
@@ -1136,6 +1159,16 @@
         (ex.sets || []).every(s => !s.done && s.value == null);
       if (onlyEmpty) ex.sets = [emptySetForType("custom")];
       if (def?.met != null && ex.met == null) ex.met = def.met;
+      return ex;
+    }
+    // Mobility holds: lock the type and keep the seconds-based set shape.
+    if (source.type === "hold" || ex.type === "hold" || source.category === "mobility") {
+      ex.type = "hold";
+      if (source.perSide && !ex.perSide) ex.perSide = true;
+      if (def?.met != null && ex.met == null) ex.met = def.met;
+      const onlyEmpty = !(ex.sets || []).length ||
+        (ex.sets || []).every(s => !s.done && s.seconds == null);
+      if (onlyEmpty) ex.sets = [emptySetForType("hold")];
       return ex;
     }
     const shouldBeCardio = looksLikeCardio(source) || looksLikeCardio(ex);
@@ -4233,9 +4266,12 @@
     normalizeWorkoutExercise(ex, def);
     if (def?.met != null && ex.met == null) ex.met = def.met;
     const isCustom = (def?.type === "custom") || ex.type === "custom";
-    const isCardio = !isCustom && (looksLikeCardio(def) || looksLikeCardio(ex) || ex.type === "cardio");
+    // Mobility holds are checked before cardio so a timed stretch stays a hold.
+    const isHold = !isCustom && (ex.type === "hold" || def?.type === "hold" || def?.category === "mobility");
+    if (isHold) ex.type = "hold";
+    const isCardio = !isCustom && !isHold && (looksLikeCardio(def) || looksLikeCardio(ex) || ex.type === "cardio");
     if (isCardio) ex.type = "cardio";
-    const exType = isCustom ? "custom" : (isCardio ? "cardio" : (ex.type || (def ? inferExerciseType(def) : "weighted") || "weighted"));
+    const exType = isCustom ? "custom" : (isHold ? "hold" : (isCardio ? "cardio" : (ex.type || (def ? inferExerciseType(def) : "weighted") || "weighted")));
     const metric = isCustom ? normalizeMetric(def?.metric || ex.metric) : null;
     if (isCustom && def?.metric && !ex.metric) ex.metric = def.metric;
     const bwKg = await getBodyweightKg();
@@ -4255,6 +4291,7 @@
       bodyweight: "Bodyweight",
       weighted_bodyweight: "BW +kg",
       cardio: "Cardio",
+      hold: "Hold",
       custom: metric ? metric.label : "Custom"
     };
     const allowedTypes = allowedTypesFor(def, ex);
@@ -4380,7 +4417,28 @@
     body.appendChild(el("div", { class: "text-xs text-faint", style: "margin-bottom:8px" },
       `≈ ${kpm} kcal/min at ${bwKg}kg` + (isCardio ? " · type your machine/watch reading to override" : " · estimate from effort")));
 
-    if (isCardio) {
+    if (isHold) {
+      const perSide = !!(def?.perSide || ex.perSide);
+      const header = el("div", { class: "set-row set-row-header type-hold" },
+        el("div", { class: "set-index" }, "#"),
+        el("div", {}, perSide ? "Hold (each side)" : "Hold"),
+        el("div", { style: "text-align:right" }, "Log")
+      );
+      body.appendChild(header);
+      for (const [si, s] of ex.sets.entries()) {
+        body.appendChild(renderHoldRow(ex, si, s, prev, perSide));
+      }
+      const controls = el("div", { class: "row", style: "gap:12px; align-items:center; margin-top:8px; flex-wrap:wrap;" },
+        el("button", { class: "btn btn-ghost btn-sm", on: { click: async () => {
+          const last = [...ex.sets].reverse().find(x => x.done) || ex.sets[ex.sets.length - 1];
+          ex.sets.push({ seconds: last?.seconds ?? null, done: false });
+          await Storage.saveWorkout(state.activeWorkout);
+          refreshExerciseBlock(ex);
+        } } }, el("span", { html: icons.plus }), "Add hold"),
+        ex.sets.length > 1 ? el("span", { class: "text-xs text-faint" }, "Double-tap the number to delete") : null
+      );
+      body.appendChild(controls);
+    } else if (isCardio) {
       const showDist = cardioTracksDistance(ex);
       const header = el("div", { class: "set-row set-row-header type-cardio" + (showDist ? "" : " no-dist") },
         el("div", { class: "set-index" }, "#"),
@@ -4467,6 +4525,81 @@
 
     block.appendChild(body);
     return block;
+  }
+
+  // Mobility hold row — a timed hold in seconds, optionally per side.
+  function renderHoldRow(ex, si, s, prev, perSide) {
+    const prevSet = prev?.sets?.[si];
+    const prevSecs = prevSet && prevSet.seconds != null ? prevSet.seconds : null;
+    const secInput = el("input", {
+      type: "number", inputmode: "numeric",
+      class: "input input-sm input-num",
+      placeholder: prevSecs != null ? String(prevSecs) : "30",
+      value: s.seconds != null ? String(s.seconds) : "",
+      title: "Hold (seconds)",
+      autocomplete: "off",
+      "aria-label": `Hold ${si + 1} in seconds`,
+      "data-testid": `set-hold-${si}`
+    });
+    attachNumPad(secInput, {
+      label: `${ex.name} · hold ${si + 1}`, unit: "sec", step: 5,
+      chips: [
+        prevSecs != null ? { label: `Last ${prevSecs}s`, value: prevSecs } : null,
+        { label: "20s", value: 20 }, { label: "30s", value: 30 },
+        { label: "45s", value: 45 }, { label: "60s", value: 60 }
+      ].filter(Boolean),
+      hint: perSide ? "Hold this long on each side" : null
+    });
+    const persist = U.debounce(async () => {
+      const v = secInput.value === "" ? null : parseInt(secInput.value, 10);
+      s.seconds = Number.isFinite(v) && v > 0 ? v : null;
+      await Storage.saveWorkout(state.activeWorkout);
+    }, 300);
+    secInput.addEventListener("input", persist);
+
+    const doneBtn = el("button", {
+      type: "button",
+      class: "set-done" + (s.done ? " checked" : ""),
+      title: s.done ? "Undo hold" : "Mark hold complete",
+      "aria-label": s.done ? "Undo hold" : "Mark hold complete",
+      "data-testid": `set-done-${si}`,
+      on: { click: async () => {
+        if (!s.done) {
+          const v = secInput.value === "" ? null : parseInt(secInput.value, 10);
+          s.seconds = Number.isFinite(v) && v > 0 ? v : null;
+          if (!s.seconds) { toast("Enter how long you held it"); return; }
+          s.done = true;
+        } else {
+          s.done = false;
+        }
+        await Storage.saveWorkout(state.activeWorkout);
+        const didComplete = s.done;
+        await refreshExerciseBlock(ex);
+        if (didComplete) flashCompletedSet(ex, si);
+      } }
+    },
+      s.done ? el("span", { html: icons.check }) : null,
+      el("span", { class: "set-done-label" }, s.done ? "Held" : "Done")
+    );
+
+    const row = el("div", { class: "set-row type-hold" },
+      el("div", { class: "set-index" }, String(si + 1)),
+      el("div", { class: "hold-input-wrap" },
+        secInput,
+        el("span", { class: "hold-unit" }, perSide ? "sec / side" : "sec")
+      ),
+      el("div", { class: "set-row-actions" }, doneBtn)
+    );
+    // Double-tap the index to delete this hold (matches the other set types).
+    row.addEventListener("dblclick", async (e) => {
+      e.preventDefault();
+      if (ex.sets.length <= 1) return;
+      if (!(await confirmDialog("Delete this hold?", { title: "Delete hold?", okLabel: "Delete", danger: true }))) return;
+      ex.sets.splice(si, 1);
+      await Storage.saveWorkout(state.activeWorkout);
+      refreshExerciseBlock(ex);
+    });
+    return row;
   }
 
   async function renderCardioRow(ex, si, s, prs, prev, def, bwKg, showDist = true) {
@@ -5272,7 +5405,7 @@
         const id = entry.exerciseId;
         if (!id) continue;
         let s = exStats[id];
-        if (!s) s = exStats[id] = { sessions: 0, lastDate: null, bestWeight: 0, bestE1RM: 0, maxDuration: 0, maxDistance: 0, series: [] };
+        if (!s) s = exStats[id] = { sessions: 0, lastDate: null, bestWeight: 0, bestE1RM: 0, maxDuration: 0, maxDistance: 0, maxSeconds: 0, series: [] };
         if (!seen.has(id)) { s.sessions++; seen.add(id); }
         s.lastDate = w.date; // chronological → last assignment is the most recent
         let sessionBestE1RM = 0;
@@ -5286,6 +5419,7 @@
           }
           if (set.durationMin > s.maxDuration) s.maxDuration = set.durationMin;
           if (set.distanceKm > s.maxDistance) s.maxDistance = set.distanceKm;
+          if (set.seconds > s.maxSeconds) s.maxSeconds = set.seconds;
         }
         if (sessionBestE1RM > 0) s.series.push(Math.round(sessionBestE1RM));
       }
@@ -5328,9 +5462,31 @@
     for (const [c, n] of Object.entries(catCounts)) zoneCounts[c] = n;
 
     const byId = new Map(all.map(e => [e.id, e]));
-    const heat = (window.BodyMap && BodyMap.heatFromWorkouts)
-      ? BodyMap.heatFromWorkouts(workouts, byId, 14)
+    // Two heat models, kept separate on purpose: mixing stretch reps into
+    // training heat would make a well-stretched muscle read as "trained hard".
+    const hasBodyMap = !!(window.BodyMap && BodyMap.heatFromWorkouts);
+    const isMobilityEx = (e) => (e?.category === "mobility") || e?.type === "hold";
+    const heat = hasBodyMap
+      ? BodyMap.heatFromWorkouts(workouts, byId, 14, { include: (e) => !isMobilityEx(e) })
       : {};
+    const stretchHeat = hasBodyMap
+      ? BodyMap.heatFromWorkouts(workouts, byId, 14, { include: isMobilityEx })
+      : {};
+    // "Needs attention" = trained hard but barely stretched. Zones you've
+    // hammered and neglected score highest; untrained zones stay cool.
+    const attentionHeat = (() => {
+      const out = {};
+      const zoneIds = Object.keys((window.BodyMap && BodyMap.ZONES) || {});
+      for (const id of zoneIds) {
+        const trained = heat[id] || 0;              // 0–1, normalised training volume
+        const stretched = stretchHeat[id] || 0;     // 0–1, normalised mobility volume
+        const score = Math.max(0, trained * (1 - stretched));
+        out[id] = score;
+        out[id + "_sets"] = stretchHeat[id + "_sets"] || 0;
+      }
+      return out;
+    })();
+    let mapMode = "training"; // "training" | "mobility"
 
     // activeZone: "all" | zone id (chest, quads, lats, …) | coarse category id
     let activeZone = "all";
@@ -5373,6 +5529,25 @@
         onSelect: setFromMap
       });
       view.appendChild(bodyMapApi.el);
+
+      // Training / Mobility switch — same map, two readings of it.
+      const modeCaption = el("div", { class: "map-mode-caption", "data-testid": "map-mode-caption" });
+      const setMapMode = (m) => {
+        mapMode = m;
+        modeRow.querySelectorAll(".map-mode-btn").forEach(b =>
+          b.classList.toggle("active", b.getAttribute("data-mode") === m));
+        bodyMapApi.setHeat(m === "mobility" ? attentionHeat : heat);
+        modeCaption.textContent = m === "mobility"
+          ? "Warm = trained hard but barely stretched — mobility work needed here."
+          : "Warm = trained most in the last 14 days.";
+      };
+      const modeRow = el("div", { class: "map-mode", "data-testid": "map-mode" },
+        el("button", { class: "map-mode-btn active", type: "button", "data-mode": "training", "data-testid": "map-mode-training", on: { click: () => setMapMode("training") } }, "Training"),
+        el("button", { class: "map-mode-btn", type: "button", "data-mode": "mobility", "data-testid": "map-mode-mobility", on: { click: () => setMapMode("mobility") } }, "Mobility")
+      );
+      view.appendChild(modeRow);
+      view.appendChild(modeCaption);
+      setMapMode("training");
     }
 
     // Muscle-balance nudge — a neglected major group over the last 14 days.
@@ -5526,20 +5701,25 @@
         const kpm = U.kcalPerMin(ex, bwKg);
         const st = exStats[ex.id];
         const trained = st && st.sessions > 0;
-        const pr = trained ? prLabelFor(st) : null;
+        // Mobility is timed holds — PRs, strength tiers and e1RM trends are
+        // meaningless here, so show best hold and recency instead.
+        const isMob = ex.category === "mobility";
+        const pr = trained ? (isMob ? (st.maxSeconds ? `${st.maxSeconds}s` : null) : prLabelFor(st)) : null;
         const nameRow = el("div", { class: "exercise-card-name" },
           ex.name,
           ex.isCustom ? el("span", { class: "chip chip-accent" }, "Custom") : null,
-          pr ? el("span", { class: "ex-pr-chip" }, el("span", { class: "ex-pr-ic", html: prTrophy }), pr) : null
+          pr ? el("span", { class: "ex-pr-chip" + (isMob ? " is-hold" : "") },
+                isMob ? null : el("span", { class: "ex-pr-ic", html: prTrophy }), pr) : null,
+          (isMob && ex.perSide) ? el("span", { class: "ex-side-chip" }, "per side") : null
         );
-        const lvl = trained && st.bestE1RM ? strengthLevel(ex, st.bestE1RM, bwKg, state.prefs.sex) : null;
+        const lvl = (!isMob && trained && st.bestE1RM) ? strengthLevel(ex, st.bestE1RM, bwKg, state.prefs.sex) : null;
         const infoRow = trained
           ? el("div", { class: "exercise-card-stat" },
               lvl ? el("span", { class: "ex-tier-dot", style: `--tier:${lvl.color}` }) : null,
               lvl ? el("span", { class: "ex-tier-name", style: `color:${lvl.color}` }, lvl.tier + " · ") : null,
               `${daysAgoLabel(st.lastDate)} · ${st.sessions} session${st.sessions === 1 ? "" : "s"}`)
           : el("div", { class: "exercise-card-muscles" }, (ex.muscles || []).join(" · "));
-        const spark = (trained && st.series.length >= 2)
+        const spark = (!isMob && trained && st.series.length >= 2)
           ? el("div", { class: "exercise-card-spark" }, sparkline(st.series, { width: 58, height: 26 }))
           : null;
         grid.appendChild(el("div", {
@@ -5654,6 +5834,25 @@
               )
             )
           ) : null),
+      // Mobility — best hold and total time under stretch (no PRs/strength tiers).
+      (ex.category === "mobility" && prs.maxSeconds) ? el("div", { class: "card mt-16" },
+        el("div", { class: "card-title", style: "margin-bottom: 8px" }, "Your mobility work"),
+        el("div", { class: "stat-row" },
+          el("div", { class: "stat" },
+            el("div", { class: "stat-label" }, "Best hold"),
+            el("div", { class: "stat-value" }, `${prs.maxSeconds}s`),
+            ex.perSide ? el("div", { class: "text-xs text-faint" }, "each side") : null
+          ),
+          el("div", { class: "stat" },
+            el("div", { class: "stat-label" }, "Total time"),
+            el("div", { class: "stat-value" }, prs.totalHoldSec >= 60 ? `${Math.round(prs.totalHoldSec / 60)}m` : `${prs.totalHoldSec}s`)
+          ),
+          el("div", { class: "stat" },
+            el("div", { class: "stat-label" }, "Sessions"),
+            el("div", { class: "stat-value" }, String(history.length))
+          )
+        )
+      ) : null,
       // Strength level — gamified tier from e1RM vs bodyweight
       (!isCardio && prs.maxE1RM && bwKg) ? (() => {
         const lvl = strengthLevel(ex, prs.maxE1RM, bwKg, state.prefs.sex);

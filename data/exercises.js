@@ -837,7 +837,250 @@ window.EXERCISE_DB = [
     "Set down under control at the end of the distance / time."
   ], mistakes: ["Rounding the shoulders", "Rushing / uneven steps", "Weights swinging into legs", "Holding breath"],
     variations: ["Suitcase carry (one side)", "Front-rack carry", "Overhead carry", "Mixed carry"],
-    alternatives: ["Kettlebell march", "Sled drag", "Barbell shrug"] }
+    alternatives: ["Kettlebell march", "Sled drag", "Barbell shrug"] },
+
+  // ============ MOBILITY & STRETCHING ============
+  // Logged as timed holds (seconds), not sets×reps. `perSide: true` means the
+  // hold is performed on each side, so the logged time counts per side.
+  { id: "mob-hip-flexor-kneel", name: "Kneeling Hip Flexor Stretch", category: "mobility", type: "hold", met: 2.3, perSide: true, muscles: ["Hip Flexors", "Quadriceps"], equipment: "Bodyweight", technique: [
+    "Kneel on one knee with the other foot flat in front, both knees at about 90°.",
+    "Tuck your pelvis under (posterior tilt) — this is what actually creates the stretch.",
+    "Squeeze the glute on the kneeling side to deepen it.",
+    "Shift your weight gently forward, keeping the torso upright.",
+    "Hold and breathe; do not arch the lower back."
+  ], mistakes: ["Arching the lower back instead of tucking the pelvis", "Front knee travelling far past the toes", "Leaning the torso forward", "Holding your breath"],
+    variations: ["Couch stretch (rear foot elevated)", "Half-kneeling with overhead reach", "Standing lunge stretch"],
+    alternatives: ["Couch stretch", "Pigeon pose", "Standing quad stretch"] },
+
+  { id: "mob-hamstring-seated", name: "Seated Hamstring Stretch", category: "mobility", type: "hold", met: 2.3, perSide: true, muscles: ["Hamstrings", "Calves"], equipment: "Bodyweight", technique: [
+    "Sit with one leg extended straight, the other foot tucked to your inner thigh.",
+    "Keep the extended leg's kneecap pointing straight up.",
+    "Hinge forward from the hips — lead with the chest, not the head.",
+    "Reach toward the foot only as far as a mild stretch, never pain.",
+    "Hold and breathe, relaxing deeper on each exhale."
+  ], mistakes: ["Rounding the upper back to reach further", "Locking the knee aggressively", "Bouncing into the stretch", "Turning the toes outward"],
+    variations: ["Standing hamstring stretch", "Supine strap hamstring stretch", "Both legs extended"],
+    alternatives: ["Standing forward fold", "Supine hamstring stretch", "Downward dog"] },
+
+  { id: "mob-pigeon", name: "Pigeon Pose", category: "mobility", type: "hold", met: 2.3, perSide: true, muscles: ["Glutes", "Hip Flexors"], equipment: "Bodyweight", technique: [
+    "From all fours, bring one knee forward behind the same-side wrist.",
+    "Angle the shin toward the opposite hand — the closer to parallel, the deeper.",
+    "Extend the rear leg straight back, hips square to the floor.",
+    "Stay upright on the hands, or walk the hands forward and lower the chest.",
+    "Support the front hip with a cushion if it does not reach the floor."
+  ], mistakes: ["Letting the hips rotate open", "Forcing the front shin parallel too early", "Collapsing onto one side", "Pain in the front knee (back off immediately)"],
+    variations: ["Supine figure-4 (easier)", "King pigeon (deeper)", "Seated figure-4"],
+    alternatives: ["Supine figure-4 stretch", "Seated glute stretch", "90/90 hip stretch"] },
+
+  { id: "mob-figure-4-supine", name: "Supine Figure-4 Stretch", category: "mobility", type: "hold", met: 2.3, perSide: true, muscles: ["Glutes", "Hip Flexors"], equipment: "Bodyweight", technique: [
+    "Lie on your back with both knees bent, feet flat.",
+    "Cross one ankle over the opposite thigh, just above the knee.",
+    "Thread your hands behind the supporting thigh and draw it toward your chest.",
+    "Gently press the crossed knee away to open the hip.",
+    "Keep your head and shoulders relaxed on the floor."
+  ], mistakes: ["Lifting the head and shoulders off the floor", "Pulling hard enough to strain the knee", "Holding the breath", "Crossing the ankle onto the kneecap"],
+    variations: ["Seated figure-4", "Figure-4 against a wall", "Pigeon pose (deeper)"],
+    alternatives: ["Pigeon pose", "Seated glute stretch", "Happy baby"] },
+
+  { id: "mob-quad-standing", name: "Standing Quad Stretch", category: "mobility", type: "hold", met: 2.3, perSide: true, muscles: ["Quadriceps", "Hip Flexors"], equipment: "Bodyweight", technique: [
+    "Stand tall, holding a wall or rail for balance if needed.",
+    "Bend one knee and take hold of that ankle behind you.",
+    "Draw the heel toward your glute, keeping the knees side by side.",
+    "Tuck the pelvis under and stand tall to deepen the stretch.",
+    "Keep the standing leg soft, not locked."
+  ], mistakes: ["Letting the bent knee drift out to the side", "Arching the lower back", "Yanking on the ankle", "Leaning far forward"],
+    variations: ["Side-lying quad stretch", "Couch stretch", "Prone quad stretch with a strap"],
+    alternatives: ["Couch stretch", "Kneeling hip flexor stretch", "Side-lying quad stretch"] },
+
+  { id: "mob-calf-wall", name: "Standing Calf Stretch", category: "mobility", type: "hold", met: 2.3, perSide: true, muscles: ["Calves"], equipment: "Bodyweight", technique: [
+    "Stand facing a wall, hands at shoulder height.",
+    "Step one foot well back, toes pointing straight at the wall.",
+    "Keep the rear heel pressed down and that leg straight.",
+    "Lean into the wall until you feel the stretch in the upper calf.",
+    "For the lower calf/Achilles, bend the rear knee slightly while keeping the heel down."
+  ], mistakes: ["Rear heel lifting off the floor", "Rear toes turning outward", "Bouncing", "Rounding the back"],
+    variations: ["Bent-knee calf stretch (soleus)", "Step-edge calf drop", "Downward dog pedal"],
+    alternatives: ["Downward dog", "Step calf drop", "Seated towel calf stretch"] },
+
+  { id: "mob-childs-pose", name: "Child's Pose", category: "mobility", type: "hold", met: 2.0, perSide: false, muscles: ["Lats", "Lower Back", "Shoulders"], equipment: "Bodyweight", technique: [
+    "Kneel with your big toes together and knees roughly hip-width (or wider).",
+    "Sit your hips back toward your heels.",
+    "Walk your hands forward and let your chest sink toward the floor.",
+    "Rest your forehead down and let the shoulders relax.",
+    "Breathe into your back ribs and lengthen with each exhale."
+  ], mistakes: ["Shrugging the shoulders to the ears", "Holding tension in the neck", "Forcing the hips down if knees hurt", "Shallow breathing"],
+    variations: ["Wide-knee child's pose", "Side-reach child's pose (lats)", "Supported with a cushion"],
+    alternatives: ["Cat-cow", "Puppy pose", "Seated forward fold"] },
+
+  { id: "mob-cat-cow", name: "Cat-Cow", category: "mobility", type: "hold", met: 2.5, perSide: false, muscles: ["Lower Back", "Upper Back", "Core"], equipment: "Bodyweight", technique: [
+    "Start on all fours, hands under shoulders and knees under hips.",
+    "Inhale: drop the belly, lift the chest and tailbone (cow).",
+    "Exhale: round the spine, tuck the tailbone and chin (cat).",
+    "Move slowly, one segment of the spine at a time.",
+    "Keep the arms straight and the weight even between both hands."
+  ], mistakes: ["Moving only from the neck", "Rushing the reps", "Locking the elbows harshly", "Letting the shoulders shrug"],
+    variations: ["Thread the needle", "Seated cat-cow", "Standing cat-cow"],
+    alternatives: ["Thoracic rotation", "Child's pose", "Standing roll-down"] },
+
+  { id: "mob-thoracic-rotation", name: "Thoracic Rotation (Open Book)", category: "mobility", type: "hold", met: 2.5, perSide: true, muscles: ["Upper Back", "Pectorals"], equipment: "Bodyweight", technique: [
+    "Lie on your side with knees bent to 90° and stacked, arms extended in front.",
+    "Keep the knees together and pinned to the floor throughout.",
+    "Sweep the top arm up and over, opening the chest toward the ceiling.",
+    "Follow your hand with your eyes and let the upper back rotate.",
+    "Pause where you feel the stretch, then return with control."
+  ], mistakes: ["Letting the knees roll open (rotation leaks to the lower back)", "Forcing the shoulder to the floor", "Holding the breath", "Rushing the sweep"],
+    variations: ["Quadruped thread the needle", "Seated thoracic rotation", "Half-kneeling rotation"],
+    alternatives: ["Thread the needle", "Cat-cow", "Seated spinal twist"] },
+
+  { id: "mob-doorway-chest", name: "Doorway Chest Stretch", category: "mobility", type: "hold", met: 2.3, perSide: true, muscles: ["Pectorals", "Anterior Deltoids"], equipment: "Bodyweight", technique: [
+    "Stand in a doorway and place your forearm on the frame, elbow at about shoulder height.",
+    "Step the same-side foot forward into a small split stance.",
+    "Rotate the chest away from that arm until you feel a stretch across the pec.",
+    "Keep the shoulder down and back, not shrugged toward the ear.",
+    "Adjust elbow height to bias upper or lower pec fibres."
+  ], mistakes: ["Shrugging the shoulder", "Over-arching the lower back", "Pushing into shoulder pain", "Elbow far above shoulder height"],
+    variations: ["Both arms at once", "Low-elbow (upper pec)", "High-elbow (lower pec)"],
+    alternatives: ["Floor pec stretch", "Foam roller chest opener", "Wall chest stretch"] },
+
+  { id: "mob-lat-stretch", name: "Overhead Lat Stretch", category: "mobility", type: "hold", met: 2.3, perSide: true, muscles: ["Lats", "Shoulders"], equipment: "Bodyweight", technique: [
+    "Hold a rack, bar or door frame at about hip-to-chest height with one hand.",
+    "Step back and sit your hips down and away from the anchor.",
+    "Let the arm straighten and the shoulder open overhead.",
+    "Side-bend gently away from the anchored arm to bias the lat.",
+    "Keep the ribs down rather than flaring the chest."
+  ], mistakes: ["Flaring the ribs and arching the back", "Shrugging into the shoulder", "Gripping too high to hinge properly", "Bouncing"],
+    variations: ["Kneeling on a bench", "Both arms overhead", "Child's pose side reach"],
+    alternatives: ["Child's pose side reach", "Hanging from a bar", "Foam roller lat stretch"] },
+
+  { id: "mob-shoulder-cross-body", name: "Cross-Body Shoulder Stretch", category: "mobility", type: "hold", met: 2.3, perSide: true, muscles: ["Rear Deltoids", "Shoulders"], equipment: "Bodyweight", technique: [
+    "Bring one arm straight across your chest at shoulder height.",
+    "Hook the opposite forearm just above the elbow (not on the joint).",
+    "Draw the arm gently in toward the chest.",
+    "Keep the shoulder down — resist letting it ride up to the ear.",
+    "Stay tall through the spine and breathe."
+  ], mistakes: ["Pulling on the elbow joint itself", "Shrugging the stretched shoulder", "Rotating the torso to fake range", "Forcing through pinching pain"],
+    variations: ["Sleeper stretch (internal rotation)", "Doorway shoulder stretch", "Behind-the-back towel stretch"],
+    alternatives: ["Doorway chest stretch", "Thread the needle", "Band shoulder dislocates"] },
+
+  { id: "mob-triceps-overhead", name: "Overhead Triceps Stretch", category: "mobility", type: "hold", met: 2.3, perSide: true, muscles: ["Triceps", "Lats"], equipment: "Bodyweight", technique: [
+    "Raise one arm overhead and bend the elbow so the hand drops behind your head.",
+    "Use the other hand to gently guide the elbow back and in.",
+    "Keep the ribs down and the core lightly braced.",
+    "Stand tall — avoid arching the lower back to gain range.",
+    "Hold where the stretch is felt along the back of the upper arm."
+  ], mistakes: ["Arching the lower back", "Cranking hard on the elbow", "Letting the head push forward", "Shrugging the shoulder"],
+    variations: ["Towel-assisted behind-the-back", "Both arms (with a strap)", "Wall-supported"],
+    alternatives: ["Behind-the-back towel stretch", "Cross-body shoulder stretch", "Wall triceps stretch"] },
+
+  { id: "mob-90-90-hip", name: "90/90 Hip Stretch", category: "mobility", type: "hold", met: 2.5, perSide: true, muscles: ["Glutes", "Hip Flexors"], equipment: "Bodyweight", technique: [
+    "Sit with the front leg bent 90° in front and the rear leg bent 90° out to the side.",
+    "Sit tall on both sit bones — prop on your hands if you cannot stay upright.",
+    "For the front-leg glute, hinge the chest forward over the shin.",
+    "For the rear-leg hip, stay upright and rotate the torso toward the rear leg.",
+    "Switch sides by sweeping the knees across the floor with control."
+  ], mistakes: ["Collapsing into a rounded back", "Front ankle rolling over", "Forcing the rear hip down", "Bouncing to gain range"],
+    variations: ["90/90 with forward fold", "Supported on a cushion", "90/90 transitions (dynamic)"],
+    alternatives: ["Pigeon pose", "Seated figure-4", "Butterfly stretch"] },
+
+  { id: "mob-butterfly", name: "Butterfly Stretch", category: "mobility", type: "hold", met: 2.3, perSide: false, muscles: ["Adductors", "Hip Flexors"], equipment: "Bodyweight", technique: [
+    "Sit with the soles of your feet together and heels drawn toward you.",
+    "Hold your ankles (not your toes) and sit up tall.",
+    "Let the knees relax down toward the floor under their own weight.",
+    "Hinge forward from the hips for more, keeping the back long.",
+    "Sit on a cushion if your lower back rounds."
+  ], mistakes: ["Pressing the knees down forcefully", "Rounding the lower back", "Bouncing the knees", "Pulling on the toes"],
+    variations: ["Reclined butterfly", "Wall butterfly", "Straddle stretch"],
+    alternatives: ["Frog stretch", "Straddle stretch", "90/90 hip stretch"] },
+
+  { id: "mob-couch-stretch", name: "Couch Stretch", category: "mobility", type: "hold", met: 2.5, perSide: true, muscles: ["Hip Flexors", "Quadriceps"], equipment: "Bodyweight", technique: [
+    "Kneel with your back foot up against a wall or on a low bench, shin vertical.",
+    "Place the other foot flat in front in a lunge position.",
+    "Tuck your pelvis under and squeeze the rear glute hard.",
+    "Come upright slowly — only as tall as you can without arching the back.",
+    "Pad the rear knee; back off if you feel knee pain."
+  ], mistakes: ["Arching the lower back to sit upright", "Letting the rear glute go slack", "Rushing to full upright", "Ignoring knee pain"],
+    variations: ["Floor version (no wall)", "Half-kneeling hip flexor stretch", "With overhead reach"],
+    alternatives: ["Kneeling hip flexor stretch", "Standing quad stretch", "Pigeon pose"] },
+
+  { id: "mob-fold-standing", name: "Standing Forward Fold", category: "mobility", type: "hold", met: 2.3, perSide: false, muscles: ["Hamstrings", "Lower Back", "Calves"], equipment: "Bodyweight", technique: [
+    "Stand with feet hip-width apart.",
+    "Hinge from the hips and fold forward, keeping a soft bend in the knees.",
+    "Let the head and arms hang heavy — release the neck completely.",
+    "Shift weight slightly into the balls of the feet.",
+    "Bend the knees more if the lower back rounds sharply."
+  ], mistakes: ["Locking the knees hard", "Yanking the torso down", "Holding tension in the neck", "Rounding from the lower back rather than hinging"],
+    variations: ["Ragdoll (elbows clasped)", "Wide-legged fold", "Single-leg fold"],
+    alternatives: ["Seated hamstring stretch", "Downward dog", "Supine hamstring stretch"] },
+
+  { id: "mob-downward-dog", name: "Downward Dog", category: "mobility", type: "hold", met: 2.8, perSide: false, muscles: ["Hamstrings", "Calves", "Shoulders", "Lats"], equipment: "Bodyweight", technique: [
+    "From all fours, tuck the toes and lift the hips up and back.",
+    "Press the floor away through the full hand — spread the fingers.",
+    "Aim to lengthen the spine first; heels do not need to touch the floor.",
+    "Bend the knees generously if the back rounds.",
+    "Pedal the feet to stretch each calf in turn."
+  ], mistakes: ["Rounding the upper back to force heels down", "Collapsing into the shoulders", "Hands too close to the feet", "Locking the knees"],
+    variations: ["Puppy pose (shoulders)", "Three-legged dog", "Pedalling dog"],
+    alternatives: ["Standing forward fold", "Calf stretch at a wall", "Child's pose"] },
+
+  { id: "mob-cobra", name: "Cobra Stretch", category: "mobility", type: "hold", met: 2.3, perSide: false, muscles: ["Abdominals", "Hip Flexors", "Pectorals"], equipment: "Bodyweight", technique: [
+    "Lie face down with hands under your shoulders, elbows tucked in.",
+    "Press the tops of the feet and thighs into the floor.",
+    "Lift the chest by straightening the arms only as far as is comfortable.",
+    "Keep the shoulders down and back, away from the ears.",
+    "Lengthen through the top of the head; do not crunch the neck back."
+  ], mistakes: ["Cranking the head back", "Shrugging the shoulders", "Pushing into lower-back pinching", "Legs lifting off the floor"],
+    variations: ["Sphinx pose (forearms, gentler)", "Baby cobra", "Upward dog (advanced)"],
+    alternatives: ["Sphinx pose", "Standing back extension", "Cat-cow"] },
+
+  { id: "mob-neck-lateral", name: "Lateral Neck Stretch", category: "mobility", type: "hold", met: 2.0, perSide: true, muscles: ["Upper Traps", "Shoulders"], equipment: "Bodyweight", technique: [
+    "Sit or stand tall with the shoulders relaxed and down.",
+    "Tilt your ear toward one shoulder without rotating the head.",
+    "Let the opposite shoulder stay heavy — you can hold the seat to anchor it.",
+    "Rest the same-side hand lightly on the head for a touch more range.",
+    "Keep the pressure gentle and the breathing steady."
+  ], mistakes: ["Pulling hard on the head", "Shrugging the opposite shoulder", "Rotating instead of tilting", "Rushing between sides"],
+    variations: ["Levator scapulae stretch (look to armpit)", "Seated with hand anchored", "Chin-tuck variation"],
+    alternatives: ["Upper trap release", "Thread the needle", "Shoulder rolls"] },
+
+  { id: "mob-hip-circles", name: "Standing Hip Circles", category: "mobility", type: "hold", met: 3.0, perSide: true, muscles: ["Hip Flexors", "Glutes"], equipment: "Bodyweight", technique: [
+    "Stand tall, holding a wall or rail for balance.",
+    "Lift one knee to about hip height in front of you.",
+    "Sweep the knee out to the side, then back and down in a smooth arc.",
+    "Keep the standing leg stable and the torso upright.",
+    "Reverse the direction for the second half."
+  ], mistakes: ["Swinging the leg with momentum", "Leaning the torso to compensate", "Rushing the arc", "Letting the lower back arch"],
+    variations: ["Reverse circles", "Lying hip circles", "90/90 transitions"],
+    alternatives: ["Leg swings", "World's greatest stretch", "90/90 hip stretch"] },
+
+  { id: "mob-leg-swings", name: "Leg Swings", category: "mobility", type: "hold", met: 3.0, perSide: true, muscles: ["Hamstrings", "Hip Flexors", "Glutes"], equipment: "Bodyweight", technique: [
+    "Hold a wall or rail for balance and stand on one leg.",
+    "Swing the free leg forward and back in a controlled arc.",
+    "Start with a small range and build gradually as it loosens.",
+    "Keep the torso upright and the core lightly braced.",
+    "Switch to side-to-side swings to open the inner and outer hip."
+  ], mistakes: ["Swinging beyond control", "Arching the back to gain height", "Twisting the standing knee", "Starting at full range while cold"],
+    variations: ["Lateral leg swings", "Bent-knee swings", "Swings with a rotation"],
+    alternatives: ["Hip circles", "World's greatest stretch", "Walking lunges"] },
+
+  { id: "mob-worlds-greatest", name: "World's Greatest Stretch", category: "mobility", type: "hold", met: 3.2, perSide: true, muscles: ["Hip Flexors", "Hamstrings", "Upper Back", "Glutes"], equipment: "Bodyweight", technique: [
+    "Step into a deep forward lunge with the front foot flat.",
+    "Place both hands on the floor inside the front foot.",
+    "Drop the rear knee toward the floor to open the hip flexor.",
+    "Rotate the inside arm up toward the ceiling, following it with your eyes.",
+    "Return the hand down, then straighten the front leg to stretch the hamstring."
+  ], mistakes: ["Front knee collapsing inward", "Rotating from the lower back rather than the upper", "Rushing between positions", "Rear hip sagging out to the side"],
+    variations: ["With the rear knee down", "Hold each position statically", "Add a thoracic reach-through"],
+    alternatives: ["Thoracic rotation", "Kneeling hip flexor stretch", "Walking lunge with twist"] },
+
+  { id: "mob-thread-needle", name: "Thread the Needle", category: "mobility", type: "hold", met: 2.3, perSide: true, muscles: ["Upper Back", "Rear Deltoids", "Lats"], equipment: "Bodyweight", technique: [
+    "Start on all fours with hands under shoulders.",
+    "Slide one arm underneath the body, palm facing up.",
+    "Let that shoulder and the side of the head rest on the floor.",
+    "Keep the hips stacked over the knees rather than sinking to one side.",
+    "Press gently through the supporting hand to deepen the rotation."
+  ], mistakes: ["Hips drifting away from over the knees", "Forcing the shoulder into pain", "Holding the breath", "Collapsing the neck"],
+    variations: ["With the top arm reaching overhead", "Child's pose thread", "Standing at a wall"],
+    alternatives: ["Thoracic rotation", "Child's pose side reach", "Cat-cow"] }
 ];
 
 // Group by category for quick access
@@ -849,5 +1092,6 @@ window.EXERCISE_CATEGORIES = {
   legs: "Legs",
   core: "Core",
   cardio: "Cardio",
-  full_body: "Full Body"
+  full_body: "Full Body",
+  mobility: "Mobility"
 };
