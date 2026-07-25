@@ -4761,3 +4761,40 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 /* Body-map figure toggle (male / female) */
 .body-map-sexrow { display: flex; justify-content: flex-end; margin: -2px 0 8px; }
 .body-map-sex .body-map-toggle-btn { font-size: 12px; padding: 5px 12px; }
+
+/* ---- Meal time chip + "When" sheet (edit a past entry's date/time) ---- */
+.meal-item-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0; }
+.meal-time-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font: inherit; font-variant-numeric: tabular-nums;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 999px; padding: 1px 8px; margin: -1px 0;
+  cursor: pointer; transition: background .16s var(--ease-spring), transform .16s var(--ease-spring);
+}
+.meal-time-chip::before {
+  content: ""; width: 9px; height: 9px; border-radius: 50%; flex: none;
+  border: 1.5px solid currentColor;
+  /* tiny clock hand */
+  background:
+    linear-gradient(to bottom, currentColor 0 0) center/1px 3.5px no-repeat;
+  background-position: center 1px;
+}
+.meal-time-chip:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.meal-time-chip:active { transform: scale(0.94); }
+.meal-item-meta-rest { color: var(--text-faint); }
+
+.when-wheels { display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; }
+.when-col { flex: 1; min-width: 0; }
+.when-col-day { flex: 2.1; }
+.when-sep { font-size: 22px; font-weight: 700; color: var(--text-faint); padding-bottom: 2px; }
+.wheel-when-day .wheel-item-label { font-size: 15px; }
+.wheel-when-day .wheel-item.is-active .wheel-item-label { font-size: 17px; font-weight: 700; }
+
+.saved-sheet-daynote {
+  font-size: 12px; font-weight: 600; color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: 10px; padding: 7px 10px; margin: 2px 0 10px;
+}
+.nfood-time { flex: none; font-size: 12px; margin-right: 2px; }

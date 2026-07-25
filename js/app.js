@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=136").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=137").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -7171,13 +7171,22 @@
     return line || m.notes || null;
   }
 
-  function mealRowMeta(m) {
-    const bits = [];
+  // Meta line for a logged meal, with the time rendered as a tappable chip so
+  // correcting when you ate something doesn't mean opening the whole form.
+  function mealMetaLine(m, afterSave) {
     const t = U.normalizeMealTime(m?.time);
-    if (t) bits.push(t);
     const rest = mealMacroMeta(m);
-    if (rest) bits.push(rest);
-    return bits.length ? bits.join(" · ") : null;
+    const line = el("div", { class: "meal-item-meta" });
+    if (t) {
+      line.appendChild(el("button", {
+        type: "button", class: "meal-time-chip", "data-testid": "meal-time-chip",
+        title: "Change when this was eaten",
+        "aria-label": `Eaten at ${t} — change`,
+        on: { click: (e) => { e.stopPropagation(); editMealWhen(m, afterSave); } }
+      }, t));
+    }
+    if (rest) line.appendChild(el("span", { class: "meal-item-meta-rest" }, t ? ` · ${rest}` : rest));
+    return (t || rest) ? line : null;
   }
 
   function mealSectionSelect(selected) {
@@ -7187,6 +7196,106 @@
     }
     s.value = U.normalizeMealSection(selected || "snack");
     return s;
+  }
+
+  // Day options for the "When" wheel: the last N days up to today, newest
+  // first. No future days — you can't have eaten something tomorrow.
+  function recentDayItems(days = 60, mustInclude = null) {
+    const out = [];
+    const today = U.todayISO();
+    const d = new Date(today + "T00:00:00");
+    for (let i = 0; i < days; i++) {
+      const iso = U.todayISO(d);
+      let label;
+      if (i === 0) label = "Today";
+      else if (i === 1) label = "Yesterday";
+      else label = U.formatDate(iso, { weekday: "short", day: "numeric", month: "short" });
+      out.push({ value: iso, label });
+      d.setDate(d.getDate() - 1);
+    }
+    // A meal older than the window (or, defensively, dated ahead) must still be
+    // selectable, or opening its sheet would silently move it.
+    if (mustInclude && !out.some(o => o.value === mustInclude)) {
+      const item = { value: mustInclude, label: U.formatDate(mustInclude, { weekday: "short", day: "numeric", month: "short" }) };
+      if (mustInclude > today) out.unshift(item);
+      else out.push(item);
+    }
+    return out;
+  }
+
+  // Bottom sheet with date + hour + minute wheels. Used to correct when an
+  // entry happened without dragging the whole meal form open.
+  function openWhenSheet({ title, date, time, onPick }) {
+    const startDate = date || U.todayISO();
+    const t = U.normalizeMealTime(time) || "12:00";
+    let curDate = startDate;
+    let curH = parseInt(t.slice(0, 2), 10) || 0;
+    // Snap to the 5-minute grid the wheel offers, rounding to nearest.
+    let curM = Math.round((parseInt(t.slice(3, 5), 10) || 0) / 5) * 5;
+    if (curM >= 60) { curM = 0; curH = (curH + 1) % 24; }
+
+    const overlay = el("div", { class: "wsheet-overlay", "data-testid": "when-sheet",
+      on: { click: (e) => { if (e.target === overlay) close(); } } });
+    function onKey(e) { if (e.key === "Escape") { e.preventDefault(); close(); } }
+    const close = () => { document.removeEventListener("keydown", onKey); overlay.remove(); };
+    document.addEventListener("keydown", onKey);
+
+    const pad2 = (n) => String(n).padStart(2, "0");
+    const dayC = buildWheel({
+      items: recentDayItems(60, startDate), value: curDate, itemHeight: 44, visibleCount: 5,
+      variant: "wheel-sheet wheel-when-day", testid: "when-wheel-day",
+      onChange: (v) => { curDate = v; }
+    });
+    const hourC = buildWheel({
+      items: wheelRange(0, 23, 1, pad2), value: curH, itemHeight: 44, visibleCount: 5,
+      variant: "wheel-sheet", testid: "when-wheel-hour", onChange: (v) => { curH = v; }
+    });
+    const minC = buildWheel({
+      items: wheelRange(0, 55, 5, pad2), value: curM, itemHeight: 44, visibleCount: 5,
+      variant: "wheel-sheet", testid: "when-wheel-min", onChange: (v) => { curM = v; }
+    });
+
+    const sheet = el("div", { class: "wsheet" },
+      el("div", { class: "wsheet-title" }, title || "When"),
+      el("div", { class: "when-wheels" },
+        el("div", { class: "when-col when-col-day" }, dayC.el),
+        el("div", { class: "when-col" }, hourC.el),
+        el("div", { class: "when-sep" }, ":"),
+        el("div", { class: "when-col" }, minC.el)
+      ),
+      el("div", { class: "wsheet-actions" },
+        el("button", { class: "btn", on: { click: close } }, "Cancel"),
+        el("button", {
+          class: "btn btn-primary", "data-testid": "when-sheet-done",
+          on: {
+            click: () => {
+              const picked = { date: curDate, time: `${pad2(curH)}:${pad2(curM)}` };
+              close();
+              onPick && onPick(picked);
+            }
+          }
+        }, "Done")
+      )
+    );
+    overlay.appendChild(sheet);
+    document.body.appendChild(overlay);
+  }
+
+  // Shared handler: retime/re-date a logged meal from any list it appears in.
+  async function editMealWhen(meal, afterSave) {
+    openWhenSheet({
+      title: "When did you eat this?",
+      date: meal.date,
+      time: meal.time,
+      onPick: async ({ date, time }) => {
+        if (date === meal.date && time === U.normalizeMealTime(meal.time)) return;
+        await Storage.saveMeal({ ...meal, date, time });
+        toast(date === meal.date
+          ? `Moved to ${time}`
+          : `Moved to ${U.formatDate(date, { weekday: "short", day: "numeric", month: "short" })} · ${time}`);
+        if (afterSave) await afterSave(date);
+      }
+    });
   }
 
   function mealTemplatePayload(source) {
@@ -7239,8 +7348,9 @@
     return tpl;
   }
 
-  async function logMealFromTemplate(tpl, sectionOverride = null) {
+  async function logMealFromTemplate(tpl, sectionOverride = null, dateHint = null) {
     const section = U.normalizeMealSection(sectionOverride || tpl.section || "snack");
+    const date = dateHint || U.todayISO();
     const meal = {
       id: U.uid(),
       name: tpl.name,
@@ -7249,8 +7359,10 @@
       carbs: tpl.carbs || 0,
       fat: tpl.fat || 0,
       section,
-      time: U.nowMealTime(),
-      date: U.todayISO(),
+      // "Now" only makes sense on today — backdating a saved meal should land at
+      // a plausible hour for its section, not whatever o'clock it is right now.
+      time: U.defaultMealTimeForSection(section, date),
+      date,
       notes: tpl.notes || "",
       savedAt: Date.now(),
       fromTemplateId: tpl.id
@@ -7259,15 +7371,25 @@
     try {
       await Storage.saveMealTemplate({ ...tpl, lastUsedAt: Date.now(), updatedAt: tpl.updatedAt || Date.now() });
     } catch (_) {}
-    toast(`Logged ${tpl.name}`);
+    toast(date === U.todayISO()
+      ? `Logged ${tpl.name}`
+      : `Logged ${tpl.name} to ${U.formatDate(date, { weekday: "short", day: "numeric", month: "short" })}`);
     renderMain();
+    // Backdated: drop the user back into the day they were editing.
+    if (date !== U.todayISO()) openNutritionDayDetail(date);
   }
 
   // Saved meals shortcut — quick sheet to re-log a saved meal (optionally into
   // a specific section) or jump to create/edit one.
-  async function openSavedMealsSheet(sectionHint = null) {
+  async function openSavedMealsSheet(sectionHint = null, dateHint = null) {
     const templates = await Storage.getMealTemplates();
+    const date = dateHint || U.todayISO();
+    const isBackdated = date !== U.todayISO();
     const body = el("div", {});
+    if (isBackdated) {
+      body.appendChild(el("div", { class: "saved-sheet-daynote", "data-testid": "saved-sheet-daynote" },
+        `Logging to ${U.formatDate(date, { weekday: "long", day: "numeric", month: "short" })}`));
+    }
     if (!templates.length) {
       body.appendChild(el("p", { class: "text-sm text-faint", style: "margin:4px 0 12px" },
         "No saved meals yet. Log a meal, then tap the bookmark on it to keep it for next time."));
@@ -7279,7 +7401,7 @@
         list.appendChild(el("div", { class: "saved-sheet-item" },
           el("button", {
             class: "saved-sheet-main", type: "button", title: `Log ${tpl.name}`,
-            on: { click: async () => { closeModal(); await logMealFromTemplate(tpl, sectionHint); } }
+            on: { click: async () => { closeModal(); await logMealFromTemplate(tpl, sectionHint, dateHint); } }
           },
             el("div", { class: "saved-sheet-name" }, tpl.name),
             el("div", { class: "saved-sheet-meta" }, `${tpl.kcal || 0} kcal${macroLine ? ` · ${macroLine}` : ""}`)
@@ -7290,7 +7412,12 @@
       body.appendChild(list);
     }
     const footer = el("div", {},
-      el("button", { class: "btn", on: { click: closeModal } }, "Close"),
+      // Backdated: this sheet was opened from a day's breakdown, so going back
+      // should land there rather than dumping you out to the tab.
+      el("button", {
+        class: "btn",
+        on: { click: () => { closeModal(); if (isBackdated) openNutritionDayDetail(date); } }
+      }, isBackdated ? "Back" : "Close"),
       el("button", { class: "btn btn-primary", on: { click: () => { closeModal(); openMealTemplateEditor(null); } } },
         el("span", { html: icons.plus }), "New saved meal")
     );
@@ -7916,11 +8043,19 @@
       } else {
         for (const m of items) {
           const hasMac = (m.protein || m.carbs || m.fat);
+          const mtime = U.normalizeMealTime(m.time);
           list.appendChild(el("div", { class: "nfood" },
             el("button", { class: "nfood-main", type: "button", title: "Edit", on: { click: () => openMealForm(m) } },
               el("div", { class: "nfood-name" }, m.name),
               hasMac ? el("div", { class: "nfood-meta" }, `${Math.round(m.protein || 0)}P ${Math.round(m.carbs || 0)}C ${Math.round(m.fat || 0)}F`) : null
             ),
+            // Sibling of nfood-main, not a child — a button can't nest in a button.
+            mtime ? el("button", {
+              class: "meal-time-chip nfood-time", type: "button",
+              "data-testid": "meal-time-chip", title: "Change when this was eaten",
+              "aria-label": `Eaten at ${mtime} — change`,
+              on: { click: (e) => { e.stopPropagation(); editMealWhen(m, async () => afterNutritionChange()); } }
+            }, mtime) : null,
             el("div", { class: "nfood-kcal" }, String(m.kcal || 0)),
             el("button", {
               class: "nfood-del", type: "button", "aria-label": `Remove ${m.name}`, html: icons.x,
@@ -8413,11 +8548,11 @@
         }));
       } else {
         for (const m of items) {
-          const meta = mealRowMeta(m);
+          const meta = mealMetaLine(m, async () => { afterNutritionChange(); });
           group.appendChild(el("div", { class: "meal-item" },
             el("div", { style: "min-width:0; flex:1" },
               el("div", { class: "meal-item-name" }, m.name),
-              meta ? el("div", { class: "meal-item-meta" }, meta) : null
+              meta
             ),
             el("div", { class: "row" },
               el("div", { class: "meal-item-kcal" }, `${m.kcal} kcal`),
@@ -8630,8 +8765,10 @@
         compact: true,
         body: "No meals logged on this day.",
         primaryLabel: "Log meal",
-        onPrimary: () => openMealFork("breakfast", dayIso),
-        primaryTestId: "empty-day-log-meal"
+        onPrimary: () => { closeModal(); openMealFork("breakfast", date); },
+        primaryTestId: "empty-day-log-meal",
+        secondaryLabel: "Saved meals",
+        onSecondary: () => { closeModal(); openSavedMealsSheet(null, date); }
       }));
     } else {
       for (const key of U.MEAL_SECTION_ORDER) {
@@ -8651,11 +8788,17 @@
           el("div", { class: "meal-group-kcal" }, `${kcal} kcal`)
         ));
         for (const m of items) {
-          const meta = mealRowMeta(m);
+          // Retiming from here can move the meal off this day entirely, so
+          // reopen whichever day it landed on.
+          const meta = mealMetaLine(m, async (newDate) => {
+            closeModal();
+            renderMain();
+            openNutritionDayDetail(newDate || date);
+          });
           group.appendChild(el("div", { class: "meal-item" },
             el("div", { style: "min-width:0; flex:1" },
               el("div", { class: "meal-item-name" }, m.name),
-              meta ? el("div", { class: "meal-item-meta" }, meta) : null
+              meta
             ),
             el("div", { class: "row" },
               el("div", { class: "meal-item-kcal" }, `${m.kcal} kcal`),
@@ -8681,7 +8824,13 @@
 
     const footer = el("div", {},
       el("button", { class: "btn", on: { click: closeModal } }, "Close"),
-      el("button", { class: "btn btn-primary", on: { click: () => {
+      // Re-logging something you eat often is the common case for a past day,
+      // so saved meals gets its own route rather than hiding behind the fork.
+      el("button", {
+        class: "btn", "data-testid": "day-detail-saved",
+        on: { click: () => { closeModal(); openSavedMealsSheet(null, date); } }
+      }, el("span", { html: icons.bookmark }), "Saved"),
+      el("button", { class: "btn btn-primary", "data-testid": "day-detail-add", on: { click: () => {
         closeModal();
         openMealFork("snack", date);
       } } }, el("span", { html: icons.plus }), "Add meal")
