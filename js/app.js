@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=148").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=149").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -70,6 +70,7 @@
     // Best-effort: ask browser not to evict workout data under storage pressure.
     try { await Storage.requestPersistent(); } catch (_) {}
     state.prefs = await loadPrefs();
+    applyAccent(state.prefs.accent);
     applyTheme(state.prefs.theme);
     // Resume active workout if any
     const active = await Storage.getPref("activeWorkoutId", null);
@@ -109,16 +110,45 @@
   }
 
   // ============ Theme ============
+  // Two independent axes: light/dark (the `dark` class) and the accent colour
+  // (`data-accent`). Each accent ships a light and a dark tone — a single tone
+  // cannot serve both, since a colour bright enough to read on near-black is
+  // illegible on near-white.
+  const ACCENTS = [
+    { id: "ice", label: "Ice", swatch: "#4ecdc4" },
+    { id: "mint", label: "Mint", swatch: "#4ade80" },
+    { id: "cobalt", label: "Cobalt", swatch: "#8ba4ff" },
+    { id: "amber", label: "Amber", swatch: "#f0a23a" }
+  ];
+  const DEFAULT_ACCENT = "ice";
+  const isAccent = (id) => ACCENTS.some(a => a.id === id);
+
+  // Keep the browser chrome (iOS status bar, Android task switcher) in step
+  // with the theme rather than pinned to one dark navy.
+  function syncThemeColorMeta() {
+    const m = document.querySelector('meta[name="theme-color"]');
+    if (!m) return;
+    const cs = getComputedStyle(document.documentElement);
+    const bg = (cs.getPropertyValue("--bg") || "").trim();
+    if (bg) m.setAttribute("content", bg);
+  }
+
   // Dark is the default look; users can flip to light and it persists.
   function applyTheme(pref) {
     const theme = pref || "dark";
     document.documentElement.classList.toggle("dark", theme === "dark");
+    syncThemeColorMeta();
+  }
+  function applyAccent(pref) {
+    const accent = isAccent(pref) ? pref : DEFAULT_ACCENT;
+    document.documentElement.setAttribute("data-accent", accent);
   }
   async function toggleTheme() {
     const current = document.documentElement.classList.contains("dark") ? "dark" : "light";
     const next = current === "dark" ? "light" : "dark";
     state.prefs.theme = next;
     document.documentElement.classList.toggle("dark", next === "dark");
+    syncThemeColorMeta();
     await Storage.setPref("theme", next);
     renderHeader();
   }
@@ -481,7 +511,9 @@
       warmupPrompt: !!(await Storage.getPref("warmupPrompt", true)),
       // Meal reminder times: { breakfast: "08:00", ... } — only sections the user opted in.
       mealReminders: await Storage.getPref("mealReminders", {}),
-      theme: await Storage.getPref("theme", null)
+      theme: await Storage.getPref("theme", null),
+      // Accent colour — a separate axis from light/dark.
+      accent: await Storage.getPref("accent", null)
     };
   }
 
@@ -11482,16 +11514,51 @@
     const themeDark = el("button", { type: "button", class: "seg-btn" + (isDarkNow ? " active" : ""), "data-testid": "theme-dark" }, "Dark");
     const setThemeChoice = async (t) => {
       document.documentElement.classList.toggle("dark", t === "dark");
+      syncThemeColorMeta();
       state.prefs.theme = t;
       await Storage.setPref("theme", t);
       themeLight.classList.toggle("active", t !== "dark");
       themeDark.classList.toggle("active", t === "dark");
+      syncSwatches();
     };
     themeLight.addEventListener("click", () => setThemeChoice("light"));
     themeDark.addEventListener("click", () => setThemeChoice("dark"));
+
+    // Accent swatches. Each shows its own colour for the mode you're currently
+    // in, so what you tap is what you get rather than a fixed sample chip.
+    const accentRow = el("div", { class: "accent-row", "data-testid": "accent-row", role: "radiogroup", "aria-label": "Theme colour" });
+    const currentAccent = () => document.documentElement.getAttribute("data-accent") || DEFAULT_ACCENT;
+    // The swatch fills come from CSS (`.accent-swatch[data-accent=…]`), which
+    // carries a light and a dark pair just like the tokens do — so a swatch
+    // always shows the tone you'd actually get in the mode you're in.
+    function syncSwatches() {
+      const cur = currentAccent();
+      for (const b of Array.from(accentRow.children)) {
+        const on = b.getAttribute("data-accent") === cur;
+        b.classList.toggle("active", on);
+        b.setAttribute("aria-checked", on ? "true" : "false");
+      }
+    }
+    const setAccentChoice = async (id) => {
+      applyAccent(id);
+      state.prefs.accent = id;
+      await Storage.setPref("accent", id);
+      syncSwatches();
+    };
+    for (const a of ACCENTS) {
+      accentRow.appendChild(el("button", {
+        class: "accent-swatch", type: "button", role: "radio", "aria-checked": "false",
+        "data-accent": a.id, "data-testid": `accent-${a.id}`,
+        title: a.label, "aria-label": a.label,
+        on: { click: () => setAccentChoice(a.id) }
+      }, el("span", { class: "accent-swatch-tick", html: icons.check })));
+    }
+    syncSwatches();
+
     const appearanceSection = el("div", {},
       el("div", { class: "settings-section-title mt-16" }, "Appearance"),
-      el("div", { class: "seg-control seg-control-block" }, themeLight, themeDark)
+      el("div", { class: "seg-control seg-control-block" }, themeLight, themeDark),
+      accentRow
     );
 
     const body = el("div", { class: "settings-body" },
@@ -11659,7 +11726,8 @@
             lastBackupWorkoutCount: 0,
             lastBackupAt: null,
             backupSnoozedUntil: null,
-            theme: null
+            theme: null,
+            accent: null
           };
           state.activeWorkout = null;
           closeModal();

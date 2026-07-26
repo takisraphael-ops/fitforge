@@ -9,22 +9,36 @@
   --text: #0e1319;
   --text-muted: #566070;
   --text-faint: #8a94a4;
-  --accent: #0d97a8;
-  --accent-hover: #0a8291;
-  --accent-soft: #d6f0f3;
+  /* Accent — overridden per theme colour below. Light-mode accents run deep
+     because the accent is used as text (links, stat figures, PR numbers), and
+     a pastel on near-white fails contrast at any size. */
+  --accent: #0a7683;
+  --accent-hover: #08616c;
+  --accent-soft: #e0f4f6;
+  /* Text/icons drawn ON an accent fill. Flips with the mode: white on the deep
+     light-mode accents, near-black on the bright dark-mode ones. */
+  --on-accent: #ffffff;
   --success: #1f9d61;
   --success-soft: #d5f0e0;
   --warn: #c78a12;
   --danger: #d64545;
   --pr-gold: #c48a1a;
   --pr-gold-soft: #f6e8c8;
+  /* Macro colours are fixed, never accent-derived — protein/carbs/fat have to
+     stay the same three colours whichever theme colour is picked. */
+  --macro-protein: #5b8def;
+  --macro-carbs: #d4a017;
+  --macro-fat: #0d97a8;
   --shadow-sm: 0 1px 3px rgba(16,24,40,0.06);
   --shadow-md: 0 8px 28px rgba(16,24,40,0.10);
-  --glow: 0 2px 14px rgba(13,151,168,0.16);
-  --glow-strong: 0 4px 20px rgba(13,151,168,0.24);
+  --glow: 0 2px 14px color-mix(in srgb, var(--accent) 16%, transparent);
+  --glow-strong: 0 4px 20px color-mix(in srgb, var(--accent) 24%, transparent);
   --card-sheen: linear-gradient(165deg, rgba(255,255,255,0.85), rgba(255,255,255,0) 55%);
-  --hero-border: rgba(13,151,168,0.35);
-  --hero-tint: radial-gradient(120% 90% at 50% 0%, rgba(13,151,168,0.08), rgba(13,151,168,0.02) 70%);
+  --hero-border: color-mix(in srgb, var(--accent) 35%, transparent);
+  --hero-tint: radial-gradient(120% 90% at 50% 0%,
+    color-mix(in srgb, var(--accent) 8%, transparent),
+    color-mix(in srgb, var(--accent) 2%, transparent) 70%);
+  --hero-glow: radial-gradient(circle, color-mix(in srgb, var(--accent) 18%, transparent), transparent 70%);
   --dock-bg: rgba(255,255,255,0.82);
   --radius-sm: 10px;
   --radius: 16px;
@@ -48,21 +62,49 @@
   --accent: #57c9d6;
   --accent-hover: #74d6e1;
   --accent-soft: #10262a;
+  --on-accent: #05242a;
   --success: #3ecf8e;
   --success-soft: #0f2e22;
   --warn: #e0a83f;
   --danger: #ef5f5f;
   --pr-gold: #e6b447;
   --pr-gold-soft: #33290f;
+  --macro-protein: #5b8def;
+  --macro-carbs: #e0a83d;
+  --macro-fat: #57c9d6;
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.5);
   --shadow-md: 0 12px 34px rgba(0,0,0,0.5);
-  --glow: 0 0 18px rgba(87,201,214,0.12);
-  --glow-strong: 0 0 24px rgba(87,201,214,0.20);
+  --glow: 0 0 18px color-mix(in srgb, var(--accent) 12%, transparent);
+  --glow-strong: 0 0 24px color-mix(in srgb, var(--accent) 20%, transparent);
   --card-sheen: linear-gradient(165deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01) 55%);
-  --hero-border: rgba(87,201,214,0.42);
-  --hero-tint: radial-gradient(120% 90% at 50% 0%, rgba(87,201,214,0.12), rgba(87,201,214,0.02) 70%);
+  --hero-border: color-mix(in srgb, var(--accent) 42%, transparent);
+  --hero-tint: radial-gradient(120% 90% at 50% 0%,
+    color-mix(in srgb, var(--accent) 12%, transparent),
+    color-mix(in srgb, var(--accent) 2%, transparent) 70%);
+  --hero-glow: radial-gradient(circle, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%);
   --dock-bg: rgba(14,17,22,0.86);
 }
+
+/* ============ Theme colours ============
+   A second axis, orthogonal to light/dark: `data-accent` on <html> alongside
+   the `dark` class. Each colour ships two tones because a single one cannot
+   serve both modes — the bright tones read beautifully on near-black and are
+   illegible on near-white.
+
+   Hues are deliberately offset from the semantic colours they sit next to, so
+   Mint stays distinguishable from the success green (ΔE 15) and Amber from the
+   PR gold (ΔE 14). Success, warning, danger, PR gold, the macro colours and the
+   body-map heat ramp never move — they carry meaning, not decoration. */
+
+:root[data-accent="ice"] { --accent: #0a7683; --accent-hover: #08616c; --accent-soft: #e0f4f6; --on-accent: #ffffff; }
+:root[data-accent="mint"] { --accent: #217a45; --accent-hover: #196b3c; --accent-soft: #d8f2e2; --on-accent: #ffffff; }
+:root[data-accent="cobalt"] { --accent: #4059c9; --accent-hover: #3549b0; --accent-soft: #dfe4fb; --on-accent: #ffffff; }
+:root[data-accent="amber"] { --accent: #9c5f10; --accent-hover: #874f0a; --accent-soft: #fbf1e0; --on-accent: #ffffff; }
+
+.dark[data-accent="ice"] { --accent: #57c9d6; --accent-hover: #74d6e1; --accent-soft: #10262a; --on-accent: #05242a; }
+.dark[data-accent="mint"] { --accent: #4ade80; --accent-hover: #6ee79b; --accent-soft: #10261a; --on-accent: #062a15; }
+.dark[data-accent="cobalt"] { --accent: #8ba4ff; --accent-hover: #a3b7ff; --accent-soft: #141a33; --on-accent: #0b1030; }
+.dark[data-accent="amber"] { --accent: #f0a23a; --accent-hover: #f7b45c; --accent-soft: #2a1f0c; --on-accent: #2b1705; }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -244,7 +286,7 @@ h3 { font-size: 16px; }
 .btn:hover { border-color: var(--border-strong); }
 .btn-primary {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   border-color: var(--accent);
   box-shadow: var(--glow);
 }
@@ -379,7 +421,7 @@ button, a, [role="button"], input, textarea, select, .xpick-chip, .xrow, .xpick-
 .body-map-toggle-btn:hover { color: var(--text); }
 .body-map-toggle-btn.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 .body-map-tools {
   display: flex;
@@ -581,7 +623,7 @@ button, a, [role="button"], input, textarea, select, .xpick-chip, .xrow, .xpick-
   font-family: var(--font-sans);
   pointer-events: none;
 }
-.body-map-badge.is-active .body-map-badge-text { fill: #fff; }
+.body-map-badge.is-active .body-map-badge-text { fill: var(--on-accent); }
 .body-map-status {
   text-align: center;
   font-size: 13px;
@@ -643,7 +685,7 @@ button, a, [role="button"], input, textarea, select, .xpick-chip, .xrow, .xpick-
   cursor: pointer; white-space: nowrap; transition: all 130ms ease;
 }
 .sort-chip:active { transform: scale(.95); }
-.sort-chip.active { color: #05242a; background: var(--accent); border-color: var(--accent); }
+.sort-chip.active { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
 
 /* Entrance stagger (browse/filter only, not while typing a search) */
 .exgrid-stagger > .exercise-card { animation: exCardIn .32s cubic-bezier(.22,1,.36,1) both; }
@@ -689,7 +731,7 @@ button, a, [role="button"], input, textarea, select, .xpick-chip, .xrow, .xpick-
   position: absolute; left: 0; top: 8px;
   width: 22px; height: 22px;
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   border-radius: 100px;
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 11px; font-weight: 600;
@@ -1103,7 +1145,7 @@ button, a, [role="button"], input, textarea, select, .xpick-chip, .xrow, .xpick-
 }
 html.dark .macro-stat.macro-protein { border-color: rgba(91, 141, 239, 0.35); }
 html.dark .macro-stat.macro-carbs { border-color: rgba(212, 160, 23, 0.35); }
-html.dark .macro-stat.macro-fat { border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+html.dark .macro-stat.macro-fat { border-color: color-mix(in srgb, var(--macro-fat) 40%, transparent); }
 .macro-bar {
   display: flex;
   height: 8px;
@@ -1115,7 +1157,7 @@ html.dark .macro-stat.macro-fat { border-color: color-mix(in srgb, var(--accent)
 .macro-bar-seg { height: 100%; min-width: 2px; }
 .macro-bar-seg.protein { background: #5b8def; }
 .macro-bar-seg.carbs { background: #d4a017; }
-.macro-bar-seg.fat { background: var(--accent); }
+.macro-bar-seg.fat { background: var(--macro-fat); }
 .macro-bar-legend {
   margin-top: 6px;
   line-height: 1.35;
@@ -1151,9 +1193,9 @@ html.dark .macro-stat.macro-fat { border-color: color-mix(in srgb, var(--accent)
   background: currentColor;
   transition: width 0.2s ease;
 }
-.macro-stat.macro-protein .macro-goal-progress-fill { background: #5b8def; }
-.macro-stat.macro-carbs .macro-goal-progress-fill { background: #d4a017; }
-.macro-stat.macro-fat .macro-goal-progress-fill { background: var(--accent); }
+.macro-stat.macro-protein .macro-goal-progress-fill { background: var(--macro-protein); }
+.macro-stat.macro-carbs .macro-goal-progress-fill { background: var(--macro-carbs); }
+.macro-stat.macro-fat .macro-goal-progress-fill { background: var(--macro-fat); }
 .macro-goal-progress-fill.over {
   background: var(--danger, #c44);
 }
@@ -1589,7 +1631,7 @@ input:disabled.input,
   -webkit-tap-highlight-color: transparent;
 }
 .rest-btn:active { transform: scale(0.98); }
-.rest-btn-primary { background: var(--accent); border-color: var(--accent); color: #04232a; }
+.rest-btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 @media (prefers-reduced-motion: reduce) {
   .rest-overlay, .rest-overlay-inner { animation: none; }
   .rest-ring-fill { transition: none; }
@@ -1656,7 +1698,7 @@ input:disabled.input,
   transition: all 120ms ease;
 }
 .filter-chip:hover { color: var(--text); }
-.filter-chip.active { background: var(--accent); color: white; }
+.filter-chip.active { background: var(--accent); color: var(--on-accent); }
 
 /* ============ Chart ============ */
 .chart-container {
@@ -2641,7 +2683,7 @@ input:disabled.input,
   justify-content: center;
   border-radius: 16px;
   background: linear-gradient(180deg, var(--accent-hover), var(--accent));
-  color: #fff;
+  color: var(--on-accent);
   box-shadow: var(--glow-strong);
   transition: transform 150ms ease, box-shadow 150ms ease;
 }
@@ -2783,7 +2825,7 @@ input:disabled.input,
   border-radius: 999px;
   transition: width 400ms ease;
 }
-.macro-tile.is-protein .macro-tile-fill { background: linear-gradient(90deg, #57c9d6, #8fe0e9); }
+.macro-tile.is-protein .macro-tile-fill { background: linear-gradient(90deg, var(--macro-protein), #8fa9f2); }
 .macro-tile.is-carbs .macro-tile-fill { background: linear-gradient(90deg, #14b8a6, #4ade80); }
 .macro-tile.is-fat .macro-tile-fill { background: linear-gradient(90deg, #f0a52a, #d9c07a); }
 .macro-tile-goal {
@@ -3074,7 +3116,7 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 }
 .xpick-chip:hover { color: var(--text); border-color: var(--border-strong); }
 .xpick-chip.active {
-  color: #062a2e; background: var(--accent); border-color: var(--accent);
+  color: var(--on-accent); background: var(--accent); border-color: var(--accent);
   box-shadow: var(--glow);
 }
 
@@ -3136,7 +3178,7 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 }
 .xrow-add svg { width: 18px; height: 18px; stroke-width: 2.4; }
 .xrow.is-selected .xrow-add, .xrow-add.added {
-  background: var(--accent); border-color: var(--accent); color: #062a2e;
+  background: var(--accent); border-color: var(--accent); color: var(--on-accent);
 }
 .xrow-added-label { font-size: 12px; font-weight: 600; color: var(--text-faint); flex: none; }
 
@@ -3404,9 +3446,9 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .nmacro-goal { font-size: 12px; font-weight: 600; color: var(--text-faint); }
 .nmacro-bar { height: 5px; border-radius: 100px; background: var(--bg-sunken); margin-top: 8px; overflow: hidden; }
 .nmacro-fill { height: 100%; border-radius: 100px; }
-.nmacro-fill.is-protein { background: #5b8def; }
-.nmacro-fill.is-carbs { background: #e0a83d; }
-.nmacro-fill.is-fat { background: var(--accent); }
+.nmacro-fill.is-protein { background: var(--macro-protein); }
+.nmacro-fill.is-carbs { background: var(--macro-carbs); }
+.nmacro-fill.is-fat { background: var(--macro-fat); }
 
 /* Overview: setup banner + meals-today list */
 .nsetup { margin-top: 16px; }
@@ -3493,7 +3535,7 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .supp-take {
   flex: none; display: inline-flex; align-items: center; gap: 6px;
   padding: 9px 18px; border-radius: 100px; font-size: 14px; font-weight: 800;
-  color: #05242a; background: var(--accent); border: 1px solid var(--accent);
+  color: var(--on-accent); background: var(--accent); border: 1px solid var(--accent);
   cursor: pointer; transition: all 130ms ease;
   box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--accent) 70%, transparent);
 }
@@ -3526,7 +3568,7 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   transition: all 130ms ease;
 }
 .remind-toggle svg { width: 15px; height: 15px; }
-.remind-toggle.is-on { color: #05242a; background: var(--accent); border-color: var(--accent); }
+.remind-toggle.is-on { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
 .remind-field { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .remind-field .input { max-width: 150px; }
 .remind-row-edit {
@@ -3556,7 +3598,7 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .nremind-title { flex: 1; font-weight: 800; font-size: 15px; letter-spacing: 0.01em; }
 .nremind-count {
   min-width: 22px; text-align: center; padding: 1px 8px; border-radius: 100px;
-  font-size: 12px; font-weight: 800; color: #05242a; background: var(--accent);
+  font-size: 12px; font-weight: 800; color: var(--on-accent); background: var(--accent);
 }
 .nremind-count.is-overdue { background: #ff8a3d; color: #2a1400; }
 .nremind-edit { border: none; background: none; color: var(--text-muted); font-size: 13px; font-weight: 700; cursor: pointer; padding: 2px 4px; }
@@ -3567,7 +3609,7 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .nremind-item.is-overdue .nremind-item-when { color: #ffb27a; }
 .nremind-act {
   flex: none; padding: 8px 16px; border-radius: 100px; font-size: 13px; font-weight: 800;
-  color: #05242a; background: var(--accent); border: 1px solid var(--accent); cursor: pointer;
+  color: var(--on-accent); background: var(--accent); border: 1px solid var(--accent); cursor: pointer;
   transition: transform 120ms ease;
 }
 .nremind-act:active { transform: scale(0.96); }
@@ -3753,7 +3795,7 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .pquiz-choice-hint { font-size: 13px; color: var(--text-muted); margin-top: 3px; line-height: 1.35; }
 .pquiz-choice-tick {
   flex: 0 0 auto; width: 24px; height: 24px; border-radius: 50%;
-  background: var(--accent); color: #fff; display: grid; place-items: center;
+  background: var(--accent); color: var(--on-accent); display: grid; place-items: center;
 }
 .pquiz-choice-tick svg { width: 15px; height: 15px; }
 
@@ -3867,10 +3909,8 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .today-hero-glow {
   position: absolute; top: -40px; right: -30px; width: 150px; height: 150px;
   border-radius: 50%; pointer-events: none;
-  background: radial-gradient(circle, rgba(13,151,168,0.18), transparent 70%);
+  background: var(--hero-glow);
 }
-:root[data-theme="dark"] .today-hero-glow,
-.today-hero-glow { background: radial-gradient(circle, rgba(87,201,214,0.16), transparent 70%); }
 .today-hero-body { position: relative; z-index: 1; }
 .today-hero-eyebrow {
   font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
@@ -4087,9 +4127,9 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .macro-stack-seg:first-child { border-top-left-radius: 999px; border-bottom-left-radius: 999px; }
 .macro-stack-seg:last-child { border-top-right-radius: 999px; border-bottom-right-radius: 999px; }
 .macro-stack-empty { width: 100%; }
-.macro-stack-seg.is-protein, .macro-stack-dot.is-protein { background: #5b8def; }
-.macro-stack-seg.is-carbs,   .macro-stack-dot.is-carbs   { background: #d4a017; }
-.macro-stack-seg.is-fat,     .macro-stack-dot.is-fat     { background: #57c9d6; }
+.macro-stack-seg.is-protein, .macro-stack-dot.is-protein { background: var(--macro-protein); }
+.macro-stack-seg.is-carbs,   .macro-stack-dot.is-carbs   { background: var(--macro-carbs); }
+.macro-stack-seg.is-fat,     .macro-stack-dot.is-fat     { background: var(--macro-fat); }
 .macro-stack-legend { display: flex; gap: 14px; flex-wrap: wrap; }
 .macro-stack-item { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 .macro-stack-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
@@ -4179,7 +4219,7 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .nsaved-hero-count {
   flex: none; min-width: 26px; height: 26px; padding: 0 8px; border-radius: 100px;
   display: inline-flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: 800; color: #05242a; background: var(--accent);
+  font-size: 13px; font-weight: 800; color: var(--on-accent); background: var(--accent);
 }
 .nsaved-hero-chev { flex: none; width: 20px; height: 20px; color: var(--text-faint); display: inline-flex; }
 .nsaved-hero-chev svg { width: 100%; height: 100%; }
@@ -4244,6 +4284,35 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 /* ============ You tab — profile header ============ */
 .seg-control-block { display: flex; width: 100%; }
 .seg-control-block .seg-btn { flex: 1; }
+
+/* Theme colour swatches — the second appearance axis, under light/dark.
+   Each carries the tone for the mode you're in, so the swatch is a preview
+   rather than a label: what you tap is what the app becomes. */
+.accent-row { display: flex; gap: 10px; margin-top: 10px; }
+.accent-swatch {
+  flex: 1; height: 46px; border-radius: 12px; cursor: pointer;
+  background: var(--sw); border: 2px solid transparent;
+  display: grid; place-items: center;
+  transition: transform 130ms ease, box-shadow 130ms ease, border-color 130ms ease;
+}
+.accent-swatch:active { transform: scale(0.96); }
+.accent-swatch.active {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--bg-elev) inset;
+}
+.accent-swatch-tick { display: none; color: var(--on-sw); }
+.accent-swatch-tick svg { width: 18px; height: 18px; display: block; }
+.accent-swatch.active .accent-swatch-tick { display: block; }
+
+/* Light mode shows the deep tones the light theme actually uses. */
+.accent-swatch[data-accent="ice"]    { --sw: #0a7683; --on-sw: #ffffff; }
+.accent-swatch[data-accent="mint"]   { --sw: #217a45; --on-sw: #ffffff; }
+.accent-swatch[data-accent="cobalt"] { --sw: #4059c9; --on-sw: #ffffff; }
+.accent-swatch[data-accent="amber"]  { --sw: #9c5f10; --on-sw: #ffffff; }
+.dark .accent-swatch[data-accent="ice"]    { --sw: #57c9d6; --on-sw: #05242a; }
+.dark .accent-swatch[data-accent="mint"]   { --sw: #4ade80; --on-sw: #062a15; }
+.dark .accent-swatch[data-accent="cobalt"] { --sw: #8ba4ff; --on-sw: #0b1030; }
+.dark .accent-swatch[data-accent="amber"]  { --sw: #f0a23a; --on-sw: #2b1705; }
 .you-stats-label { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-faint); margin: 18px 0 8px; }
 .you-profile { padding: 16px; }
 .you-profile-top { display: flex; align-items: center; gap: 12px; }
@@ -4585,7 +4654,7 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   transition: all 140ms ease;
 }
 .map-mode-btn:active { transform: scale(.97); }
-.map-mode-btn.active { color: #05242a; background: var(--accent); border-color: var(--accent); }
+.map-mode-btn.active { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
 .map-mode-caption { font-size: 11.5px; color: var(--text-faint); margin: 7px 2px 12px; line-height: 1.4; }
 
 /* Hold chip on a mobility card (teal, not the gold PR trophy) */
@@ -4737,7 +4806,7 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 }
 .kit-chip:hover { color: var(--text); border-color: var(--border-strong); }
 .kit-chip.active {
-  color: #062a2e; background: var(--accent); border-color: var(--accent);
+  color: var(--on-accent); background: var(--accent); border-color: var(--accent);
   box-shadow: var(--glow);
 }
 
@@ -4750,7 +4819,7 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   transition: all 140ms ease;
 }
 .start-mode-btn:active { transform: scale(.97); }
-.start-mode-btn.active { color: #05242a; background: var(--accent); border-color: var(--accent); }
+.start-mode-btn.active { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
 
 /* ===== Empty-week hero: preview strip + one-tap starter splits ===== */
 .plan-preview { display: flex; gap: 6px; margin: 16px 0 8px; }

@@ -1,18 +1,18 @@
 // Service Worker — network-first for app code so bug fixes propagate, cache-first for icons/fonts
 // IMPORTANT: bump CACHE version whenever app JS/CSS/HTML changes materially so old clients recover.
-const CACHE = "fitforge-v148";
+const CACHE = "fitforge-v149";
 const PRECACHE = [
   "./",
   "./index.html",
-  "./css/styles.css?v=148",
-  "./js/app.js?v=148",
-  "./js/storage.js?v=148",
-  "./js/utils.js?v=148",
-  "./js/body-map.js?v=148",
-  "./data/exercises.js?v=148",
-  "./data/meals.js?v=148",
-  "./data/sessions.js?v=148",
-  "./js/meal-search.js?v=148",
+  "./css/styles.css?v=149",
+  "./js/app.js?v=149",
+  "./js/storage.js?v=149",
+  "./js/utils.js?v=149",
+  "./js/body-map.js?v=149",
+  "./data/exercises.js?v=149",
+  "./data/meals.js?v=149",
+  "./data/sessions.js?v=149",
+  "./js/meal-search.js?v=149",
   "./css/styles.css",
   "./js/app.js",
   "./js/storage.js",
