@@ -8,6 +8,13 @@
 // Steps are flattened at authoring time so any structure is expressible —
 // fixed work/rest, pyramids, or nested blocks like 10-20-30. `work: false`
 // marks a recovery step (prescribed, but not logged as an effort).
+//
+// Two taxonomies, deliberately orthogonal:
+//   pillar — what kind of training it is (conditioning / strength / recovery).
+//            This drives the picker's swipe panels, so it stays at three.
+//   venue  — where you can actually do it (gym / home / outdoors), authored.
+//   gear   — what it needs, DERIVED from the exercises at load time so it can
+//            never drift when a session is edited. See the block at the end.
 window.PRESET_SESSIONS = (function () {
   // ---- authoring helpers (flatten a protocol into explicit steps) ----
   const step = (sec, intensity, label, work = true) => ({ sec, intensity, label, work });
@@ -23,7 +30,7 @@ window.PRESET_SESSIONS = (function () {
   S.push({
     id: "preset-norwegian-4x4",
     name: "Norwegian 4×4",
-    preset: true, pillar: "conditioning",
+    preset: true, pillar: "conditioning", venue: ["outdoors", "gym"],
     desc: "4 × 4 min hard / 3 min easy",
     detail: "The classic NTNU VO₂max protocol. Four hard four-minute efforts at around 90–95% of max effort, each followed by three minutes easy. Hard should feel unsustainable past four minutes, but controlled.",
     exercises: [{
@@ -41,7 +48,7 @@ window.PRESET_SESSIONS = (function () {
   S.push({
     id: "preset-30-30",
     name: "30/30 Intervals",
-    preset: true, pillar: "conditioning",
+    preset: true, pillar: "conditioning", venue: ["outdoors", "gym"],
     desc: "12 × 30 s hard / 30 s easy",
     detail: "Short intervals are far more approachable than a 4×4 — the effort ends before it gets truly unpleasant. A solid first taste of interval work.",
     exercises: [{
@@ -59,7 +66,7 @@ window.PRESET_SESSIONS = (function () {
   S.push({
     id: "preset-30-15",
     name: "30/15 Intervals",
-    preset: true, pillar: "conditioning",
+    preset: true, pillar: "conditioning", venue: ["gym"],
     desc: "12 × 30 s hard / 15 s easy",
     detail: "The same shape as 30/30 with half the recovery, so fatigue accumulates across the set. Step up to this once 30/30 feels comfortable.",
     exercises: [{
@@ -77,7 +84,7 @@ window.PRESET_SESSIONS = (function () {
   S.push({
     id: "preset-tabata",
     name: "Tabata",
-    preset: true, pillar: "conditioning",
+    preset: true, pillar: "conditioning", venue: ["gym"],
     desc: "8 × 20 s max / 10 s rest — 4 min",
     detail: "Four minutes of work, all-out. Twenty seconds at maximum effort, ten seconds rest, eight times through. Brutal, unambiguous, and it fits in any gap in the day.",
     exercises: [{
@@ -95,7 +102,7 @@ window.PRESET_SESSIONS = (function () {
   S.push({
     id: "preset-zone-2",
     name: "Zone 2 Steady State",
-    preset: true, pillar: "conditioning",
+    preset: true, pillar: "conditioning", venue: ["gym", "outdoors"],
     desc: "50 min easy, conversational",
     detail: "The least exciting and most valuable session here. Hold a pace you could talk in complete sentences at — if you're gasping, slow down. The point is time, not effort.",
     exercises: [{
@@ -107,7 +114,7 @@ window.PRESET_SESSIONS = (function () {
   S.push({
     id: "preset-10-20-30",
     name: "10-20-30 Running",
-    preset: true, pillar: "conditioning",
+    preset: true, pillar: "conditioning", venue: ["outdoors", "gym"],
     desc: "4 blocks of 5 × (30 s easy · 20 s moderate · 10 s sprint)",
     detail: "A Copenhagen protocol that front-loads recovery: jog thirty seconds, pick it up for twenty, then sprint the last ten. Five straight reps make a block; two minutes walking between blocks.",
     exercises: [{
@@ -132,7 +139,7 @@ window.PRESET_SESSIONS = (function () {
   S.push({
     id: "preset-sprint-pyramid",
     name: "Sprint Pyramid",
-    preset: true, pillar: "conditioning",
+    preset: true, pillar: "conditioning", venue: ["gym"],
     desc: "1-2-3-4-3-2-1 min hard, equal recovery",
     detail: "Efforts build to a four-minute peak then come back down, with matched easy recovery after each. The descending half is where it earns its keep — you're tired and the intervals keep shortening.",
     exercises: [{
@@ -153,7 +160,7 @@ window.PRESET_SESSIONS = (function () {
   S.push({
     id: "preset-ruck",
     name: "Ruck / Incline Walk",
-    preset: true, pillar: "conditioning",
+    preset: true, pillar: "conditioning", venue: ["outdoors", "gym"],
     desc: "45 min weighted walk",
     detail: "Load a pack or set the treadmill to a stiff incline and walk. Pace and grade are the dial — it should feel like steady work, not a stroll or a march.",
     exercises: [{
@@ -165,7 +172,7 @@ window.PRESET_SESSIONS = (function () {
   S.push({
     id: "preset-sled-carry",
     name: "Sled & Carry Circuit",
-    preset: true, pillar: "conditioning",
+    preset: true, pillar: "conditioning", venue: ["gym", "home"],
     desc: "5 rounds · carries and swings",
     detail: "Loaded carries and swings back to back. Rest as needed between rounds, but keep the grip working — that's usually what gives out first.",
     exercises: [
@@ -175,13 +182,176 @@ window.PRESET_SESSIONS = (function () {
     ]
   });
 
+  S.push({
+    id: "preset-hill-sprints",
+    name: "Hill Sprints",
+    preset: true, pillar: "conditioning", venue: ["outdoors"],
+    desc: "10 × 20 s uphill, walk down",
+    detail: "Find a hill steep enough that you have to work but shallow enough to run properly on. Twenty seconds up hard, walk back down, go again. The gradient caps your speed, which is what makes this far kinder on the hamstrings than flat sprinting.",
+    exercises: [{
+      exerciseId: "run", name: "Hill Sprint",
+      intervals: {
+        steps: [
+          ...warmup(10),
+          ...times(10, [step(20, "max", "Uphill"), step(100, "easy", "Walk down", false)]),
+          ...cooldown(5)
+        ]
+      }
+    }]
+  });
+
+  S.push({
+    id: "preset-fartlek",
+    name: "Fartlek Run",
+    preset: true, pillar: "conditioning", venue: ["outdoors"],
+    desc: "30 min of unstructured surges",
+    detail: "Swedish for “speed play”, and that's the whole idea. Run easy, then pick a landmark and push to it — a lamppost, the top of a rise, the next corner. No watch-watching. This is the session for when structured intervals feel like a chore.",
+    exercises: [{
+      exerciseId: "run", name: "Running",
+      intervals: {
+        steps: [
+          ...warmup(8),
+          ...times(6, [
+            step(60, "moderate", "Surge"),
+            step(90, "easy", "Float", false),
+            step(30, "hard", "Push"),
+            step(120, "easy", "Easy", false)
+          ]),
+          ...cooldown(5)
+        ]
+      }
+    }]
+  });
+
+  S.push({
+    id: "preset-stair-repeats",
+    name: "Stair Repeats",
+    preset: true, pillar: "conditioning", venue: ["outdoors", "gym"],
+    desc: "8 × up hard, walk down",
+    detail: "A long flight of steps is one of the best conditioning tools going and it's free. Run or march up hard, walk down as the recovery. Watch your feet on the way down — that's where people come unstuck.",
+    exercises: [{
+      exerciseId: "run", name: "Stair Repeat",
+      intervals: {
+        steps: [
+          ...warmup(8),
+          ...times(8, [step(45, "hard", "Up"), step(90, "easy", "Walk down", false)]),
+          ...cooldown(5)
+        ]
+      }
+    }]
+  });
+
+  S.push({
+    id: "preset-carry-walk",
+    name: "Loaded Carry Walk",
+    preset: true, pillar: "conditioning", venue: ["outdoors", "gym"],
+    desc: "6 × 60 s carry, walk between",
+    detail: "Pick the weight up, walk until the grip starts to go, put it down and keep walking. Simple, unglamorous, and it builds a torso that holds together under load better than most gym work.",
+    exercises: [
+      { exerciseId: "farmers-carry", name: "Farmer's Carry", targetSets: 6, targetReps: 1 },
+      { exerciseId: "kb-front-rack-carry", name: "Front Rack Carry", targetSets: 3, targetReps: 1 }
+    ]
+  });
+
+  S.push({
+    id: "preset-rower-intervals",
+    name: "Rower Intervals",
+    preset: true, pillar: "conditioning", venue: ["gym"],
+    desc: "6 × 500 m pace, 2 min easy",
+    detail: "Six efforts at roughly your 2 km pace, about ninety seconds to two minutes each depending on where you are. Full two minutes of easy paddling between — the recovery is what lets the next one be as good as the last.",
+    exercises: [{
+      exerciseId: "rowing", name: "Rowing (Erg)",
+      intervals: {
+        steps: [
+          ...warmup(8),
+          ...times(6, [step(105, "hard", "500 m"), step(120, "easy", "Paddle", false)]),
+          ...cooldown(5)
+        ]
+      }
+    }]
+  });
+
+  S.push({
+    id: "preset-bike-sprints",
+    name: "Bike Sprints",
+    preset: true, pillar: "conditioning", venue: ["gym"],
+    desc: "10 × 15 s all-out, 45 s easy",
+    detail: "Set the resistance high enough that you can't just spin — you should have to fight the pedals. Fifteen seconds is short enough to go genuinely all-out, which is the entire point.",
+    exercises: [{
+      exerciseId: "cycling", name: "Cycling",
+      intervals: {
+        steps: [
+          ...warmup(8),
+          ...times(10, [step(15, "max", "Sprint"), step(45, "easy", "Spin", false)]),
+          ...cooldown(5)
+        ]
+      }
+    }]
+  });
+
+  S.push({
+    id: "preset-stair-pyramid",
+    name: "Stair Climber Pyramid",
+    preset: true, pillar: "conditioning", venue: ["gym"],
+    desc: "1-2-3-2-1 min hard, 1 min easy",
+    detail: "Climbing loads the glutes in a way flat cardio doesn't, and the machine won't let you coast. Hands off the rails on the hard blocks — if you need them to hold the pace, the pace is too high.",
+    exercises: [{
+      exerciseId: "stair-climber", name: "Stair Climber",
+      intervals: {
+        steps: [
+          ...warmup(5),
+          ...[1, 2, 3, 2, 1].flatMap(m => [
+            step(m * 60, "hard", `${m} min hard`),
+            step(60, "easy", "Easy", false)
+          ]),
+          ...cooldown(5)
+        ]
+      }
+    }]
+  });
+
+  S.push({
+    id: "preset-jump-rope",
+    name: "Jump Rope Ladder",
+    preset: true, pillar: "conditioning", venue: ["home", "gym", "outdoors"],
+    desc: "8 rounds, 30 s up to 60 s",
+    detail: "A rope, two metres of floor and fifteen minutes. Rounds get longer as you go, so pace the early ones. Trips don't count against you — pick the rope up and carry on.",
+    exercises: [{
+      exerciseId: "jump-rope", name: "Jump Rope",
+      intervals: {
+        steps: [
+          ...warmup(3),
+          ...[30, 30, 45, 45, 60, 45, 45, 30].flatMap(sec => [
+            step(sec, "hard", `${sec} s`),
+            step(30, "easy", "Rest", false)
+          ]),
+          ...cooldown(3)
+        ]
+      }
+    }]
+  });
+
+  S.push({
+    id: "preset-kb-complex",
+    name: "Kettlebell Complex",
+    preset: true, pillar: "conditioning", venue: ["home", "gym"],
+    desc: "5 rounds · swing, clean & press, snatch",
+    detail: "One bell, three movements, no putting it down inside a round. Rest a full minute between rounds. Pick a bell you'd call easy for any one of these on its own — the complex does the rest.",
+    exercises: [
+      { exerciseId: "kettlebell-swing", name: "Kettlebell Swing", targetSets: 5, targetReps: 15 },
+      { exerciseId: "kb-clean-press", name: "Kettlebell Clean & Press", targetSets: 5, targetReps: 6 },
+      { exerciseId: "kb-snatch", name: "Kettlebell Snatch", targetSets: 5, targetReps: 6 },
+      { exerciseId: "goblet-squat", name: "Goblet Squat", targetSets: 5, targetReps: 10 }
+    ]
+  });
+
   // ============ STRENGTH ============
   // ex(id, name, sets, reps) — strength entries expand to sets×reps targets.
   const ex = (exerciseId, name, targetSets, targetReps) => ({ exerciseId, name, targetSets, targetReps });
-  const strength = (id, name, desc, detail, exercises, extra = {}) =>
-    S.push({ id, name, preset: true, pillar: "strength", desc, detail, exercises, ...extra });
+  const strength = (id, name, venue, desc, detail, exercises, extra = {}) =>
+    S.push({ id, name, preset: true, pillar: "strength", venue, desc, detail, exercises, ...extra });
 
-  strength("preset-full-body-a", "Full Body A", "Squat · Bench · Row · 5 exercises",
+  strength("preset-full-body-a", "Full Body A", ["gym"], "Squat · Bench · Row · 5 exercises",
     "The first of three rotating full-body days for 3×/week training. Every session hits legs, a push and a pull, so missing one day costs you less than it would on a split.",
     [
       ex("squat-back", "Barbell Back Squat", 3, 5),
@@ -191,7 +361,7 @@ window.PRESET_SESSIONS = (function () {
       ex("plank", "Plank", 3, 1)
     ]);
 
-  strength("preset-full-body-b", "Full Body B", "Deadlift · OHP · Pulldown · 5 exercises",
+  strength("preset-full-body-b", "Full Body B", ["gym"], "Deadlift · OHP · Pulldown · 5 exercises",
     "The second full-body day. Deadlift replaces squat and pressing goes overhead, so the same muscles get worked from different angles across the week.",
     [
       ex("deadlift-conventional", "Conventional Deadlift", 3, 5),
@@ -201,7 +371,7 @@ window.PRESET_SESSIONS = (function () {
       ex("hanging-leg-raise", "Hanging Leg Raise", 3, 10)
     ]);
 
-  strength("preset-full-body-c", "Full Body C", "Front squat · Incline · Chin-up · 5 exercises",
+  strength("preset-full-body-c", "Full Body C", ["gym"], "Front squat · Incline · Chin-up · 5 exercises",
     "The third full-body day, biased toward the front squat and vertical pulling. Rotate A → B → C across the week and repeat.",
     [
       ex("squat-front", "Barbell Front Squat", 3, 5),
@@ -211,7 +381,7 @@ window.PRESET_SESSIONS = (function () {
       ex("side-plank", "Side Plank", 2, 1)
     ]);
 
-  strength("preset-upper", "Upper Body", "Push & pull · 6 exercises",
+  strength("preset-upper", "Upper Body", ["gym"], "Push & pull · 6 exercises",
     "The upper half of a 4×/week upper–lower split. Two presses, two pulls and direct arm work, balanced so nothing gets left behind.",
     [
       ex("bench-press-barbell", "Barbell Bench Press", 4, 6),
@@ -222,7 +392,7 @@ window.PRESET_SESSIONS = (function () {
       ex("tricep-pushdown", "Tricep Pushdown", 3, 12)
     ]);
 
-  strength("preset-lower", "Lower Body", "Squat, hinge & accessories · 6 exercises",
+  strength("preset-lower", "Lower Body", ["gym"], "Squat, hinge & accessories · 6 exercises",
     "The lower half of a 4×/week upper–lower split. A squat, a hinge, single-leg work, then the smaller muscles that usually get skipped.",
     [
       ex("squat-back", "Barbell Back Squat", 4, 6),
@@ -233,7 +403,7 @@ window.PRESET_SESSIONS = (function () {
       ex("dead-bug", "Dead Bug", 3, 10)
     ]);
 
-  strength("preset-push", "Push Day", "Chest, shoulders & triceps · 6 exercises",
+  strength("preset-push", "Push Day", ["gym"], "Chest, shoulders & triceps · 6 exercises",
     "The push day of a push/pull/legs rotation. Heavy horizontal press first, then vertical, then the isolation work that finishes the job.",
     [
       ex("bench-press-barbell", "Barbell Bench Press", 4, 6),
@@ -244,7 +414,7 @@ window.PRESET_SESSIONS = (function () {
       ex("overhead-tricep-extension", "Overhead Tricep Extension", 3, 12)
     ]);
 
-  strength("preset-pull", "Pull Day", "Back & biceps · 6 exercises",
+  strength("preset-pull", "Pull Day", ["gym"], "Back & biceps · 6 exercises",
     "The pull day of a push/pull/legs rotation. Vertical and horizontal pulling, rear delts, then curls — the mirror of push day.",
     [
       ex("pull-up", "Pull-Up", 4, 6),
@@ -255,7 +425,7 @@ window.PRESET_SESSIONS = (function () {
       ex("hammer-curl", "Hammer Curl", 3, 12)
     ]);
 
-  strength("preset-legs", "Leg Day", "Quads, hamstrings & glutes · 6 exercises",
+  strength("preset-legs", "Leg Day", ["gym"], "Quads, hamstrings & glutes · 6 exercises",
     "The leg day of a push/pull/legs rotation. Squat, hinge, then quad and hamstring isolation so both sides of the thigh get direct work.",
     [
       ex("squat-back", "Barbell Back Squat", 4, 6),
@@ -266,7 +436,7 @@ window.PRESET_SESSIONS = (function () {
       ex("calf-raise-seated", "Seated Calf Raise", 4, 15)
     ]);
 
-  strength("preset-machines", "Machines Only", "Full body, no free weights · 6 exercises",
+  strength("preset-machines", "Machines Only", ["gym"], "Full body, no free weights · 6 exercises",
     "Every movement on a machine — useful when the free-weight area is packed, when you're new and would rather not fight a barbell, or on a deload where you want the work without the coordination cost.",
     [
       ex("leg-press", "Leg Press", 3, 12),
@@ -277,7 +447,18 @@ window.PRESET_SESSIONS = (function () {
       ex("cable-crunch", "Cable Crunch", 3, 15)
     ]);
 
-  strength("preset-dumbbell", "Dumbbell Only", "Full body with a pair of dumbbells · 6 exercises",
+  strength("preset-cable-only", "Cable Only", ["gym"], "Constant tension, full body · 6 exercises",
+    "One station, six movements. Cables keep tension on through the whole range, which makes them unusually kind to joints that don't love free weights on a given day.",
+    [
+      ex("lat-pulldown", "Lat Pulldown", 3, 12),
+      ex("row-seated-cable", "Seated Cable Row", 3, 12),
+      ex("cable-crossover", "Cable Crossover", 3, 15),
+      ex("face-pull", "Face Pull", 3, 15),
+      ex("tricep-pushdown", "Triceps Pushdown", 3, 15),
+      ex("cable-crunch", "Cable Crunch", 3, 15)
+    ]);
+
+  strength("preset-dumbbell", "Dumbbell Only", ["gym", "home"], "Full body with a pair of dumbbells · 6 exercises",
     "Everything here needs one pair of dumbbells. Built for hotel gyms and home setups where that's all there is.",
     [
       ex("goblet-squat", "Goblet Squat", 3, 12),
@@ -288,7 +469,7 @@ window.PRESET_SESSIONS = (function () {
       ex("hammer-curl", "Hammer Curl", 3, 12)
     ]);
 
-  strength("preset-bodyweight", "Bodyweight — No Equipment", "Nothing but the floor · 6 exercises",
+  strength("preset-bodyweight", "Bodyweight — No Equipment", ["home", "gym", "outdoors"], "Nothing but the floor · 6 exercises",
     "No equipment at all. For travel, illness, or a closed gym — the session that means you don't lose the week.",
     [
       ex("push-up", "Push-Up", 4, 12),
@@ -299,7 +480,7 @@ window.PRESET_SESSIONS = (function () {
       ex("dead-bug", "Dead Bug", 3, 12)
     ]);
 
-  strength("preset-30-min", "30-Minute Express", "Four compounds, in and out",
+  strength("preset-30-min", "30-Minute Express", ["gym"], "Four compounds, in and out",
     "A deliberately short session: four compound lifts, nothing isolation. Pair the first two and the last two to save time. Built for the days you nearly skipped entirely.",
     [
       ex("squat-back", "Barbell Back Squat", 3, 8),
@@ -308,7 +489,26 @@ window.PRESET_SESSIONS = (function () {
       ex("ohp-dumbbell", "Dumbbell Shoulder Press", 2, 12)
     ]);
 
-  strength("preset-deload", "Deload — Full Body", "Same movements, half the work",
+  strength("preset-15-min", "15-Minute Minimum", ["home", "gym", "outdoors"], "Three moves, no gear, no excuse",
+    "The floor of what counts as a session. Three rounds of three bodyweight movements, straight through. It is not enough to build much, but it is enough to keep the habit intact on a bad week — which is worth more.",
+    [
+      ex("push-up", "Push-Up", 3, 15),
+      ex("bulgarian-split-squat", "Bulgarian Split Squat", 3, 12),
+      ex("plank", "Plank", 3, 1)
+    ]);
+
+  strength("preset-45-min", "45-Minute Full Body", ["gym"], "Six movements, one session",
+    "A middle ground between the express session and a full split day. One squat, one hinge, one push, one pull, and two accessories — enough volume to progress on if you only train twice a week.",
+    [
+      ex("squat-back", "Barbell Back Squat", 4, 6),
+      ex("deadlift-romanian", "Romanian Deadlift", 3, 8),
+      ex("bench-press-dumbbell", "Dumbbell Bench Press", 3, 10),
+      ex("row-dumbbell", "Dumbbell Row", 3, 10),
+      ex("lateral-raise", "Lateral Raise", 3, 15),
+      ex("hanging-leg-raise", "Hanging Leg Raise", 3, 12)
+    ]);
+
+  strength("preset-deload", "Deload — Full Body", ["gym"], "Same movements, half the work",
     "A planned easy week. The same pattern as a full-body day at noticeably lighter loads and fewer sets — the point is to move well and recover, not to chase anything.",
     [
       ex("squat-back", "Barbell Back Squat", 2, 5),
@@ -317,31 +517,243 @@ window.PRESET_SESSIONS = (function () {
       ex("face-pull", "Face Pull", 2, 15)
     ]);
 
-  // ============ RECOVERY ============
-  const recovery = (id, name, desc, detail, exercises) =>
-    S.push({ id, name, preset: true, pillar: "recovery", desc, detail, exercises });
+  // ---- gym splits ----
 
-  recovery("preset-mobility-flow", "Mobility Flow", "8 stretches · ~12 min",
-    "A full-body flow through the areas that tighten most. Hold each for around forty-five seconds and breathe — this is the session to do on a rest day or after a hard week.",
+  strength("preset-arms", "Arms Day", ["gym"], "Biceps & triceps · 6 exercises",
+    "Direct arm work only. Alternate a curl and a triceps movement so one recovers while the other works — you'll get through it in half the time.",
     [
-      { exerciseId: "mob-cat-cow", name: "Cat-Cow", targetSets: 1, targetReps: 1 },
-      { exerciseId: "mob-worlds-greatest", name: "World's Greatest Stretch", targetSets: 1, targetReps: 1 },
-      { exerciseId: "mob-hip-flexor-kneel", name: "Kneeling Hip Flexor Stretch", targetSets: 1, targetReps: 1 },
-      { exerciseId: "mob-pigeon", name: "Pigeon Pose", targetSets: 1, targetReps: 1 },
-      { exerciseId: "mob-hamstring-seated", name: "Seated Hamstring Stretch", targetSets: 1, targetReps: 1 },
-      { exerciseId: "mob-thoracic-rotation", name: "Thoracic Rotation (Open Book)", targetSets: 1, targetReps: 1 },
-      { exerciseId: "mob-doorway-chest", name: "Doorway Chest Stretch", targetSets: 1, targetReps: 1 },
-      { exerciseId: "mob-childs-pose", name: "Child's Pose", targetSets: 1, targetReps: 1 }
+      ex("curl-barbell", "Barbell Biceps Curl", 3, 10),
+      ex("skull-crusher", "Skull Crusher", 3, 10),
+      ex("hammer-curl", "Hammer Curl", 3, 12),
+      ex("tricep-pushdown", "Triceps Pushdown", 3, 12),
+      ex("concentration-curl", "Concentration Curl", 3, 12),
+      ex("overhead-tricep-extension", "Overhead Triceps Extension", 3, 12)
     ]);
 
-  recovery("preset-active-recovery", "Active Recovery", "25 min easy",
+  strength("preset-shoulders", "Shoulders & Delts", ["gym"], "All three heads · 6 exercises",
+    "Press first while you're fresh, then hit the side and rear delts directly. Most people are front-delt dominant from pressing, so the last three movements matter more than the first.",
+    [
+      ex("ohp-barbell", "Barbell Overhead Press", 4, 6),
+      ex("arnold-press", "Arnold Press", 3, 10),
+      ex("lateral-raise", "Lateral Raise", 4, 15),
+      ex("rear-delt-fly", "Rear Delt Fly", 3, 15),
+      ex("face-pull", "Face Pull", 3, 15),
+      ex("shrug-barbell", "Barbell Shrug", 3, 12)
+    ]);
+
+  strength("preset-back-thickness", "Back Thickness", ["gym"], "Rows before pulls · 6 exercises",
+    "Horizontal pulling first, which is what actually builds the mid-back. Vertical work and rear delts after. If your posture bothers you, this is the session to run twice a week.",
+    [
+      ex("row-barbell", "Barbell Bent-Over Row", 4, 8),
+      ex("t-bar-row", "T-Bar Row", 3, 10),
+      ex("row-seated-cable", "Seated Cable Row", 3, 12),
+      ex("lat-pulldown", "Lat Pulldown", 3, 12),
+      ex("pullover", "Dumbbell Pullover", 3, 12),
+      ex("face-pull", "Face Pull", 3, 20)
+    ]);
+
+  strength("preset-chest-triceps", "Chest & Triceps", ["gym"], "Press, fly, extend · 6 exercises",
+    "A classic pairing — the triceps are already warm from pressing, so they take the isolation work well. Flat, incline, then flies to finish the chest off.",
+    [
+      ex("bench-press-barbell", "Barbell Bench Press", 4, 6),
+      ex("incline-bench-dumbbell", "Incline Dumbbell Press", 3, 10),
+      ex("dumbbell-fly", "Dumbbell Fly", 3, 12),
+      ex("dips-chest", "Chest Dip", 3, 10),
+      ex("tricep-pushdown", "Triceps Pushdown", 3, 12),
+      ex("skull-crusher", "Skull Crusher", 3, 12)
+    ]);
+
+  strength("preset-glutes-hams", "Glutes & Hamstrings", ["gym"], "Hinge-led posterior chain · 6 exercises",
+    "The back of the legs, trained properly. Hip thrusts and RDLs do the heavy lifting; the leg curl and Nordic cover the knee-flexion side that hinging alone misses.",
+    [
+      ex("hip-thrust", "Barbell Hip Thrust", 4, 10),
+      ex("deadlift-romanian", "Romanian Deadlift", 4, 8),
+      ex("leg-curl-lying", "Lying Leg Curl", 3, 12),
+      ex("bulgarian-split-squat", "Bulgarian Split Squat", 3, 10),
+      ex("nordic-curl", "Nordic Hamstring Curl", 3, 6),
+      ex("calf-raise-standing", "Standing Calf Raise", 4, 15)
+    ]);
+
+  // ---- resistance bands ----
+
+  strength("preset-band-full-body", "Bands — Full Body", ["home", "gym", "outdoors"], "One band, whole body · 6 exercises",
+    "A set of bands weighs nothing and fits in a drawer, and this session proves that's enough. Bands are hardest at the top of the range rather than the bottom, so control the return — that's where most of the work is.",
+    [
+      ex("band-squat", "Band Squat", 3, 15),
+      ex("band-chest-press", "Band Chest Press", 3, 15),
+      ex("band-row", "Band Seated Row", 3, 15),
+      ex("band-rdl", "Band Romanian Deadlift", 3, 15),
+      ex("band-overhead-press", "Band Overhead Press", 3, 12),
+      ex("band-woodchop", "Band Woodchop", 3, 12)
+    ]);
+
+  strength("preset-band-upper", "Bands — Upper Body", ["home", "gym", "outdoors"], "Push, pull & arms · 6 exercises",
+    "Everything above the waist with a band and a door anchor. Higher reps than a barbell session — aim for the point where the last two or three get genuinely hard rather than counting to a number.",
+    [
+      ex("band-chest-press", "Band Chest Press", 3, 15),
+      ex("band-pulldown", "Band Lat Pulldown", 3, 15),
+      ex("band-overhead-press", "Band Overhead Press", 3, 12),
+      ex("band-row", "Band Seated Row", 3, 15),
+      ex("band-curl", "Band Biceps Curl", 3, 20),
+      ex("band-pushdown", "Band Triceps Pushdown", 3, 20)
+    ]);
+
+  strength("preset-band-lower", "Bands — Lower Body", ["home", "gym", "outdoors"], "Legs & glutes · 5 exercises",
+    "Bands can't load a squat the way a bar can, so this leans on movements where they shine — hinges, lateral work and the glute medius, which barely gets touched by heavy bilateral lifting anyway.",
+    [
+      ex("band-squat", "Band Squat", 4, 20),
+      ex("band-rdl", "Band Romanian Deadlift", 4, 15),
+      ex("band-lateral-walk", "Band Lateral Walk", 3, 20),
+      ex("glute-bridge", "Glute Bridge", 3, 20),
+      ex("bulgarian-split-squat", "Bulgarian Split Squat", 3, 12)
+    ]);
+
+  strength("preset-band-travel", "Bands — Travel Kit", ["home", "outdoors"], "20 minutes, one band, any room",
+    "The hotel-room session. Four movements, three rounds, no anchor point needed beyond your own feet. Built so that a week away doesn't turn into a week off.",
+    [
+      ex("band-squat", "Band Squat", 3, 20),
+      ex("band-row", "Band Seated Row", 3, 15),
+      ex("band-overhead-press", "Band Overhead Press", 3, 12),
+      ex("push-up", "Push-Up", 3, 15)
+    ]);
+
+  // ---- kettlebell ----
+
+  strength("preset-kb-basics", "Kettlebell Basics", ["home", "gym"], "Swing, squat, press, carry · 5 exercises",
+    "The four things a single kettlebell does better than anything else its size. Learn the hinge on the swings before you add load anywhere else — everything here is built on it.",
+    [
+      ex("kettlebell-swing", "Kettlebell Swing", 4, 15),
+      ex("goblet-squat", "Goblet Squat", 3, 12),
+      ex("kb-clean-press", "Kettlebell Clean & Press", 3, 8),
+      ex("kb-front-rack-carry", "Front Rack Carry", 3, 1),
+      ex("kb-halo", "Kettlebell Halo", 2, 10)
+    ]);
+
+  strength("preset-kb-getup", "Turkish Get-Up Practice", ["home", "gym"], "Skill work · 4 exercises",
+    "The get-up is a skill session disguised as a lift. Go light, go slow, and treat every rep as practice rather than training. Five a side is plenty.",
+    [
+      ex("kb-turkish-getup", "Turkish Get-Up", 5, 1),
+      ex("kb-halo", "Kettlebell Halo", 3, 10),
+      ex("kettlebell-swing", "Kettlebell Swing", 3, 12),
+      ex("side-plank", "Side Plank", 3, 1)
+    ]);
+
+  // ---- home & outdoors, no gear ----
+
+  strength("preset-bodyweight-emom", "Bodyweight EMOM", ["home", "outdoors", "gym"], "20 min · every minute on the minute",
+    "Four movements on a rotation, one per minute, for twenty minutes. Whatever's left of the minute is your rest, which means going faster only buys you more recovery — pace it honestly.",
+    [
+      ex("push-up", "Push-Up", 5, 12),
+      ex("lunge-walking", "Walking Lunge", 5, 16),
+      ex("burpee", "Burpee", 5, 8),
+      ex("hollow-hold", "Hollow Hold", 5, 1)
+    ]);
+
+  strength("preset-bw-push-pull", "Bodyweight Push & Pull", ["home", "gym", "outdoors"], "Bar + floor · 6 exercises",
+    "A pull-up bar turns bodyweight training from a leg-and-push affair into a complete session. If you can't do a full pull-up yet, log negatives here — they still count.",
+    [
+      ex("pull-up", "Pull-Up", 4, 6),
+      ex("push-up", "Push-Up", 4, 15),
+      ex("chin-up", "Chin-Up", 3, 8),
+      ex("tricep-dip", "Triceps Dip", 3, 10),
+      ex("hanging-leg-raise", "Hanging Leg Raise", 3, 10),
+      ex("hollow-hold", "Hollow Hold", 3, 1)
+    ]);
+
+  strength("preset-small-space", "Small Space — No Jumping", ["home"], "Quiet, one mat, 6 exercises",
+    "Built for a flat with neighbours below and about two square metres of floor. Nothing here jumps, thuds or needs a run-up, and it still gets the legs and core properly.",
+    [
+      ex("bulgarian-split-squat", "Bulgarian Split Squat", 3, 12),
+      ex("glute-bridge", "Glute Bridge", 3, 20),
+      ex("push-up", "Push-Up", 3, 15),
+      ex("dead-bug", "Dead Bug", 3, 12),
+      ex("side-plank", "Side Plank", 3, 1),
+      ex("nordic-curl", "Nordic Hamstring Curl", 3, 5)
+    ]);
+
+  strength("preset-park-circuit", "Park Bench Circuit", ["outdoors"], "4 rounds · a bench and the grass",
+    "Everything here uses a park bench or the ground. Four rounds, minimal rest, walk a lap between them. Good for the days when being outside is half the reason you're training.",
+    [
+      ex("step-up", "Step-Up", 4, 12),
+      ex("push-up", "Push-Up", 4, 15),
+      ex("tricep-dip", "Triceps Dip", 4, 12),
+      ex("bulgarian-split-squat", "Bulgarian Split Squat", 4, 10),
+      ex("burpee", "Burpee", 4, 10),
+      ex("plank", "Plank", 4, 1)
+    ]);
+
+  // ============ RECOVERY ============
+  const recovery = (id, name, venue, desc, detail, exercises) =>
+    S.push({ id, name, preset: true, pillar: "recovery", venue, desc, detail, exercises });
+  const hold = (exerciseId, name) => ({ exerciseId, name, targetSets: 1, targetReps: 1 });
+
+  recovery("preset-mobility-flow", "Mobility Flow", ["home", "gym"], "8 stretches · ~12 min",
+    "A full-body flow through the areas that tighten most. Hold each for around forty-five seconds and breathe — this is the session to do on a rest day or after a hard week.",
+    [
+      hold("mob-cat-cow", "Cat-Cow"),
+      hold("mob-worlds-greatest", "World's Greatest Stretch"),
+      hold("mob-hip-flexor-kneel", "Kneeling Hip Flexor Stretch"),
+      hold("mob-pigeon", "Pigeon Pose"),
+      hold("mob-hamstring-seated", "Seated Hamstring Stretch"),
+      hold("mob-thoracic-rotation", "Thoracic Rotation (Open Book)"),
+      hold("mob-doorway-chest", "Doorway Chest Stretch"),
+      hold("mob-childs-pose", "Child's Pose")
+    ]);
+
+  recovery("preset-hip-ankle", "Hip & Ankle Mobility", ["home", "gym"], "7 stretches · ~12 min",
+    "The two joints that quietly limit everything below the waist. Stiff ankles turn a squat into a good morning, and stiff hips send the work into the lower back. Worth doing before a leg day, not just after.",
+    [
+      hold("mob-ankle-rocks", "Ankle Rocks"),
+      hold("mob-90-90-hip", "90/90 Hip Stretch"),
+      hold("mob-couch-stretch", "Couch Stretch"),
+      hold("mob-pigeon", "Pigeon Pose"),
+      hold("mob-butterfly", "Butterfly Stretch"),
+      hold("mob-calf-wall", "Standing Calf Stretch"),
+      hold("mob-hip-circles", "Standing Hip Circles")
+    ]);
+
+  recovery("preset-back-care", "Lower-Back Care", ["home"], "7 movements · ~12 min",
+    "For a back that aches rather than one that's injured — if something is genuinely wrong, see someone qualified. This is gentle spinal movement plus the bracing work that usually prevents the ache coming back.",
+    [
+      hold("mob-cat-cow", "Cat-Cow"),
+      hold("mob-childs-pose", "Child's Pose"),
+      hold("mob-cobra", "Cobra Stretch"),
+      hold("mob-figure-4-supine", "Supine Figure-4 Stretch"),
+      hold("mob-thread-needle", "Thread the Needle"),
+      ex("dead-bug", "Dead Bug", 3, 10),
+      ex("side-plank", "Side Plank", 3, 1)
+    ]);
+
+  recovery("preset-shoulder-prehab", "Shoulder Prehab", ["home", "gym"], "6 movements · ~10 min",
+    "Ten minutes that keeps pressing pain-free. High reps, light band, no grinding — if a movement pinches, shorten the range rather than pushing through it.",
+    [
+      ex("band-pull-apart", "Band Pull-Apart", 3, 20),
+      hold("mob-scap-wall-slide", "Scapular Wall Slides"),
+      hold("mob-arm-circles", "Arm Circles"),
+      hold("mob-doorway-chest", "Doorway Chest Stretch"),
+      hold("mob-shoulder-cross-body", "Cross-Body Shoulder Stretch"),
+      hold("mob-thoracic-rotation", "Thoracic Rotation (Open Book)")
+    ]);
+
+  recovery("preset-wind-down", "Wind-Down & Breathing", ["home"], "6 holds · ~10 min",
+    "The last thing before bed on a heavy day. Long holds, nose breathing, nothing that raises the heart rate. It won't make you fitter, but it will help you sleep, and that will.",
+    [
+      hold("mob-childs-pose", "Child's Pose"),
+      hold("mob-figure-4-supine", "Supine Figure-4 Stretch"),
+      hold("mob-butterfly", "Butterfly Stretch"),
+      hold("mob-fold-standing", "Standing Forward Fold"),
+      hold("mob-neck-lateral", "Lateral Neck Stretch"),
+      hold("mob-cat-cow", "Cat-Cow")
+    ]);
+
+  recovery("preset-active-recovery", "Active Recovery", ["gym", "outdoors"], "25 min easy",
     "Deliberately easy movement to push blood around without adding fatigue. If you're working hard enough to notice, you're going too hard.",
     [{
       exerciseId: "cycling", name: "Cycling",
       intervals: { steps: [step(25 * 60, "easy", "Easy spin")] }
     }]);
 
-  recovery("preset-core-finisher", "Core & Anti-Rotation", "5 exercises · ~10 min",
+  recovery("preset-core-finisher", "Core & Anti-Rotation", ["gym", "home"], "5 exercises · ~10 min",
     "A short finisher built around bracing and resisting rotation rather than crunching. Do it at the end of a session or on its own.",
     [
       ex("pallof-press", "Pallof Press", 3, 12),
@@ -351,7 +763,7 @@ window.PRESET_SESSIONS = (function () {
       ex("ab-wheel", "Ab Wheel Rollout", 3, 8)
     ]);
 
-  recovery("preset-grip", "Grip & Forearms", "4 exercises · ~10 min",
+  recovery("preset-grip", "Grip & Forearms", ["gym", "home"], "4 exercises · ~10 min",
     "Direct grip and forearm work — usually the first thing to fail on heavy pulls, and almost never trained on purpose.",
     [
       ex("farmers-carry", "Farmer's Carry", 4, 1),
@@ -359,6 +771,34 @@ window.PRESET_SESSIONS = (function () {
       ex("hammer-curl", "Hammer Curl", 3, 12),
       ex("shrug-barbell", "Barbell Shrug", 3, 12)
     ]);
+
+  // ---- derived gear ----------------------------------------------------
+  // A session's kit requirements come from its exercises, not from a hand-typed
+  // tag, so they cannot drift when a session is edited.
+  //
+  //   needs — one OR-list per exercise. You can do the session if every list
+  //           has at least one item you own ("none" is always satisfied).
+  //   gear  — the flat union, minus "none", for display and browse filters.
+  const defsById = new Map((window.EXERCISE_DB || []).map(e => [e.id, e]));
+  const GEAR_ORDER = ["none", "band", "dumbbell", "kettlebell", "barbell", "pullup-bar",
+    "dip-bars", "jump-rope", "ab-wheel", "machine", "cable", "cardio-machine"];
+
+  for (const s of S) {
+    const needs = [];
+    const all = new Set();
+    for (const e of (s.exercises || [])) {
+      const def = defsById.get(e.exerciseId);
+      const g = (def && def.gear && def.gear.length) ? def.gear : ["none"];
+      needs.push(g);
+      for (const x of g) all.add(x);
+    }
+    s.needs = needs;
+    s.gear = [...all].filter(x => x !== "none")
+      .sort((a, b) => GEAR_ORDER.indexOf(a) - GEAR_ORDER.indexOf(b));
+    // A session with no gear at all in any slot is doable anywhere, bare.
+    s.bodyweightOnly = needs.every(g => g.includes("none"));
+    if (!s.venue || !s.venue.length) s.venue = ["gym"];
+  }
 
   return S;
 })();

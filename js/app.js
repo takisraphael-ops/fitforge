@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=147").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=148").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -462,6 +462,8 @@
       fatGoal: await Storage.getPref("fatGoal", 0),
       weeklyWorkoutGoal: await Storage.getPref("weeklyWorkoutGoal", 4),
       defaultRestSec: await Storage.getPref("defaultRestSec", 90),
+      // Equipment the user actually has. Empty = not set, so nothing is hidden.
+      myKit: (await Storage.getPref("myKit", null)) || [],
       // Offline-first data safety: remind to export a backup every N logged workouts
       backupReminder: !!(await Storage.getPref("backupReminder", true)),
       // Count of completed workouts at the last export/dismiss, so the reminder
@@ -3361,6 +3363,66 @@
     return (typeof window !== "undefined" && Array.isArray(window.PRESET_SESSIONS))
       ? window.PRESET_SESSIONS : [];
   }
+  // ---- kit & venue taxonomy ----------------------------------------------
+  // Orthogonal to `pillar`. Equipment is an OR-list per exercise: you can do a
+  // move if you have ANY item in its list, and a session if that holds for
+  // every exercise in it.
+  const GEAR_ORDER = ["band", "dumbbell", "kettlebell", "barbell", "pullup-bar",
+    "dip-bars", "jump-rope", "ab-wheel", "machine", "cable", "cardio-machine"];
+  const GEAR_META = {
+    band: "Bands", dumbbell: "Dumbbells", kettlebell: "Kettlebells", barbell: "Barbell",
+    "pullup-bar": "Pull-up bar", "dip-bars": "Dip bars", "jump-rope": "Jump rope",
+    "ab-wheel": "Ab wheel", machine: "Machines", cable: "Cables", "cardio-machine": "Cardio machine"
+  };
+  const VENUE_META = { gym: "Gym", home: "Home", outdoors: "Outdoors" };
+
+  let _gearById = null, _gearN = -1;
+  function gearDefs() {
+    const defs = window.EXERCISE_DB || [];
+    if (!_gearById || _gearN !== defs.length) {
+      _gearById = new Map(defs.map(e => [e.id, e]));
+      _gearN = defs.length;
+    }
+    return _gearById;
+  }
+
+  /** Kit + venue metadata for any template. Presets ship with it derived at load;
+      user templates get the same treatment on demand. Custom exercises aren't in
+      the DB, so they count as no-gear — the honest default for a made-up move. */
+  function sessionMeta(t) {
+    if (!t) return t;
+    if (Array.isArray(t.needs) && Array.isArray(t.gear)) return t;
+    const byId = gearDefs();
+    const needs = [];
+    const all = new Set();
+    for (const e of (t.exercises || [])) {
+      const def = byId.get(e.exerciseId);
+      const g = (def && def.gear && def.gear.length) ? def.gear : ["none"];
+      needs.push(g);
+      for (const x of g) all.add(x);
+    }
+    t.needs = needs;
+    t.gear = [...all].filter(x => x !== "none")
+      .sort((a, b) => GEAR_ORDER.indexOf(a) - GEAR_ORDER.indexOf(b));
+    t.bodyweightOnly = needs.length > 0 && needs.every(g => g.includes("none"));
+    if (!t.venue || !t.venue.length) {
+      t.venue = t.bodyweightOnly ? ["home", "gym", "outdoors"] : ["gym"];
+    }
+    return t;
+  }
+
+  /** What the user says they own, as a Set. Empty means "not configured yet". */
+  function myKit() {
+    return new Set(Array.isArray(state.prefs.myKit) ? state.prefs.myKit : []);
+  }
+
+  /** Doable with `kit`: every exercise has at least one option you own. */
+  function sessionFitsKit(t, kit) {
+    const m = sessionMeta(t);
+    if (!m.needs || !m.needs.length) return true;
+    return m.needs.every(or => or.some(g => g === "none" || kit.has(g)));
+  }
+
   /** User templates plus the built-in sessions, newest user templates first. */
   async function getAllTemplates() {
     const mine = (await Storage.getTemplates()).slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -4159,8 +4221,15 @@
 
   // What a preset session actually asks of you, before you commit to it.
   function openSessionDetail(t) {
+    sessionMeta(t);
     const ivl = (t.exercises || []).find(e => e.intervals)?.intervals;
     const body = el("div", {});
+    body.appendChild(el("div", { class: "sess-card-tags", style: "margin-bottom:12px" },
+      ...(t.venue || []).map(v => el("span", { class: "sess-tag sess-tag-venue" }, VENUE_META[v] || v)),
+      ...(t.bodyweightOnly
+        ? [el("span", { class: "sess-tag" }, "No equipment")]
+        : t.gear.map(g => el("span", { class: "sess-tag" }, GEAR_META[g] || g)))
+    ));
     if (t.detail) body.appendChild(el("p", { class: "text-sm text-muted", style: "margin:0 0 14px" }, t.detail));
     if (ivl) {
       body.appendChild(el("div", { class: "nsection-label", style: "margin-bottom:6px" }, "THE PLAN"));
@@ -4209,6 +4278,10 @@
 
   // Sessions hub — your templates plus the built-in library, as swipeable
   // category panels rather than one very long scroll.
+  //
+  // Two filters sit above the panels. `pillar` stays the pager (three answers,
+  // three panels); venue and kit are orthogonal to it and so are chips, not
+  // more panels — eleven swipe targets would be unusable on a phone.
   function buildSessionPickerUI(mine, presets, opts = {}) {
     const onPicked = opts.onPicked || (() => {});
     const GROUPS = [
@@ -4222,7 +4295,39 @@
         el("div", { class: "ncard-empty-title" }, "No sessions yet"),
         el("div", { class: "ncard-empty-sub" }, "Build a template and it will appear here.")), refresh: () => {} };
     }
+    const ALL = GROUPS.flatMap(g => g.items);
+    ALL.forEach(sessionMeta);
+
+    // ---- filter state ----
+    // venue and kit are separate axes: a session must match something in each
+    // axis you've picked, but nothing in an axis you've left alone.
+    const picked = { venue: new Set(), kit: new Set() };
+    // "Fits my kit" hides sessions needing gear you've said you don't have.
+    // On by default once a kit is configured, and always escapable.
+    let kitOnly = myKit().size > 0;
+
+    const venueOpts = Object.keys(VENUE_META).filter(v => ALL.some(t => (t.venue || []).includes(v)));
+    // Only offer a kit chip where there is more than one session behind it —
+    // a filter that yields a single card is noise.
+    const gearCount = {};
+    for (const t of ALL) for (const g of t.gear) gearCount[g] = (gearCount[g] || 0) + 1;
+    const kitOpts = GEAR_ORDER.filter(g => (gearCount[g] || 0) >= 2);
+    const anyBodyweight = ALL.some(t => t.bodyweightOnly);
+
+    function matches(t) {
+      if (picked.venue.size && !(t.venue || []).some(v => picked.venue.has(v))) return false;
+      if (picked.kit.size) {
+        const hit = (picked.kit.has("bodyweight") && t.bodyweightOnly) ||
+          t.gear.some(g => picked.kit.has(g));
+        if (!hit) return false;
+      }
+      if (kitOnly && !sessionFitsKit(t, myKit())) return false;
+      return true;
+    }
+
     let activeKey = GROUPS[0].key;
+    const filterRow = el("div", { class: "xpick-chips sess-filters", "data-testid": "sess-filters" });
+    const filterNote = el("div", { class: "sess-filter-note", "data-testid": "sess-filter-note" });
     const chipRow = el("div", { class: "xpick-chips", "data-testid": "sess-chips" });
     const dotsRow = el("div", { class: "xpick-dots", "data-testid": "sess-dots" });
     const pager = el("div", { class: "xpick-pager", "data-testid": "sess-pager" });
@@ -4240,6 +4345,12 @@
           el("div", { class: "sess-card-meta" }, meta)),
         el("div", { class: "sess-card-desc" },
           t.desc || t.exercises.slice(0, 4).map(e => e.name).join(" · ")),
+        el("div", { class: "sess-card-tags" },
+          ...(t.venue || []).map(v => el("span", { class: "sess-tag sess-tag-venue" }, VENUE_META[v] || v)),
+          ...(t.bodyweightOnly
+            ? [el("span", { class: "sess-tag" }, "No equipment")]
+            : t.gear.map(g => el("span", { class: "sess-tag" }, GEAR_META[g] || g)))
+        ),
         el("div", { class: "sess-card-actions" },
           el("button", { class: "btn btn-primary btn-sm", on: { click: () => { onPicked(); startNewWorkout(t); } } }, "Start"),
           preset
@@ -4255,14 +4366,61 @@
     }
 
     function panelFor(g) {
+      g.countEl = el("span", { class: "xpick-panel-count" }, String(g.items.length));
+      g.listEl = el("div", { class: "xpick-panel-list" });
       return el("div", { class: "xpick-panel", "data-cat": g.key },
         el("div", { class: "xpick-card" },
           el("div", { class: "xpick-panel-head" },
             el("span", { class: "xpick-panel-title" }, g.label),
-            el("span", { class: "xpick-panel-count" }, String(g.items.length))),
-          el("div", { class: "xpick-panel-list" }, ...g.items.map(cardFor))
+            g.countEl),
+          g.listEl
         )
       );
+    }
+
+    // Re-render every panel against the current filters. Groups stay put even
+    // when they empty out, so the pager index and swipe position never jump
+    // under the user's thumb mid-filter.
+    function applyFilters() {
+      let shown = 0;
+      for (const g of GROUPS) {
+        const hits = g.items.filter(matches);
+        shown += hits.length;
+        clear(g.listEl);
+        if (hits.length) hits.forEach(t => g.listEl.appendChild(cardFor(t)));
+        else g.listEl.appendChild(el("div", { class: "sess-panel-empty" }, "Nothing here with these filters."));
+        g.countEl.textContent = String(hits.length);
+        const chip = chipRow.querySelector(`.xpick-chip[data-cat="${g.key}"]`);
+        if (chip) chip.classList.toggle("is-dim", !hits.length);
+      }
+      for (const c of Array.from(filterRow.children)) {
+        const kind = c.getAttribute("data-kind");
+        const val = c.getAttribute("data-val");
+        const on = kind === "clear"
+          ? (!picked.venue.size && !picked.kit.size && !kitOnly)
+          : kind === "kitonly" ? kitOnly : picked[kind].has(val);
+        c.classList.toggle("active", on);
+        c.setAttribute("aria-pressed", on ? "true" : "false");
+      }
+      const hidden = ALL.length - shown;
+      clear(filterNote);
+      if (!shown) {
+        filterNote.appendChild(el("span", {}, "No sessions match. "));
+        filterNote.appendChild(el("button", { class: "link-btn", type: "button",
+          "data-testid": "sess-filter-clear", on: { click: clearFilters } }, "Clear filters"));
+      } else if (kitOnly && hidden) {
+        filterNote.appendChild(el("span", {}, `${hidden} hidden — need kit you don't have. `));
+        filterNote.appendChild(el("button", { class: "link-btn", type: "button",
+          "data-testid": "sess-show-all", on: { click: () => { kitOnly = false; applyFilters(); } } }, "Show all"));
+      }
+      filterNote.style.display = filterNote.childNodes.length ? "" : "none";
+    }
+
+    function clearFilters() {
+      picked.venue.clear();
+      picked.kit.clear();
+      kitOnly = false;
+      applyFilters();
     }
     function sync() {
       for (const c of Array.from(chipRow.children)) {
@@ -4289,6 +4447,30 @@
         "aria-label": g.label, on: { click: () => goTo(g.key) } }));
       pager.appendChild(panelFor(g));
     }
+
+    // ---- filter chips ----
+    const filterChip = (kind, val, label, testid) => el("button", {
+      class: "xpick-chip sess-filter-chip", type: "button",
+      "data-kind": kind, "data-val": val || "", "data-testid": testid,
+      "aria-pressed": "false",
+      on: { click: (e) => {
+        // Keep the chip you just tapped fully in view — the row is wider than
+        // the screen, so an edge chip would otherwise stay half cut off.
+        e.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+        if (kind === "clear") return clearFilters();
+        if (kind === "kitonly") { kitOnly = !kitOnly; return applyFilters(); }
+        const set = picked[kind];
+        if (set.has(val)) set.delete(val); else set.add(val);
+        applyFilters();
+      } }
+    }, label);
+
+    filterRow.appendChild(filterChip("clear", "", "All", "sess-filter-all"));
+    if (myKit().size) filterRow.appendChild(filterChip("kitonly", "", "My kit", "sess-filter-mykit"));
+    for (const v of venueOpts) filterRow.appendChild(filterChip("venue", v, VENUE_META[v], `sess-filter-venue-${v}`));
+    if (anyBodyweight) filterRow.appendChild(filterChip("kit", "bodyweight", "No equipment", "sess-filter-kit-bodyweight"));
+    for (const g of kitOpts) filterRow.appendChild(filterChip("kit", g, GEAR_META[g], `sess-filter-kit-${g}`));
+
     let raf = null;
     pager.addEventListener("scroll", () => {
       if (raf) return;
@@ -4306,7 +4488,8 @@
       });
     }, { passive: true });
 
-    const body = el("div", { class: "xpick sess-pick" }, chipRow, pager, dotsRow);
+    const body = el("div", { class: "xpick sess-pick" }, filterRow, filterNote, chipRow, pager, dotsRow);
+    applyFilters();
     return { body, refresh: () => { sync(); requestAnimationFrame(() => { const p = pager.querySelector(`.xpick-panel[data-cat="${activeKey}"]`); if (p) pager.scrollLeft = p.offsetLeft; }); } };
   }
 
@@ -10853,6 +11036,30 @@
       value: state.prefs.weeklyWorkoutGoal || 4
     });
 
+    // ---- My kit: what equipment the user can actually get to ----
+    const kitPicked = new Set(Array.isArray(state.prefs.myKit) ? state.prefs.myKit : []);
+    const kitGrid = el("div", { class: "kit-grid", "data-testid": "kit-grid" });
+    function syncKit() {
+      for (const b of Array.from(kitGrid.children)) {
+        const on = kitPicked.has(b.getAttribute("data-gear"));
+        b.classList.toggle("active", on);
+        b.setAttribute("aria-pressed", on ? "true" : "false");
+      }
+    }
+    function setKit(list) {
+      kitPicked.clear();
+      list.forEach(g => kitPicked.add(g));
+      syncKit();
+    }
+    for (const g of GEAR_ORDER) {
+      kitGrid.appendChild(el("button", {
+        class: "kit-chip", type: "button", "data-gear": g, "aria-pressed": "false",
+        "data-testid": `kit-${g}`,
+        on: { click: () => { if (kitPicked.has(g)) kitPicked.delete(g); else kitPicked.add(g); syncKit(); } }
+      }, GEAR_META[g]));
+    }
+    syncKit();
+
     // Wrap a hidden input/select with a tap-to-open wheel field. The original
     // control stays in the DOM (hidden) so existing preview/save reads and
     // change listeners keep working unchanged.
@@ -11386,6 +11593,19 @@
           wheelWrap(weeklyGoalI, { title: "Weekly goal", items: wheelRange(1, 14, 1), unit: "workouts", testid: "wheel-weeklygoal" }))
       ),
 
+      el("div", { class: "settings-section-title mt-16" }, "My kit"),
+      el("div", { class: "text-xs text-muted mb-8" },
+        "Tick what you can get to. The Sessions library then leads with what you can actually do — you can always show the rest. Bodyweight sessions are never hidden."),
+      kitGrid,
+      el("div", { class: "row mt-8", style: "gap: 8px; flex-wrap: wrap" },
+        el("button", { class: "btn btn-sm", type: "button", "data-testid": "kit-full-gym",
+          on: { click: () => setKit(GEAR_ORDER) } }, "Full gym"),
+        el("button", { class: "btn btn-sm", type: "button", "data-testid": "kit-home",
+          on: { click: () => setKit(["band", "dumbbell", "pullup-bar"]) } }, "Home basics"),
+        el("button", { class: "btn btn-sm", type: "button", "data-testid": "kit-none",
+          on: { click: () => setKit([]) } }, "Nothing")
+      ),
+
       el("div", { class: "form-row mt-16" }, el("div", { style: "flex:1" },
         el("label", { class: "label" }, "Backup & restore"),
         el("div", { class: "text-xs text-muted mb-8" },
@@ -11434,6 +11654,7 @@
             fatGoal: 0,
             weeklyWorkoutGoal: 4,
             defaultRestSec: 90,
+            myKit: [],
             backupReminder: true,
             lastBackupWorkoutCount: 0,
             lastBackupAt: null,
@@ -11563,6 +11784,8 @@
         await Storage.setPref("carbsGoal", carbsGoal);
         await Storage.setPref("fatGoal", fatGoal);
         await Storage.setPref("defaultRestSec", state.prefs.defaultRestSec);
+        state.prefs.myKit = GEAR_ORDER.filter(g => kitPicked.has(g));
+        await Storage.setPref("myKit", state.prefs.myKit);
         state.prefs.warmupPrompt = warmupCb.checked;
         await Storage.setPref("warmupPrompt", warmupCb.checked);
         await Storage.setPref("weeklyWorkoutGoal", weeklyWorkoutGoal);
