@@ -29,6 +29,13 @@
       out.push({
         i, start: at, end: at + sec, sec,
         work: !!s.work,
+        // Held on each side: one step, cued at the midpoint, logged as the
+        // whole thing — splitting it into two steps would double the set rows.
+        perSide: !!s.perSide,
+        // Opaque routing tag. Interval sessions leave it undefined and use
+        // setIndex; a mobility flow spans several exercises and uses this to
+        // say which one each effort belongs to.
+        ref: s.ref || null,
         // Work steps only, in order — so the nth effort maps to sets[n] and
         // the stored workout shape needs no change.
         setIndex: s.work ? workIndex++ : -1,
@@ -69,7 +76,7 @@
     // untouched can be auto-logged; one paused through or skipped cannot, and
     // carries the seconds actually served instead.
     const record = plan.steps.map(s => ({
-      i: s.i, setIndex: s.setIndex, work: s.work,
+      i: s.i, setIndex: s.setIndex, ref: s.ref, work: s.work,
       targetSec: s.sec, actualSec: 0, pausedDuring: false, skipped: false, clean: false
     }));
 
@@ -98,10 +105,14 @@
       const idx = stepAt(sec);
       const done = idx === -1 && startedAt != null;
       const step = idx >= 0 ? plan.steps[idx] : null;
+      const half = step && step.perSide
+        ? (sec - step.start < step.sec / 2 ? 1 : 2)
+        : null;
       return {
         elapsedSec: sec,
         stepIndex: idx,
         step,
+        side: half,
         nextStep: idx >= 0 && idx + 1 < plan.steps.length ? plan.steps[idx + 1] : null,
         remainInStep: step ? step.end - sec : 0,
         remainTotal: Math.max(0, plan.totalSec - sec),
@@ -149,6 +160,12 @@
           tone(at, 990, 0.20, 0.22);
         } else {
           tone(at, 440, 0.18, 0.16);
+        }
+        // Switch sides: two quick notes, unmistakably not a step change.
+        if (s.perSide) {
+          const mid = at + s.sec / 2;
+          tone(mid, 780, 0.10, 0.17);
+          tone(mid + 0.16, 780, 0.10, 0.17);
         }
         n++;
       }
@@ -296,6 +313,7 @@
         const seconds = Math.round(r.clean ? r.targetSec : r.actualSec);
         return {
           setIndex: r.setIndex,
+          ref: r.ref,
           seconds,
           targetSec: r.targetSec,
           autoLogged: r.clean,
@@ -416,5 +434,54 @@
     };
   }
 
-  window.IntervalRunner = { create, buildTimeline };
+  // ---- shared cue bus -------------------------------------------------
+  // One app-wide AudioContext, opened inside a user gesture and kept. The rest
+  // timer used to build a fresh context at fire time, outside any gesture,
+  // which on iOS yields a suspended context and silence. Scheduling ahead on
+  // one long-lived context also means the beep survives a backgrounded tab —
+  // a JS-timer beep does not.
+  const shared = { ctx: null, bus: null, keepAlive: null };
+
+  function unlock() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    try {
+      if (!shared.ctx) {
+        shared.ctx = new AC();
+        shared.bus = shared.ctx.createGain();
+        shared.bus.gain.value = 1;
+        shared.bus.connect(shared.ctx.destination);
+      }
+      if (shared.ctx.state === "suspended") shared.ctx.resume();
+      return shared.ctx;
+    } catch (_) { shared.ctx = null; return null; }
+  }
+
+  function sharedTone(at, freq, durSec, gain) {
+    const ctx = shared.ctx;
+    if (!ctx || at < ctx.currentTime) return null;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(gain, at + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + durSec);
+    o.connect(g); g.connect(shared.bus);
+    o.start(at); o.stop(at + durSec + 0.02);
+    return o;
+  }
+
+  /** Queue a "time's up" chime `inSec` from now. Returns a canceller. */
+  function scheduleChime(inSec) {
+    const ctx = unlock();
+    if (!ctx) return () => {};
+    const at = ctx.currentTime + Math.max(0, inSec);
+    const oscs = [
+      sharedTone(at, 880, 0.15, 0.2),
+      sharedTone(at + 0.2, 1320, 0.28, 0.2)
+    ].filter(Boolean);
+    return () => { for (const o of oscs) { try { o.stop(); } catch (_) {} } };
+  }
+
+  window.IntervalRunner = { create, buildTimeline, unlock, scheduleChime };
 })();

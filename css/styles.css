@@ -4739,17 +4739,29 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   align-items: center; justify-content: center; gap: 4px; text-align: center;
 }
 .ivr-label {
-  font-size: 15px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase;
-  color: var(--ivr-hue); transition: color 240ms ease;
+  /* Must live inside the ring's hole — exercise names run long, so clamp to
+     two lines rather than letting them spill across the stroke. */
+  max-width: 190px; max-width: min(190px, 54vw);
+  font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+  line-height: 1.25; color: var(--ivr-hue); transition: color 240ms ease;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; text-overflow: ellipsis;
 }
 .ivr-clock {
   font-family: var(--font-mono, var(--font-numeric));
-  font-size: 72px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums;
+  font-size: 64px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums;
   color: var(--text);
 }
+.ivr-side {
+  font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+  padding: 2px 9px; border-radius: 100px;
+  color: var(--ivr-hue);
+  background: color-mix(in srgb, var(--ivr-hue) 16%, transparent);
+}
 .ivr-next {
-  font-size: 13px; font-weight: 600; color: var(--text-muted);
-  max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; font-weight: 600; color: var(--text-muted);
+  max-width: 190px; max-width: min(190px, 54vw);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .ivr-plan { position: relative; width: 100%; max-width: 420px; height: 14px; }
 .ivr-plan .ivl-step { opacity: .35; transition: opacity 200ms ease, transform 200ms ease; }
@@ -4763,6 +4775,21 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   .ivr { animation: none; }
   .ivr-ring, .ivr-plan .ivl-step { transition: none; }
 }
+
+/* Offer to run a stretch session end to end rather than one guessed number
+   at a time. Sits under the top bar; never replaces the manual rows. */
+.flow-cta {
+  display: flex; align-items: center; gap: 12px;
+  margin: 0 2px 10px; padding: 12px 14px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-elev));
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+}
+.flow-cta-text { flex: 1; min-width: 0; }
+.flow-cta-title { font-size: 14.5px; font-weight: 800; letter-spacing: -.01em; }
+.flow-cta-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.flow-cta .btn { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.flow-cta .btn svg { width: 13px; height: 13px; }
 
 /* Preset session badge in template lists */
 .tpl-preset-chip {

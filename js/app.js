@@ -28,6 +28,7 @@
     activeWorkout: null,   // {id, name, date, startedAt, exercises: [{exerciseId, name, sets: [{weight, reps, done, isPR}]}], notes}
     restTimer: null,       // { endsAt, exerciseId, defaultSec }
     restInterval: null,
+    restCancelChime: null, // cancels the queued end-of-rest tone
     workoutInterval: null,
     prefs: {}              // { kcalGoal, kcalGoalMode, sex, age, heightCm, activityLevel, defaultRestSec, theme }
   };
@@ -38,7 +39,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=150").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=151").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -96,12 +97,23 @@
         // logging the efforts if the whole protocol elapsed while you were away.
         const running = (w.exercises || []).find(e => e.run && e.run.startedAt);
         if (running) setTimeout(() => resumeIntervalRun(running), 400);
+        else if (w.flowRun && w.flowRun.startedAt) setTimeout(() => resumeMobilityFlow(w), 400);
       }
     }
     // Force a SW update check on every cold start so cardio fixes propagate.
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.getRegistration().then(reg => reg && reg.update().catch(() => {})).catch(() => {});
     }
+    // iOS only lets an AudioContext open inside a user gesture. Take the very
+    // first one, so every later cue has a live context to schedule onto.
+    const unlockAudio = () => {
+      try { IntervalRunner.unlock(); } catch (_) {}
+      document.removeEventListener("pointerdown", unlockAudio);
+      document.removeEventListener("keydown", unlockAudio);
+    };
+    document.addEventListener("pointerdown", unlockAudio, { once: false });
+    document.addEventListener("keydown", unlockAudio, { once: false });
+
     render();
     initTabSwipe();
     if (!Storage.isPersistent()) {
@@ -3809,6 +3821,29 @@
       el("button", { class: "btn btn-primary btn-sm", on: { click: onFinishWorkout } }, "Finish")
     ));
 
+    // A session that is mostly stretches can be run end to end rather than
+    // held-and-guessed one row at a time. Offered, never forced.
+    {
+      const byId = new Map((await getAllExercises()).map(e => [e.id, e]));
+      const flow = flowEntries(w, byId);
+      const holdSets = flow.reduce((n, f) => n + (f.ex.sets || []).length, 0);
+      const allSets = exs.reduce((n, e) => n + (e.sets || []).length, 0);
+      if (holdSets >= 3 && holdSets / Math.max(1, allSets) >= 0.6) {
+        const mins = Math.round(buildFlowSteps(flow, byId).reduce((a, st) => a + st.sec, 0) / 60);
+        const doneAll = flow.every(f => (f.ex.sets || []).every(x => x.done));
+        screen.appendChild(el("div", { class: "flow-cta", "data-testid": "flow-cta" },
+          el("div", { class: "flow-cta-text" },
+            el("div", { class: "flow-cta-title" }, doneAll ? "Run the flow again" : "Run this flow"),
+            el("div", { class: "flow-cta-sub" },
+              `${holdSets} hold${holdSets === 1 ? "" : "s"} · ~${mins} min · cues each change`)),
+          el("button", {
+            class: "btn btn-primary btn-sm", type: "button", "data-testid": "start-flow",
+            on: { click: () => openMobilityFlow(w) }
+          }, el("span", { html: icons.play }), "Start")
+        ));
+      }
+    }
+
     const pager = el("div", { class: "wpager", "data-testid": "wpager" });
     const dots = el("div", { class: "wpager-dots" });
     screen.appendChild(pager);
@@ -6195,19 +6230,20 @@
     const secs = state.prefs.defaultRestSec || 90;
     state.restTimer = { endsAt: Date.now() + secs * 1000, exerciseId, totalSec: secs };
     if (state.restInterval) clearInterval(state.restInterval);
+    // Queue the chime on the shared audio clock now, inside the tap that
+    // marked the set done. Building a context at fire time — which is what
+    // this used to do — returns a suspended one on iOS and plays nothing, and
+    // a JS-timer beep is late or missing whenever the tab is backgrounded.
+    if (state.restCancelChime) { state.restCancelChime(); state.restCancelChime = null; }
+    try { state.restCancelChime = IntervalRunner.scheduleChime(secs); } catch (_) {}
     // Light pulse so you feel the rest window start (phones that support it).
     try { if (navigator.vibrate) navigator.vibrate(40); } catch (_) {}
     state.restInterval = setInterval(() => {
       if (!state.restTimer) return;
       const remaining = Math.round((state.restTimer.endsAt - Date.now()) / 1000);
       if (remaining <= 0) {
-        // Beep and dismiss
-        try {
-          const ctx = new (window.AudioContext || window.webkitAudioContext)();
-          const o = ctx.createOscillator(); const g = ctx.createGain();
-          o.frequency.value = 880; g.gain.value = 0.2;
-          o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 0.15);
-        } catch(e) {}
+        // The chime was queued at start and has already sounded on time; this
+        // path only has to handle the things that need the main thread.
         try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (_) {}
         // Look up exercise name for a nicer notification body
         let exName = "";
@@ -6225,6 +6261,8 @@
   }
   function stopRestTimer() {
     if (state.restInterval) { clearInterval(state.restInterval); state.restInterval = null; }
+    // Skipping rest must take the queued chime with it.
+    if (state.restCancelChime) { state.restCancelChime(); state.restCancelChime = null; }
     state.restTimer = null;
     document.title = BASE_DOC_TITLE;
     renderRestTimer();
@@ -6275,6 +6313,11 @@
               if (!state.restTimer) return;
               state.restTimer.endsAt += 15000;
               state.restTimer.totalSec = (state.restTimer.totalSec || 90) + 15;
+              if (state.restCancelChime) state.restCancelChime();
+              try {
+                state.restCancelChime = IntervalRunner.scheduleChime(
+                  (state.restTimer.endsAt - Date.now()) / 1000);
+              } catch (_) {}
               updateRestTimerUI(Math.max(0, Math.round((state.restTimer.endsAt - Date.now()) / 1000)));
             } } }, "+15s"),
             el("button", { class: "rest-btn rest-btn-primary", type: "button", "data-testid": "rest-skip", on: { click: stopRestTimer } }, "Skip rest")
@@ -6332,17 +6375,14 @@
 
   /** The full-screen runner. Same idiom as the rest overlay — one thing on
       screen, unmissable at arm's length, escapable at any moment. */
-  async function openIntervalRunner(ex, opts = {}) {
-    const plan = ex.plan || { steps: [] };
-    const steps = plan.steps || [];
+  async function openGuidedRun(cfg) {
+    const steps = cfg.steps || [];
     if (!steps.length) return;
-    const all = await getAllExercises();
-    const def = all.find(x => x.id === ex.exerciseId) || {};
-    const bwKg = await getBodyweightKg();
 
-    const overlay = el("div", { class: "ivr", "data-testid": "interval-runner", role: "dialog", "aria-label": `${ex.name} guided run` });
+    const overlay = el("div", { class: "ivr", "data-testid": "interval-runner", role: "dialog", "aria-label": `${cfg.title} guided run` });
     const label = el("div", { class: "ivr-label", "data-testid": "ivr-label" }, "—");
     const clock = el("div", { class: "ivr-clock", "data-testid": "ivr-clock" }, "—");
+    const sideTag = el("div", { class: "ivr-side", "data-testid": "ivr-side" }, "");
     const nextUp = el("div", { class: "ivr-next", "data-testid": "ivr-next" }, "");
     const totals = el("div", { class: "ivr-totals", "data-testid": "ivr-totals" }, "");
     const strip = el("div", { class: "ivl-plan ivr-plan" });
@@ -6368,8 +6408,15 @@
         label.textContent = "Done";
         clock.textContent = "—";
         nextUp.textContent = "";
+        sideTag.style.display = "none";
       } else {
+        // A per-side hold is one step with a cue in the middle, so the readout
+        // has to say which half you are in — otherwise the chime is ambiguous.
+        // It gets its own line: exercise names are long and would push the
+        // label outside the ring if they shared one.
         label.textContent = (st.step && st.step.label) || U.INTENSITY[st.step?.intensity]?.label || "Go";
+        sideTag.textContent = st.side ? `Side ${st.side}` : "";
+        sideTag.style.display = st.side ? "" : "none";
         clock.textContent = U.formatTime(Math.ceil(st.remainInStep));
         nextUp.textContent = st.nextStep
           ? `Next: ${st.nextStep.label || U.INTENSITY[st.nextStep.intensity]?.label || ""} · ${U.formatTime(st.nextStep.sec)}`
@@ -6392,8 +6439,7 @@
       if (closed) return;
       closed = true;
       overlay.remove();
-      await applyRunSummary(ex, summary, def, bwKg);
-      await refreshExerciseBlock(ex);
+      await cfg.onFinish(summary);
       if (!announce) return;
       // The self-test: if the screen was off and the audio was interrupted, say
       // so plainly rather than letting someone conclude the cues are unreliable
@@ -6430,16 +6476,15 @@
 
     function persistRun() {
       if (!runner || closed) return;
-      ex.run = runner.persist();
-      Storage.saveWorkout(state.activeWorkout).catch(() => {});
+      cfg.onPersist(runner.persist());
     }
 
     overlay.appendChild(el("div", { class: "ivr-head" },
-      el("div", { class: "ivr-name" }, ex.name),
+      el("div", { class: "ivr-name" }, cfg.title),
       totals
     ));
     overlay.appendChild(el("div", { class: "ivr-stage" }, ring,
-      el("div", { class: "ivr-readout" }, label, clock, nextUp)));
+      el("div", { class: "ivr-readout" }, label, clock, sideTag, nextUp)));
     overlay.appendChild(strip);
     overlay.appendChild(el("div", { class: "rest-actions ivr-actions" }, pauseBtn, skipBtn, endBtn));
     document.body.appendChild(overlay);
@@ -6452,13 +6497,160 @@
 
     // start() must run inside the tap that opened this — that gesture is what
     // unlocks audio on iOS, and it is the only chance we get.
-    const res = opts.resume
-      ? await runner.resume(opts.resume)
+    const res = cfg.resume
+      ? await runner.resume(cfg.resume)
       : await runner.start();
     persistRun();
     paint(runner.state());
     if (!res.audio) toast("Sound unavailable — the timer still runs");
     return runner;
+  }
+
+  /** A conditioning protocol: one exercise carrying the whole step plan. */
+  async function openIntervalRunner(ex, opts = {}) {
+    const steps = (ex.plan || {}).steps || [];
+    if (!steps.length) return;
+    const all = await getAllExercises();
+    const def = all.find(x => x.id === ex.exerciseId) || {};
+    const bwKg = await getBodyweightKg();
+    return openGuidedRun({
+      title: ex.name,
+      steps,
+      resume: opts.resume,
+      onPersist: (p) => {
+        ex.run = p;
+        Storage.saveWorkout(state.activeWorkout).catch(() => {});
+      },
+      onFinish: async (summary) => {
+        await applyRunSummary(ex, summary, def, bwKg);
+        await refreshExerciseBlock(ex);
+      }
+    });
+  }
+
+  // ---- mobility flows -------------------------------------------------
+  // A flow is several exercises rather than one plan, so each step carries a
+  // ref saying which exercise and set it belongs to. Per-side stretches stay
+  // one step with a mid-point switch cue — splitting them would double the
+  // rows you have to read back afterwards.
+  const FLOW_DEFAULT_HOLD = 45;
+  const FLOW_TRANSITION = 8;
+
+  function isHoldEntry(ex, byId) {
+    const def = byId.get(ex.exerciseId);
+    return (def && (def.type === "hold" || def.category === "mobility")) ||
+      ex.type === "hold" || ex.category === "mobility";
+  }
+
+  /** Which exercises in this workout form a flow, in order. */
+  function flowEntries(w, byId) {
+    return (w.exercises || [])
+      .map((ex, i) => ({ ex, i }))
+      .filter(({ ex }) => isHoldEntry(ex, byId));
+  }
+
+  function buildFlowSteps(entries, byId) {
+    const steps = [];
+    entries.forEach(({ ex, i }, n) => {
+      const def = byId.get(ex.exerciseId) || {};
+      const perSide = !!(def.perSide || ex.perSide);
+      (ex.sets || []).forEach((set, si) => {
+        // A stretch you have already timed keeps its own number; otherwise the
+        // flow's default. Per-side holds get double, since the number is the
+        // time per side.
+        const base = Number(set.seconds) > 0 ? Number(set.seconds) : FLOW_DEFAULT_HOLD;
+        steps.push({
+          sec: perSide ? base * 2 : base,
+          work: true, perSide,
+          intensity: "easy",
+          label: ex.name,
+          ref: { exIndex: i, setIndex: si, perSide, perSideSec: base }
+        });
+        if (!(n === entries.length - 1 && si === (ex.sets || []).length - 1)) {
+          steps.push({ sec: FLOW_TRANSITION, work: false, intensity: "easy", label: "Change position" });
+        }
+      });
+    });
+    return steps;
+  }
+
+  async function openMobilityFlow(w, opts = {}) {
+    const all = await getAllExercises();
+    const byId = new Map(all.map(e => [e.id, e]));
+    const entries = flowEntries(w, byId);
+    if (!entries.length) return;
+    const steps = buildFlowSteps(entries, byId);
+
+    return openGuidedRun({
+      title: w.name || "Mobility flow",
+      steps,
+      resume: opts.resume,
+      onPersist: (p) => {
+        w.flowRun = p;
+        Storage.saveWorkout(w).catch(() => {});
+      },
+      onFinish: async (summary) => {
+        for (const r of summary.sets) {
+          const ref = r.ref;
+          if (!ref) continue;
+          const ex = w.exercises[ref.exIndex];
+          const set = ex && (ex.sets || [])[ref.setIndex];
+          if (!set) continue;
+          if (r.skipped) { set.done = false; continue; }
+          // Per-side holds are logged per side, which is how the row reads.
+          set.seconds = ref.perSide ? Math.round(r.seconds / 2) : r.seconds;
+          set.done = true;
+          set.autoLogged = r.autoLogged;
+          set.adjusted = !!r.adjusted;
+        }
+        w.flowRun = null;
+        await Storage.saveWorkout(w);
+        renderMain();
+      }
+    });
+  }
+
+  /** Same deal for a flow: resume where the clock says, or settle up if it
+      already finished while the app was closed. */
+  async function resumeMobilityFlow(w) {
+    const run = w.flowRun;
+    if (!run || !run.startedAt) return;
+    const all = await getAllExercises();
+    const byId = new Map(all.map(e => [e.id, e]));
+    const entries = flowEntries(w, byId);
+    if (!entries.length) { w.flowRun = null; await Storage.saveWorkout(w); return; }
+    const steps = buildFlowSteps(entries, byId);
+    const total = steps.reduce((a, st) => a + st.sec, 0);
+    const elapsed = (Date.now() - run.startedAt - (run.pausedTotal || 0)) / 1000;
+
+    if (elapsed >= total) {
+      const r = IntervalRunner.create({ steps });
+      await r.resume(run);
+      const summary = r.stop();
+      for (const res of summary.sets) {
+        const ref = res.ref;
+        const ex = ref && w.exercises[ref.exIndex];
+        const set = ex && (ex.sets || [])[ref.setIndex];
+        if (!set || res.skipped) continue;
+        set.seconds = ref.perSide ? Math.round(res.seconds / 2) : res.seconds;
+        set.done = true;
+        set.autoLogged = res.autoLogged;
+      }
+      w.flowRun = null;
+      await Storage.saveWorkout(w);
+      renderMain();
+      toast(`Flow finished while you were away · ${summary.loggedCount}/${summary.workCount} holds logged`);
+      return;
+    }
+    if (!(await confirmDialog(
+      `${w.name || "The flow"} is ${U.formatTime(Math.round(elapsed))} in, with ${U.formatTime(Math.round(total - elapsed))} to go.`,
+      { title: "Resume the flow?", okLabel: "Resume", cancelLabel: "Discard" }))) {
+      w.flowRun = null;
+      await Storage.saveWorkout(w);
+      renderMain();
+      return;
+    }
+    openMobilityFlow(w, { resume: run });
   }
 
   /** Pick up a run that was in flight when the app was closed. If the whole
