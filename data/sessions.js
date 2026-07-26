@@ -173,10 +173,11 @@ window.PRESET_SESSIONS = (function () {
     id: "preset-sled-carry",
     name: "Sled & Carry Circuit",
     preset: true, pillar: "conditioning", venue: ["gym", "home"],
+    circuit: { rounds: 5, workSec: 45, transitionSec: 20, restSec: 60 },
     desc: "5 rounds · carries and swings",
     detail: "Loaded carries and swings back to back. Rest as needed between rounds, but keep the grip working — that's usually what gives out first.",
     exercises: [
-      { exerciseId: "farmers-carry", name: "Farmer's Carry", targetSets: 5, targetReps: 1 },
+      { exerciseId: "farmers-carry", name: "Farmer's Carry", targetSets: 5, targetSeconds: 45 },
       { exerciseId: "kettlebell-swing", name: "Kettlebell Swing", targetSets: 5, targetReps: 15 },
       { exerciseId: "burpee", name: "Burpee", targetSets: 5, targetReps: 10 }
     ]
@@ -248,8 +249,8 @@ window.PRESET_SESSIONS = (function () {
     desc: "6 × 60 s carry, walk between",
     detail: "Pick the weight up, walk until the grip starts to go, put it down and keep walking. Simple, unglamorous, and it builds a torso that holds together under load better than most gym work.",
     exercises: [
-      { exerciseId: "farmers-carry", name: "Farmer's Carry", targetSets: 6, targetReps: 1 },
-      { exerciseId: "kb-front-rack-carry", name: "Front Rack Carry", targetSets: 3, targetReps: 1 }
+      { exerciseId: "farmers-carry", name: "Farmer's Carry", targetSets: 6, targetSeconds: 60 },
+      { exerciseId: "kb-front-rack-carry", name: "Front Rack Carry", targetSets: 3, targetSeconds: 45 }
     ]
   });
 
@@ -335,6 +336,8 @@ window.PRESET_SESSIONS = (function () {
     id: "preset-kb-complex",
     name: "Kettlebell Complex",
     preset: true, pillar: "conditioning", venue: ["home", "gym"],
+    // A complex is unbroken inside a round — no transition, long rest after.
+    circuit: { rounds: 5, workSec: 45, transitionSec: 0, restSec: 90 },
     desc: "5 rounds · swing, clean & press, snatch",
     detail: "One bell, three movements, no putting it down inside a round. Rest a full minute between rounds. Pick a bell you'd call easy for any one of these on its own — the complex does the rest.",
     exercises: [
@@ -348,6 +351,8 @@ window.PRESET_SESSIONS = (function () {
   // ============ STRENGTH ============
   // ex(id, name, sets, reps) — strength entries expand to sets×reps targets.
   const ex = (exerciseId, name, targetSets, targetReps) => ({ exerciseId, name, targetSets, targetReps });
+  /** A timed entry: planks, hollow holds and carries are seconds, not reps. */
+  const held = (exerciseId, name, targetSets, targetSeconds) => ({ exerciseId, name, targetSets, targetSeconds });
   const strength = (id, name, venue, desc, detail, exercises, extra = {}) =>
     S.push({ id, name, preset: true, pillar: "strength", venue, desc, detail, exercises, ...extra });
 
@@ -358,7 +363,7 @@ window.PRESET_SESSIONS = (function () {
       ex("bench-press-barbell", "Barbell Bench Press", 3, 5),
       ex("row-barbell", "Barbell Bent-Over Row", 3, 8),
       ex("ohp-dumbbell", "Dumbbell Shoulder Press", 2, 10),
-      ex("plank", "Plank", 3, 1)
+      held("plank", "Plank", 3, 45)
     ]);
 
   strength("preset-full-body-b", "Full Body B", ["gym"], "Deadlift · OHP · Pulldown · 5 exercises",
@@ -378,7 +383,7 @@ window.PRESET_SESSIONS = (function () {
       ex("incline-bench-dumbbell", "Incline Dumbbell Press", 3, 8),
       ex("chin-up", "Chin-Up", 3, 6),
       ex("hip-thrust", "Barbell Hip Thrust", 3, 10),
-      ex("side-plank", "Side Plank", 2, 1)
+      held("side-plank", "Side Plank", 2, 30)
     ]);
 
   strength("preset-upper", "Upper Body", ["gym"], "Push & pull · 6 exercises",
@@ -475,8 +480,8 @@ window.PRESET_SESSIONS = (function () {
       ex("push-up", "Push-Up", 4, 12),
       ex("lunge-walking", "Walking Lunge", 3, 12),
       ex("glute-bridge", "Glute Bridge", 3, 15),
-      ex("plank", "Plank", 3, 1),
-      ex("hollow-hold", "Hollow Hold", 3, 1),
+      held("plank", "Plank", 3, 45),
+      held("hollow-hold", "Hollow Hold", 3, 30),
       ex("dead-bug", "Dead Bug", 3, 12)
     ]);
 
@@ -494,8 +499,8 @@ window.PRESET_SESSIONS = (function () {
     [
       ex("push-up", "Push-Up", 3, 15),
       ex("bulgarian-split-squat", "Bulgarian Split Squat", 3, 12),
-      ex("plank", "Plank", 3, 1)
-    ]);
+      held("plank", "Plank", 3, 40)
+    ], { circuit: { rounds: 3, workSec: 40, transitionSec: 20, restSec: 45 } });
 
   strength("preset-45-min", "45-Minute Full Body", ["gym"], "Six movements, one session",
     "A middle ground between the express session and a full split day. One squat, one hinge, one push, one pull, and two accessories — enough volume to progress on if you only train twice a week.",
@@ -625,7 +630,7 @@ window.PRESET_SESSIONS = (function () {
       ex("kettlebell-swing", "Kettlebell Swing", 4, 15),
       ex("goblet-squat", "Goblet Squat", 3, 12),
       ex("kb-clean-press", "Kettlebell Clean & Press", 3, 8),
-      ex("kb-front-rack-carry", "Front Rack Carry", 3, 1),
+      held("kb-front-rack-carry", "Front Rack Carry", 3, 45),
       ex("kb-halo", "Kettlebell Halo", 2, 10)
     ]);
 
@@ -635,7 +640,7 @@ window.PRESET_SESSIONS = (function () {
       ex("kb-turkish-getup", "Turkish Get-Up", 5, 1),
       ex("kb-halo", "Kettlebell Halo", 3, 10),
       ex("kettlebell-swing", "Kettlebell Swing", 3, 12),
-      ex("side-plank", "Side Plank", 3, 1)
+      held("side-plank", "Side Plank", 3, 30)
     ]);
 
   // ---- home & outdoors, no gear ----
@@ -646,8 +651,8 @@ window.PRESET_SESSIONS = (function () {
       ex("push-up", "Push-Up", 5, 12),
       ex("lunge-walking", "Walking Lunge", 5, 16),
       ex("burpee", "Burpee", 5, 8),
-      ex("hollow-hold", "Hollow Hold", 5, 1)
-    ]);
+      held("hollow-hold", "Hollow Hold", 5, 30)
+    ], { circuit: { mode: "emom", rounds: 5, slotSec: 60 } });
 
   strength("preset-bw-push-pull", "Bodyweight Push & Pull", ["home", "gym", "outdoors"], "Bar + floor · 6 exercises",
     "A pull-up bar turns bodyweight training from a leg-and-push affair into a complete session. If you can't do a full pull-up yet, log negatives here — they still count.",
@@ -657,7 +662,7 @@ window.PRESET_SESSIONS = (function () {
       ex("chin-up", "Chin-Up", 3, 8),
       ex("tricep-dip", "Triceps Dip", 3, 10),
       ex("hanging-leg-raise", "Hanging Leg Raise", 3, 10),
-      ex("hollow-hold", "Hollow Hold", 3, 1)
+      held("hollow-hold", "Hollow Hold", 3, 30)
     ]);
 
   strength("preset-small-space", "Small Space — No Jumping", ["home"], "Quiet, one mat, 6 exercises",
@@ -667,7 +672,7 @@ window.PRESET_SESSIONS = (function () {
       ex("glute-bridge", "Glute Bridge", 3, 20),
       ex("push-up", "Push-Up", 3, 15),
       ex("dead-bug", "Dead Bug", 3, 12),
-      ex("side-plank", "Side Plank", 3, 1),
+      held("side-plank", "Side Plank", 3, 30),
       ex("nordic-curl", "Nordic Hamstring Curl", 3, 5)
     ]);
 
@@ -679,13 +684,14 @@ window.PRESET_SESSIONS = (function () {
       ex("tricep-dip", "Triceps Dip", 4, 12),
       ex("bulgarian-split-squat", "Bulgarian Split Squat", 4, 10),
       ex("burpee", "Burpee", 4, 10),
-      ex("plank", "Plank", 4, 1)
-    ]);
+      held("plank", "Plank", 4, 45)
+    ], { circuit: { rounds: 4, workSec: 40, transitionSec: 15, restSec: 60 } });
 
   // ============ RECOVERY ============
   const recovery = (id, name, venue, desc, detail, exercises) =>
     S.push({ id, name, preset: true, pillar: "recovery", venue, desc, detail, exercises });
-  const hold = (exerciseId, name) => ({ exerciseId, name, targetSets: 1, targetReps: 1 });
+  /** A single timed stretch. Forty-five seconds is the flow default. */
+  const hold = (exerciseId, name, targetSeconds = 45) => ({ exerciseId, name, targetSets: 1, targetSeconds });
 
   recovery("preset-mobility-flow", "Mobility Flow", ["home", "gym"], "8 stretches · ~12 min",
     "A full-body flow through the areas that tighten most. Hold each for around forty-five seconds and breathe — this is the session to do on a rest day or after a hard week.",
@@ -721,7 +727,7 @@ window.PRESET_SESSIONS = (function () {
       hold("mob-figure-4-supine", "Supine Figure-4 Stretch"),
       hold("mob-thread-needle", "Thread the Needle"),
       ex("dead-bug", "Dead Bug", 3, 10),
-      ex("side-plank", "Side Plank", 3, 1)
+      held("side-plank", "Side Plank", 3, 30)
     ]);
 
   recovery("preset-shoulder-prehab", "Shoulder Prehab", ["home", "gym"], "6 movements · ~10 min",
@@ -758,15 +764,15 @@ window.PRESET_SESSIONS = (function () {
     [
       ex("pallof-press", "Pallof Press", 3, 12),
       ex("dead-bug", "Dead Bug", 3, 10),
-      ex("side-plank", "Side Plank", 3, 1),
-      ex("hollow-hold", "Hollow Hold", 3, 1),
+      held("side-plank", "Side Plank", 3, 30),
+      held("hollow-hold", "Hollow Hold", 3, 30),
       ex("ab-wheel", "Ab Wheel Rollout", 3, 8)
     ]);
 
   recovery("preset-grip", "Grip & Forearms", ["gym", "home"], "4 exercises · ~10 min",
     "Direct grip and forearm work — usually the first thing to fail on heavy pulls, and almost never trained on purpose.",
     [
-      ex("farmers-carry", "Farmer's Carry", 4, 1),
+      held("farmers-carry", "Farmer's Carry", 4, 45),
       ex("wrist-curl", "Wrist Curl", 3, 15),
       ex("hammer-curl", "Hammer Curl", 3, 12),
       ex("shrug-barbell", "Barbell Shrug", 3, 12)

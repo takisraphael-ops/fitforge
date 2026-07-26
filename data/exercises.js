@@ -618,7 +618,7 @@ window.EXERCISE_DB = [
     alternatives: ["Lying leg curl", "Romanian deadlift", "Glute-ham raise"] },
 
   // ============ CORE ============
-  { id: "plank", name: "Plank", category: "core", met: 3.0, muscles: ["Abdominals", "Obliques", "Erectors"], equipment: "Bodyweight", gear: ["none"], technique: [
+  { id: "plank", name: "Plank", category: "core", type: "hold", met: 3.0, muscles: ["Abdominals", "Obliques", "Erectors"], equipment: "Bodyweight", gear: ["none"], technique: [
     "Place forearms on the floor, elbows under the shoulders.",
     "Extend legs behind you, toes on the floor.",
     "Body forms a straight line from head to heels.",
@@ -695,7 +695,7 @@ window.EXERCISE_DB = [
     variations: ["Weighted dead bug", "Banded dead bug", "Dead bug pullover"],
     alternatives: ["Bird dog", "Plank", "Hollow hold"] },
 
-  { id: "hollow-hold", name: "Hollow Body Hold", category: "core", met: 3.5, muscles: ["Abdominals", "Hip Flexors"], equipment: "Bodyweight", gear: ["none"], technique: [
+  { id: "hollow-hold", name: "Hollow Body Hold", category: "core", type: "hold", met: 3.5, muscles: ["Abdominals", "Hip Flexors"], equipment: "Bodyweight", gear: ["none"], technique: [
     "Lie on your back with arms extended overhead and legs straight.",
     "Press the lower back firmly into the floor by tilting the pelvis.",
     "Lift arms, head, and legs off the floor to a shallow banana shape.",
@@ -705,7 +705,7 @@ window.EXERCISE_DB = [
     variations: ["Hollow rock", "Tuck hollow hold (regression)", "Weighted hollow hold"],
     alternatives: ["Plank", "Dead bug", "V-up"] },
 
-  { id: "side-plank", name: "Side Plank", category: "core", met: 3.0, muscles: ["Obliques", "Quadratus Lumborum", "Glute Medius"], equipment: "Bodyweight", gear: ["none"], technique: [
+  { id: "side-plank", name: "Side Plank", category: "core", type: "hold", perSide: true, met: 3.0, muscles: ["Obliques", "Quadratus Lumborum", "Glute Medius"], equipment: "Bodyweight", gear: ["none"], technique: [
     "Lie on your side, forearm on the floor with the elbow directly under the shoulder.",
     "Stack the feet or stagger them for stability.",
     "Lift the hips so the body forms a straight line from head to feet.",
@@ -848,7 +848,7 @@ window.EXERCISE_DB = [
     variations: ["Dumbbell thruster", "Kettlebell thruster", "Single-arm thruster"],
     alternatives: ["Push press", "Front squat + OHP", "Wall ball"] },
 
-  { id: "farmers-carry", name: "Farmer's Carry", category: "full_body", met: 5.5, muscles: ["Grip", "Traps", "Core", "Legs"], equipment: "Dumbbells / kettlebells / handles", gear: ["dumbbell", "kettlebell"], technique: [
+  { id: "farmers-carry", name: "Farmer's Carry", category: "full_body", type: "hold", met: 5.5, muscles: ["Grip", "Traps", "Core", "Legs"], equipment: "Dumbbells / kettlebells / handles", gear: ["dumbbell", "kettlebell"], technique: [
     "Deadlift the weights to your sides.",
     "Stand tall — chest up, shoulders back and down.",
     "Brace the core.",
@@ -892,7 +892,7 @@ window.EXERCISE_DB = [
     variations: ["Half snatch (lower to the rack)", "Dead-stop snatch", "Double kettlebell snatch"],
     alternatives: ["Kettlebell swing", "Power clean", "Dumbbell snatch"] },
 
-  { id: "kb-front-rack-carry", name: "Front Rack Carry", category: "full_body", met: 5.5, muscles: ["Core", "Shoulders", "Trapezius", "Quadriceps"], equipment: "Kettlebells", gear: ["kettlebell", "dumbbell"], technique: [
+  { id: "kb-front-rack-carry", name: "Front Rack Carry", category: "full_body", type: "hold", met: 5.5, muscles: ["Core", "Shoulders", "Trapezius", "Quadriceps"], equipment: "Kettlebells", gear: ["kettlebell", "dumbbell"], technique: [
     "Clean one or two bells into the front rack — elbows down and in, wrists straight.",
     "Stand tall with the ribs pulled down; do not let the lower back arch.",
     "Walk with short, controlled steps, breathing shallowly but steadily.",

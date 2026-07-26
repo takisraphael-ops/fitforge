@@ -39,7 +39,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=151").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=152").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -97,7 +97,9 @@
         // logging the efforts if the whole protocol elapsed while you were away.
         const running = (w.exercises || []).find(e => e.run && e.run.startedAt);
         if (running) setTimeout(() => resumeIntervalRun(running), 400);
-        else if (w.flowRun && w.flowRun.startedAt) setTimeout(() => resumeMobilityFlow(w), 400);
+        else if (w.flowRun && w.flowRun.startedAt) {
+          setTimeout(() => (circuitSpecFor(w) ? resumeCircuitRun(w) : resumeMobilityFlow(w)), 400);
+        }
       }
     }
     // Force a SW update check on every cold start so cardio fixes propagate.
@@ -114,6 +116,7 @@
     document.addEventListener("pointerdown", unlockAudio, { once: false });
     document.addEventListener("keydown", unlockAudio, { once: false });
 
+    migrateTimedHolds();
     render();
     initTabSwipe();
     if (!Storage.isPersistent()) {
@@ -1225,7 +1228,11 @@
       if (def?.metric && !ex.metric) ex.metric = def.metric;
       const onlyEmpty = !(ex.sets || []).length ||
         (ex.sets || []).every(s => !s.done && s.value == null);
-      if (onlyEmpty) ex.sets = [emptySetForType("custom")];
+      // Same as holds: reshape, but never collapse a multi-set exercise to one.
+      if (onlyEmpty) {
+        const n = Math.max(1, (ex.sets || []).length);
+        ex.sets = Array.from({ length: n }, () => emptySetForType("custom"));
+      }
       if (def?.met != null && ex.met == null) ex.met = def.met;
       return ex;
     }
@@ -1245,7 +1252,12 @@
       if (def?.met != null && ex.met == null) ex.met = def.met;
       const onlyEmpty = !(ex.sets || []).length ||
         (ex.sets || []).every(s => !s.done && s.seconds == null);
-      if (onlyEmpty) ex.sets = [emptySetForType("hold")];
+      // Reshape without losing the count — a stretch is one hold, but a plank
+      // is three and a circuit station is one per round.
+      if (onlyEmpty) {
+        const n = Math.max(1, (ex.sets || []).length);
+        ex.sets = Array.from({ length: n }, () => emptySetForType("hold"));
+      }
       return ex;
     }
     const shouldBeCardio = looksLikeCardio(source) || looksLikeCardio(ex);
@@ -3821,24 +3833,50 @@
       el("button", { class: "btn btn-primary btn-sm", on: { click: onFinishWorkout } }, "Finish")
     ));
 
-    // A session that is mostly stretches can be run end to end rather than
-    // held-and-guessed one row at a time. Offered, never forced.
+    // Sessions the timer can run end to end rather than one guessed number at
+    // a time: a stretch flow, or a round-based circuit. Offered, never forced,
+    // and the manual rows stay exactly as they were.
     {
       const byId = new Map((await getAllExercises()).map(e => [e.id, e]));
-      const flow = flowEntries(w, byId);
-      const holdSets = flow.reduce((n, f) => n + (f.ex.sets || []).length, 0);
-      const allSets = exs.reduce((n, e) => n + (e.sets || []).length, 0);
-      if (holdSets >= 3 && holdSets / Math.max(1, allSets) >= 0.6) {
-        const mins = Math.round(buildFlowSteps(flow, byId).reduce((a, st) => a + st.sec, 0) / 60);
-        const doneAll = flow.every(f => (f.ex.sets || []).every(x => x.done));
+      const spec = circuitSpecFor(w);
+      let cta = null;
+
+      if (spec) {
+        const steps = buildCircuitSteps(exs, spec, byId);
+        const mins = Math.round(steps.reduce((a, st) => a + st.sec, 0) / 60);
+        const rounds = spec.rounds || 1;
+        cta = {
+          title: "Run this circuit",
+          sub: spec.mode === "emom"
+            ? `${rounds} rounds · every ${spec.slotSec || 60}s on the minute · ~${mins} min`
+            : `${rounds} rounds · ${exs.length} stations · ~${mins} min`,
+          testid: "start-circuit",
+          go: () => openCircuitRun(w)
+        };
+      } else {
+        const flow = flowEntries(w, byId);
+        const holdSets = flow.reduce((n, f) => n + (f.ex.sets || []).length, 0);
+        const allSets = exs.reduce((n, e) => n + (e.sets || []).length, 0);
+        if (holdSets >= 3 && holdSets / Math.max(1, allSets) >= 0.6) {
+          const mins = Math.round(buildFlowSteps(flow, byId).reduce((a, st) => a + st.sec, 0) / 60);
+          const doneAll = flow.every(f => (f.ex.sets || []).every(x => x.done));
+          cta = {
+            title: doneAll ? "Run the flow again" : "Run this flow",
+            sub: `${holdSets} hold${holdSets === 1 ? "" : "s"} · ~${mins} min · cues each change`,
+            testid: "start-flow",
+            go: () => openMobilityFlow(w)
+          };
+        }
+      }
+
+      if (cta) {
         screen.appendChild(el("div", { class: "flow-cta", "data-testid": "flow-cta" },
           el("div", { class: "flow-cta-text" },
-            el("div", { class: "flow-cta-title" }, doneAll ? "Run the flow again" : "Run this flow"),
-            el("div", { class: "flow-cta-sub" },
-              `${holdSets} hold${holdSets === 1 ? "" : "s"} · ~${mins} min · cues each change`)),
+            el("div", { class: "flow-cta-title" }, cta.title),
+            el("div", { class: "flow-cta-sub" }, cta.sub)),
           el("button", {
-            class: "btn btn-primary btn-sm", type: "button", "data-testid": "start-flow",
-            on: { click: () => openMobilityFlow(w) }
+            class: "btn btn-primary btn-sm", type: "button", "data-testid": cta.testid,
+            on: { click: cta.go }
           }, el("span", { html: icons.play }), "Start")
         ));
       }
@@ -4052,6 +4090,21 @@
             sets
           };
         }
+        // Timed holds — stretches, planks, carries. These were falling through
+        // to the strength branch and arriving with a rep counter attached.
+        if (type === "hold") {
+          const targetSets = Math.max(1, te.targetSets || 1);
+          const secs = te.targetSeconds ?? (prev?.sets?.[0]?.seconds ?? null);
+          return {
+            exerciseId: te.exerciseId,
+            name: te.name || def?.name || "Exercise",
+            type,
+            met: def?.met,
+            perSide: !!def?.perSide,
+            sets: Array.from({ length: targetSets }, () => ({ seconds: secs, done: false }))
+          };
+        }
+
         // Strength: template targets are explicit so they stay as values;
         // last-session loads are hints only (placeholders), never pre-typed.
         const hasTplLoad = te.targetWeight != null || te.targetReps != null;
@@ -4276,7 +4329,19 @@
       ),
       list,
       el("div", { class: "warmup-actions" },
-        el("button", { class: "btn btn-primary btn-block", "data-testid": "warmup-go", on: { click: close } }, "Got it — let's go"),
+        // Run the drills on the same timer the flows use. The ramp sets are
+        // loaded reps, not durations, so the guided part stops at the drills
+        // and the sheet's ramp list stands on its own.
+        plan.drills.length
+          ? el("button", {
+              class: "btn btn-primary btn-block warmup-guided", "data-testid": "warmup-guided",
+              on: { click: () => { close(); runGuidedWarmup(plan); } }
+            }, el("span", { html: icons.play }), "Run it guided")
+          : null,
+        el("button", {
+          class: "btn btn-block" + (plan.drills.length ? "" : " btn-primary"),
+          "data-testid": "warmup-go", on: { click: close }
+        }, plan.drills.length ? "I'll do it myself" : "Got it — let's go"),
         el("button", { class: "btn btn-ghost btn-sm", "data-testid": "warmup-skip", on: { click: close } }, "Skip warm-up"),
         el("button", { class: "btn btn-ghost btn-sm warmup-never", "data-testid": "warmup-never", on: { click: async () => {
           state.prefs.warmupPrompt = false;
@@ -5935,6 +6000,15 @@
       "aria-label": `Set ${si + 1} reps`,
       "data-testid": `set-reps-${si}`
     });
+    // A number the circuit runner filled in from the prescription rather than
+    // one you counted. Clearing or retyping it drops the marker.
+    if (s.prescribed) {
+      repsInput.classList.add("set-prescribed");
+      repsInput.addEventListener("input", () => {
+        s.prescribed = false;
+        repsInput.classList.remove("set-prescribed");
+      }, { once: true });
+    }
 
     const calcStrengthKcal = () => {
       const met = U.getMET({ ...(def || {}), met: ex.met ?? def?.met, category: def?.category });
@@ -6346,6 +6420,174 @@
     }
   }
 
+  // ---- circuits ---------------------------------------------------------
+  // Round-based sessions: EMOM, complexes, station circuits. Their timing used
+  // to live only as prose in `detail`. A circuit spec makes it runnable.
+  //
+  // What gets auto-logged is deliberately narrower than for an interval. The
+  // protocol determines how long you spend at a station, so a timed exercise
+  // logs its seconds. It does NOT determine how many reps you managed, so a
+  // rep exercise is marked done at the prescribed count and flagged — the
+  // number is the prescription, not a count, and the row says so.
+  function buildCircuitSteps(exercises, spec, byId) {
+    const rounds = Math.max(1, spec.rounds || 1);
+    const emom = spec.mode === "emom";
+    const slot = spec.slotSec || 60;
+    const steps = [];
+    for (let r = 0; r < rounds; r++) {
+      exercises.forEach((ex, exIndex) => {
+        const def = byId.get(ex.exerciseId) || {};
+        const timed = def.type === "hold" || ex.type === "hold";
+        const perSide = !!(def.perSide || ex.perSide);
+        // A timed station honours its own prescription where it has one.
+        const prescribed = timed ? (ex.sets && ex.sets[r] && ex.sets[r].seconds) : null;
+        const base = emom ? slot : (prescribed || spec.workSec || 40);
+        steps.push({
+          sec: perSide && !emom ? base * 2 : base,
+          work: true, perSide: perSide && !emom,
+          intensity: r === 0 ? "moderate" : "hard",
+          label: ex.name,
+          ref: { exIndex, setIndex: r, timed, perSide: perSide && !emom, round: r + 1 }
+        });
+        const lastInRound = exIndex === exercises.length - 1;
+        if (!emom && !lastInRound && spec.transitionSec) {
+          steps.push({ sec: spec.transitionSec, work: false, intensity: "easy", label: "Next station" });
+        }
+      });
+      if (!emom && r < rounds - 1 && spec.restSec) {
+        steps.push({ sec: spec.restSec, work: false, intensity: "easy", label: `Rest · round ${r + 2} next` });
+      }
+    }
+    return steps;
+  }
+
+  /** The circuit spec for an active workout, if it came from one. */
+  function circuitSpecFor(w) {
+    if (w.circuit) return w.circuit;
+    const t = presetSessions().find(x => x.id === w.templateId);
+    return (t && t.circuit) || null;
+  }
+
+  async function openCircuitRun(w, opts = {}) {
+    const spec = circuitSpecFor(w);
+    if (!spec) return;
+    const all = await getAllExercises();
+    const byId = new Map(all.map(e => [e.id, e]));
+    const exercises = w.exercises || [];
+    const steps = buildCircuitSteps(exercises, spec, byId);
+    if (!steps.length) return;
+
+    return openGuidedRun({
+      title: w.name || "Circuit",
+      steps,
+      resume: opts.resume,
+      onPersist: (p) => { w.flowRun = p; Storage.saveWorkout(w).catch(() => {}); },
+      onFinish: async (summary) => {
+        let prescribedCount = 0;
+        for (const res of summary.sets) {
+          const ref = res.ref;
+          if (!ref || res.skipped) continue;
+          const ex = exercises[ref.exIndex];
+          const set = ex && (ex.sets || [])[ref.setIndex];
+          if (!set) continue;
+          if (ref.timed) {
+            set.seconds = ref.perSide ? Math.round(res.seconds / 2) : res.seconds;
+          } else if (set.reps == null) {
+            // No count of your own, so the prescription stands in — marked, so
+            // it never reads as something the app watched you do.
+            const tplReps = (ex.targetReps != null) ? ex.targetReps : null;
+            if (tplReps == null) continue;
+            set.reps = tplReps;
+            set.prescribed = true;
+            prescribedCount++;
+          }
+          set.done = true;
+          set.autoLogged = res.autoLogged;
+          set.adjusted = !!res.adjusted;
+        }
+        w.flowRun = null;
+        await Storage.saveWorkout(w);
+        renderMain();
+        if (prescribedCount) {
+          setTimeout(() => toast(`${prescribedCount} rounds logged at the prescribed reps — correct any that differed`), 2400);
+        }
+      }
+    });
+  }
+
+  /** Warm-up drills, paced. Nothing is logged — a warm-up is preparation, not
+      a set you did, and the app has never recorded it. The value here is being
+      told when to change drill and when to switch sides. */
+  const WARMUP_DRILL_SEC = 30;
+  const WARMUP_CHANGE_SEC = 6;
+
+  function runGuidedWarmup(plan) {
+    const drills = plan.drills || [];
+    if (!drills.length) return;
+    const steps = [];
+    drills.forEach((d, i) => {
+      steps.push({
+        sec: d.perSide ? WARMUP_DRILL_SEC * 2 : WARMUP_DRILL_SEC,
+        work: true, perSide: !!d.perSide, intensity: "easy", label: d.name
+      });
+      if (i < drills.length - 1) {
+        steps.push({ sec: WARMUP_CHANGE_SEC, work: false, intensity: "easy", label: "Change drill" });
+      }
+    });
+    return openGuidedRun({
+      title: "Warm-up",
+      steps,
+      onPersist: () => {},          // short and pre-session; nothing to resume
+      onFinish: () => {
+        toast(plan.ramp ? "Warmed up — ramp sets next" : "Warmed up — good to go");
+      }
+    });
+  }
+
+  // ============ Timed-hold migration ============
+  // Plank, side plank, hollow hold and the two carries used to log as reps
+  // because they had no type, so the presets prescribed the fiction "3 × 1".
+  // They are timed now. Existing history has to be dealt with honestly:
+  // a number big enough to have been seconds becomes seconds; the "1" that
+  // was only ever a placeholder becomes nothing, because inventing a duration
+  // would be worse than admitting one was never recorded.
+  const RETYPED_HOLDS = new Set(["plank", "side-plank", "hollow-hold", "farmers-carry", "kb-front-rack-carry"]);
+  // Below this, a rep count cannot plausibly have meant seconds.
+  const HOLD_SECONDS_FLOOR = 5;
+
+  async function migrateTimedHolds() {
+    if (await Storage.getPref("holdsMigrated", false)) return;
+    let touched = 0, converted = 0, blanked = 0;
+    try {
+      const workouts = await Storage.getWorkouts();
+      for (const w of workouts) {
+        let changed = false;
+        for (const ex of (w.exercises || [])) {
+          if (!RETYPED_HOLDS.has(ex.exerciseId)) continue;
+          for (const set of (ex.sets || [])) {
+            if (set.seconds != null) continue;
+            if (set.reps == null) continue;
+            const n = Number(set.reps);
+            if (Number.isFinite(n) && n >= HOLD_SECONDS_FLOOR) { set.seconds = Math.round(n); converted++; }
+            else { set.seconds = null; blanked++; }
+            delete set.reps;
+            changed = true;
+          }
+          if (changed) ex.type = "hold";
+        }
+        if (changed) { await Storage.saveWorkout(w); touched++; }
+      }
+      await Storage.setPref("holdsMigrated", true);
+      if (converted || blanked) {
+        // Say what happened rather than quietly rewriting someone's history.
+        setTimeout(() => toast(
+          `Planks and carries now log in seconds · ${converted} converted` +
+          (blanked ? `, ${blanked} left blank` : "")), 1200);
+      }
+    } catch (_) { /* non-fatal: the app works either way */ }
+    return { touched, converted, blanked };
+  }
+
   // ============ Guided interval runner ============
   // Press start and go: the protocol runs itself, cues each transition, and
   // writes the efforts back as you complete them. See js/interval-runner.js
@@ -6608,6 +6850,35 @@
         renderMain();
       }
     });
+  }
+
+  /** A circuit interrupted mid-run. Same contract as the others: resume at the
+      exact second, or settle up if it finished while the app was closed. */
+  async function resumeCircuitRun(w) {
+    const run = w.flowRun;
+    const spec = circuitSpecFor(w);
+    if (!run || !run.startedAt || !spec) return;
+    const all = await getAllExercises();
+    const byId = new Map(all.map(e => [e.id, e]));
+    const steps = buildCircuitSteps(w.exercises || [], spec, byId);
+    const total = steps.reduce((a, st) => a + st.sec, 0);
+    const elapsed = (Date.now() - run.startedAt - (run.pausedTotal || 0)) / 1000;
+    if (elapsed >= total) {
+      w.flowRun = null;
+      await Storage.saveWorkout(w);
+      renderMain();
+      toast("Circuit finished while you were away — log your rounds");
+      return;
+    }
+    if (!(await confirmDialog(
+      `${w.name || "The circuit"} is ${U.formatTime(Math.round(elapsed))} in, with ${U.formatTime(Math.round(total - elapsed))} to go.`,
+      { title: "Resume the circuit?", okLabel: "Resume", cancelLabel: "Discard" }))) {
+      w.flowRun = null;
+      await Storage.saveWorkout(w);
+      renderMain();
+      return;
+    }
+    openCircuitRun(w, { resume: run });
   }
 
   /** Same deal for a flow: resume where the clock says, or settle up if it
