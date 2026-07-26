@@ -4695,6 +4695,75 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .ivl-dot.ivl-hard { background: #f0883e; }
 .ivl-dot.ivl-max { background: #e5484d; }
 
+/* ===== Guided interval runner =====
+   One thing on screen, readable at arm's length on a treadmill. The colour is
+   the primary signal — you should know whether to work or ease off without
+   reading a word. */
+.ivr {
+  position: fixed; inset: 0; z-index: 2600;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 20px; padding: 24px calc(20px + env(safe-area-inset-left, 0px)) calc(24px + env(safe-area-inset-bottom, 0px));
+  background: var(--bg);
+  animation: rest-pop 260ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  --ivr-hue: var(--accent);
+}
+.ivr.is-rest { --ivr-hue: color-mix(in srgb, var(--accent) 55%, var(--text-faint)); }
+.ivr.ivl-hard { --ivr-hue: #f0883e; }
+.ivr.ivl-max { --ivr-hue: #e5484d; }
+.ivr.is-paused { --ivr-hue: var(--text-faint); }
+.ivr::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(120% 60% at 50% 0%, color-mix(in srgb, var(--ivr-hue) 16%, transparent), transparent 70%);
+  transition: background 240ms ease;
+}
+.ivr-head {
+  position: relative; width: 100%; max-width: 420px;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+}
+.ivr-name { font-size: 15px; font-weight: 800; letter-spacing: -.01em; }
+.ivr-totals { font-size: 13px; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ivr-stage { position: relative; display: grid; place-items: center; width: 100%; }
+/* Conic ring rather than SVG — one custom property drives it, so the paint
+   loop only ever writes a single value. */
+.ivr-ring {
+  width: 264px; height: 264px; max-width: 76vw; max-height: 76vw; border-radius: 50%;
+  background:
+    conic-gradient(var(--ivr-hue) calc(var(--frac, 1) * 360deg), transparent 0),
+    radial-gradient(closest-side, var(--bg) 79%, transparent 80%);
+  -webkit-mask: radial-gradient(closest-side, transparent 78%, #000 79%);
+  mask: radial-gradient(closest-side, transparent 78%, #000 79%);
+  transition: background 120ms linear;
+}
+.ivr-readout {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 4px; text-align: center;
+}
+.ivr-label {
+  font-size: 15px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase;
+  color: var(--ivr-hue); transition: color 240ms ease;
+}
+.ivr-clock {
+  font-family: var(--font-mono, var(--font-numeric));
+  font-size: 72px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.ivr-next {
+  font-size: 13px; font-weight: 600; color: var(--text-muted);
+  max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ivr-plan { position: relative; width: 100%; max-width: 420px; height: 14px; }
+.ivr-plan .ivl-step { opacity: .35; transition: opacity 200ms ease, transform 200ms ease; }
+.ivr-plan .ivl-step.is-past { opacity: .85; }
+.ivr-plan .ivl-step.is-now { opacity: 1; transform: scaleY(1.35); }
+.ivr-actions { position: relative; width: 100%; max-width: 420px; }
+.ivr-end { color: var(--text-muted); }
+.ivr-start { margin-top: 4px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.ivr-start svg { width: 15px; height: 15px; }
+@media (prefers-reduced-motion: reduce) {
+  .ivr { animation: none; }
+  .ivr-ring, .ivr-plan .ivl-step { transition: none; }
+}
+
 /* Preset session badge in template lists */
 .tpl-preset-chip {
   font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;

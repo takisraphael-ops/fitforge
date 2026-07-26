@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=149").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=150").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -91,6 +91,11 @@
         } catch (_) { /* non-fatal */ }
         state.activeWorkout = w;
         startWorkoutTimer();
+        // A guided run that was in flight when the app closed picks up exactly
+        // where the clock says it should be — including finishing itself and
+        // logging the efforts if the whole protocol elapsed while you were away.
+        const running = (w.exercises || []).find(e => e.run && e.run.startedAt);
+        if (running) setTimeout(() => resumeIntervalRun(running), 400);
       }
     }
     // Force a SW update check on every cold start so cardio fixes propagate.
@@ -5231,6 +5236,23 @@
         body.appendChild(el("div", { class: "text-xs text-faint", style: "margin:6px 0 10px" },
           intervalSummary(plan)));
       }
+      // Run it guided, or log the efforts by hand — plenty of people time
+      // intervals off a watch and just want to record them afterwards.
+      if (steps.length) {
+        const anyLogged = ex.sets.some(s => s.done);
+        body.appendChild(el("button", {
+          class: "btn btn-primary btn-block ivr-start", type: "button",
+          "data-testid": "start-interval-run",
+          on: { click: async () => {
+            if (anyLogged && !(await confirmDialog(
+              "Some efforts are already logged. Running the protocol will overwrite them.",
+              { title: "Run anyway?", okLabel: "Run it" }))) return;
+            openIntervalRunner(ex);
+          } }
+        }, el("span", { html: icons.play || icons.check }), ex.run ? "Restart guided run" : "Start guided run"));
+        body.appendChild(el("div", { class: "text-xs text-faint", style: "margin:6px 0 10px; text-align:center" },
+          "Cues each change. Keep the screen on for sound."));
+      }
       const header = el("div", { class: "set-row set-row-header type-interval" },
         el("div", { class: "set-index" }, "#"),
         el("div", {}, "Effort"),
@@ -6279,6 +6301,198 @@
     if (state.restTimer) {
       document.title = `${U.formatTime(remaining)} rest · FitForge`;
     }
+  }
+
+  // ============ Guided interval runner ============
+  // Press start and go: the protocol runs itself, cues each transition, and
+  // writes the efforts back as you complete them. See js/interval-runner.js
+  // for why position and cues are on separate clocks.
+
+  /** Efforts that ran to their end untouched log themselves; the rest carry the
+      seconds actually served and are flagged rather than silently claimed. */
+  async function applyRunSummary(ex, summary, def, bwKg) {
+    for (const r of summary.sets) {
+      const s = ex.sets[r.setIndex];
+      if (!s) continue;
+      if (r.skipped) { s.done = false; s.kcal = null; continue; }
+      s.seconds = r.seconds;
+      s.done = true;
+      s.autoLogged = r.autoLogged;
+      s.adjusted = !!r.adjusted;
+      const kpm = U.kcalPerMin({ ...def, type: "cardio", category: "cardio" }, bwKg, s.intensity);
+      s.kcal = Math.round((s.seconds / 60) * kpm);
+    }
+    ex.run = null;
+    await Storage.saveWorkout(state.activeWorkout);
+  }
+
+  function runnerStepClass(st) {
+    return "ivl-" + (st && st.step ? (st.step.intensity || "moderate") : "easy");
+  }
+
+  /** The full-screen runner. Same idiom as the rest overlay — one thing on
+      screen, unmissable at arm's length, escapable at any moment. */
+  async function openIntervalRunner(ex, opts = {}) {
+    const plan = ex.plan || { steps: [] };
+    const steps = plan.steps || [];
+    if (!steps.length) return;
+    const all = await getAllExercises();
+    const def = all.find(x => x.id === ex.exerciseId) || {};
+    const bwKg = await getBodyweightKg();
+
+    const overlay = el("div", { class: "ivr", "data-testid": "interval-runner", role: "dialog", "aria-label": `${ex.name} guided run` });
+    const label = el("div", { class: "ivr-label", "data-testid": "ivr-label" }, "—");
+    const clock = el("div", { class: "ivr-clock", "data-testid": "ivr-clock" }, "—");
+    const nextUp = el("div", { class: "ivr-next", "data-testid": "ivr-next" }, "");
+    const totals = el("div", { class: "ivr-totals", "data-testid": "ivr-totals" }, "");
+    const strip = el("div", { class: "ivl-plan ivr-plan" });
+    const segs = steps.map(st => {
+      const s = el("div", {
+        class: "ivl-step" + (st.work ? " is-work" : "") + ` ivl-${st.intensity || "moderate"}`,
+        style: `flex-grow:${Math.max(1, st.sec)}`
+      });
+      strip.appendChild(s);
+      return s;
+    });
+    const ring = el("div", { class: "ivr-ring" });
+
+    let runner = null;
+    let closed = false;
+
+    const pauseBtn = el("button", { class: "rest-btn rest-btn-primary", type: "button", "data-testid": "ivr-pause" }, "Pause");
+    const skipBtn = el("button", { class: "rest-btn", type: "button", "data-testid": "ivr-skip" }, "Skip");
+    const endBtn = el("button", { class: "rest-btn ivr-end", type: "button", "data-testid": "ivr-end" }, "End");
+
+    function paint(st) {
+      if (st.done) {
+        label.textContent = "Done";
+        clock.textContent = "—";
+        nextUp.textContent = "";
+      } else {
+        label.textContent = (st.step && st.step.label) || U.INTENSITY[st.step?.intensity]?.label || "Go";
+        clock.textContent = U.formatTime(Math.ceil(st.remainInStep));
+        nextUp.textContent = st.nextStep
+          ? `Next: ${st.nextStep.label || U.INTENSITY[st.nextStep.intensity]?.label || ""} · ${U.formatTime(st.nextStep.sec)}`
+          : "Next: finish";
+      }
+      totals.textContent = `${U.formatTime(Math.ceil(st.remainTotal))} left of ${U.formatTime(st.totalSec)}`;
+      overlay.className = "ivr " + runnerStepClass(st) + (st.paused ? " is-paused" : "") +
+        (st.step && st.step.work ? " is-work" : " is-rest");
+      // Ring drains within the current step, so the visual matches the number.
+      const frac = st.step ? Math.max(0, Math.min(1, st.remainInStep / Math.max(1, st.step.sec))) : 0;
+      ring.style.setProperty("--frac", String(frac));
+      segs.forEach((sg, i) => {
+        sg.classList.toggle("is-past", i < st.stepIndex || st.done);
+        sg.classList.toggle("is-now", i === st.stepIndex && !st.done);
+      });
+      pauseBtn.textContent = st.paused ? "Resume" : "Pause";
+    }
+
+    async function finish(summary, { announce = true } = {}) {
+      if (closed) return;
+      closed = true;
+      overlay.remove();
+      await applyRunSummary(ex, summary, def, bwKg);
+      await refreshExerciseBlock(ex);
+      if (!announce) return;
+      // The self-test: if the screen was off and the audio was interrupted, say
+      // so plainly rather than letting someone conclude the cues are unreliable
+      // without knowing why.
+      const h = summary.health || {};
+      const bits = [`${summary.loggedCount}/${summary.workCount} efforts logged`];
+      if (summary.cleanCount < summary.loggedCount) bits.push(`${summary.loggedCount - summary.cleanCount} adjusted`);
+      toast(bits.join(" · "));
+      if (h.everSuspended && h.hiddenMs > 4000) {
+        setTimeout(() => toast("Audio paused while the screen was off — efforts still logged"), 2600);
+      }
+    }
+
+    pauseBtn.addEventListener("click", () => {
+      if (!runner) return;
+      const st = runner.state();
+      if (st.paused) runner.unpause(); else runner.pause();
+      persistRun();
+      paint(runner.state());
+    });
+    skipBtn.addEventListener("click", () => {
+      if (!runner) return;
+      runner.skip();
+      persistRun();
+      paint(runner.state());
+    });
+    endBtn.addEventListener("click", async () => {
+      if (!runner) return;
+      if (!(await confirmDialog("End this run and log what you've done so far?",
+        { title: "End run?", okLabel: "End and log" }))) return;
+      const s = runner.stop();
+      await finish(s);
+    });
+
+    function persistRun() {
+      if (!runner || closed) return;
+      ex.run = runner.persist();
+      Storage.saveWorkout(state.activeWorkout).catch(() => {});
+    }
+
+    overlay.appendChild(el("div", { class: "ivr-head" },
+      el("div", { class: "ivr-name" }, ex.name),
+      totals
+    ));
+    overlay.appendChild(el("div", { class: "ivr-stage" }, ring,
+      el("div", { class: "ivr-readout" }, label, clock, nextUp)));
+    overlay.appendChild(strip);
+    overlay.appendChild(el("div", { class: "rest-actions ivr-actions" }, pauseBtn, skipBtn, endBtn));
+    document.body.appendChild(overlay);
+
+    runner = IntervalRunner.create({
+      steps,
+      onPaint: paint,
+      onComplete: (s) => finish(s)
+    });
+
+    // start() must run inside the tap that opened this — that gesture is what
+    // unlocks audio on iOS, and it is the only chance we get.
+    const res = opts.resume
+      ? await runner.resume(opts.resume)
+      : await runner.start();
+    persistRun();
+    paint(runner.state());
+    if (!res.audio) toast("Sound unavailable — the timer still runs");
+    return runner;
+  }
+
+  /** Pick up a run that was in flight when the app was closed. If the whole
+      protocol elapsed while you were away it settles up immediately rather
+      than pretending the session is still going. */
+  async function resumeIntervalRun(ex) {
+    const run = ex.run;
+    if (!run || !run.startedAt) return;
+    const plan = ex.plan || { steps: [] };
+    const total = (plan.steps || []).reduce((s, st) => s + (st.sec || 0), 0);
+    const elapsed = (Date.now() - run.startedAt - (run.pausedTotal || 0)) / 1000;
+    const all = await getAllExercises();
+    const def = all.find(x => x.id === ex.exerciseId) || {};
+    const bwKg = await getBodyweightKg();
+
+    if (elapsed >= total) {
+      // Finished while away — credit it without putting a dead timer on screen.
+      const r = IntervalRunner.create({ steps: plan.steps });
+      await r.resume(run);
+      const s = r.stop();
+      await applyRunSummary(ex, s, def, bwKg);
+      await refreshExerciseBlock(ex);
+      toast(`Run finished while you were away · ${s.loggedCount}/${s.workCount} efforts logged`);
+      return;
+    }
+    if (!(await confirmDialog(
+      `${ex.name} is ${U.formatTime(Math.round(elapsed))} in, with ${U.formatTime(Math.round(total - elapsed))} to go.`,
+      { title: "Resume the run?", okLabel: "Resume", cancelLabel: "Discard" }))) {
+      ex.run = null;
+      await Storage.saveWorkout(state.activeWorkout);
+      await refreshExerciseBlock(ex);
+      return;
+    }
+    openIntervalRunner(ex, { resume: run });
   }
 
   // ============ EXERCISE LIBRARY ============
