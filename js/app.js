@@ -39,7 +39,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=154").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=155").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -4878,6 +4878,16 @@
       }
       const cur = draft[key] != null ? draft[key] : null;
       const list = el("div", { class: "wassign-list", "data-testid": "wplan-assign" });
+
+      // The sheet lives INSIDE this overlay rather than going through
+      // openModal. The shared modal sits at z-index 100 and the planner at
+      // 2500, so a modal opened from here renders behind it — visible to
+      // nothing and tappable by no one.
+      const sheet = el("div", { class: "wplan-sheet", "data-testid": "wplan-sheet" });
+      const closeSheet = () => {
+        sheet.classList.add("is-closing");
+        setTimeout(() => sheet.remove(), 180);
+      };
       for (const it of items) {
         list.appendChild(el("button", {
           type: "button",
@@ -4885,7 +4895,7 @@
           "data-testid": it.testid,
           on: { click: () => {
             if (it.value == null) delete draft[key]; else draft[key] = it.value;
-            closeModal();
+            closeSheet();
             paintCell(key, { animate: true });
             setHint();
           } }
@@ -4897,7 +4907,19 @@
           it.value === cur ? el("span", { class: "wassign-tick", html: icons.check }) : null
         ));
       }
-      openModal(WEEKDAY_LABELS[key], list, null);
+      const scrim = el("div", { class: "wplan-sheet-scrim", "data-testid": "wplan-sheet-scrim",
+        on: { click: closeSheet } });
+      sheet.append(scrim,
+        el("div", { class: "wplan-sheet-panel", role: "dialog", "aria-label": `Assign ${WEEKDAY_LABELS[key]}` },
+          el("div", { class: "wplan-sheet-head" },
+            el("h3", { class: "wplan-sheet-title" }, WEEKDAY_LABELS[key]),
+            el("button", {
+              type: "button", class: "pquiz-close", "data-testid": "wplan-sheet-close",
+              on: { click: closeSheet },
+              html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>'
+            })),
+          list));
+      overlay.appendChild(sheet);
     }
 
     // ---- the week row ----

@@ -4089,8 +4089,34 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .wplan-hint.is-copying { color: var(--accent); font-weight: 600; }
 .wplan-foot { margin-top: auto; padding-top: 20px; }
 
+/* Assign sheet. Rendered inside .wplan, not through the shared modal — that
+   sits at z-index 100 and would land behind this overlay. */
+.wplan-sheet { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; justify-content: flex-end; }
+.wplan-sheet-scrim {
+  position: absolute; inset: 0; background: rgba(0,0,0,.55);
+  animation: wsheet-fade 180ms ease;
+}
+.wplan-sheet-panel {
+  position: relative; max-height: 76vh; display: flex; flex-direction: column;
+  background: var(--bg-elev);
+  border-top: 1px solid var(--border);
+  border-radius: 20px 20px 0 0;
+  padding: 14px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  box-shadow: var(--shadow-md);
+  animation: wsheet-up 220ms cubic-bezier(.2,.9,.3,1);
+}
+.wplan-sheet.is-closing .wplan-sheet-panel { animation: wsheet-up 170ms ease reverse forwards; }
+.wplan-sheet.is-closing .wplan-sheet-scrim { animation: wsheet-fade 170ms ease reverse forwards; }
+@keyframes wsheet-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes wsheet-up { from { transform: translateY(100%); } to { transform: none; } }
+.wplan-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.wplan-sheet-title { font-size: 19px; font-weight: 800; letter-spacing: -.01em; margin: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .wplan-sheet-panel, .wplan-sheet-scrim { animation: none !important; }
+}
+
 /* Assign sheet — one tap per row, no wheel to spin. */
-.wassign-list { display: flex; flex-direction: column; gap: 6px; max-height: 62vh; overflow-y: auto; }
+.wassign-list { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .wassign-row {
   display: flex; align-items: center; gap: 12px; width: 100%;
   padding: 11px 12px; cursor: pointer; text-align: left;
