@@ -463,18 +463,20 @@ button, a, [role="button"], input, textarea, select, .xpick-chip, .xrow, .xpick-
   stroke-width: 1;
   opacity: 1;
 }
-/* Fine light muscle-contour lines (sternum, abs, spine…) */
+/* Anatomical line work traced from the reference drawing. The strokes are
+   traced as closed shapes rather than paths, so they are filled, not stroked. */
 .body-map-detail-line {
-  stroke: rgba(247, 245, 241, 0.6);
-  stroke-width: 0.8;
-  stroke-linecap: round;
-  opacity: 1;
+  fill: none;
+  stroke: rgba(90, 84, 74, 0.5);
+  stroke-width: 0.4;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
 }
 .dark .body-map-detail-line {
-  stroke: rgba(236, 232, 223, 0.55);
-  stroke-width: 0.8;
-  opacity: 1;
+  stroke: rgba(236, 232, 223, 0.26);
 }
+/* Line work sits above the zones but must never eat a tap. */
+.body-map-detail { pointer-events: none; }
 .body-map-outline-part {
   fill: #cfc5b4;
   stroke: #8a7f6c;
