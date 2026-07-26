@@ -39,7 +39,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=153").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=154").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -5453,8 +5453,8 @@
       for (const [si, s] of ex.sets.entries()) {
         body.appendChild(renderHoldRow(ex, si, s, prev, perSide));
       }
-      const controls = el("div", { class: "row", style: "gap:12px; align-items:center; margin-top:8px; flex-wrap:wrap;" },
-        el("button", { class: "btn btn-ghost btn-sm", on: { click: async () => {
+      const controls = el("div", { class: "set-add-wrap" },
+        el("button", { class: "btn add-set-btn", "data-testid": "add-set", on: { click: async () => {
           const last = [...ex.sets].reverse().find(x => x.done) || ex.sets[ex.sets.length - 1];
           ex.sets.push({ seconds: last?.seconds ?? null, done: false });
           await Storage.saveWorkout(state.activeWorkout);
@@ -5476,8 +5476,8 @@
       for (const [si, s] of ex.sets.entries()) {
         body.appendChild(await renderCardioRow(ex, si, s, prs, prev, defForMet, bwKg, showDist));
       }
-      const controls = el("div", { class: "row", style: "gap:12px; align-items:center; margin-top:8px; flex-wrap:wrap;" },
-        el("button", { class: "btn btn-ghost btn-sm", on: { click: async () => {
+      const controls = el("div", { class: "set-add-wrap" },
+        el("button", { class: "btn add-set-btn", "data-testid": "add-set", on: { click: async () => {
           const last = [...ex.sets].reverse().find(x => x.done) || ex.sets[ex.sets.length - 1];
           ex.sets.push({
             durationMin: last?.durationMin ?? null,
@@ -5502,8 +5502,8 @@
       for (const [si, s] of ex.sets.entries()) {
         body.appendChild(await renderCustomRow(ex, si, s, prs, prev, metric));
       }
-      const controls = el("div", { class: "row", style: "gap:12px; align-items:center; margin-top:8px; flex-wrap:wrap;" },
-        el("button", { class: "btn btn-ghost btn-sm", on: { click: async () => {
+      const controls = el("div", { class: "set-add-wrap" },
+        el("button", { class: "btn add-set-btn", "data-testid": "add-set", on: { click: async () => {
           const last = [...ex.sets].reverse().find(x => x.done) || ex.sets[ex.sets.length - 1];
           ex.sets.push({ value: last?.value ?? null, done: false });
           await Storage.saveWorkout(state.activeWorkout);
@@ -5530,8 +5530,8 @@
       }
 
       // Add set button + delete hint
-      const controls = el("div", { class: "row", style: "gap:12px; align-items:center; margin-top:8px; flex-wrap:wrap;" },
-        el("button", { class: "btn btn-ghost btn-sm", on: { click: async () => {
+      const controls = el("div", { class: "set-add-wrap" },
+        el("button", { class: "btn add-set-btn", "data-testid": "add-set", on: { click: async () => {
           const lastDone = [...ex.sets].reverse().find(x => x.done);
           const lastAny = ex.sets[ex.sets.length - 1];
           const prevSet = prev?.sets?.[ex.sets.length] || prev?.sets?.[(prev.sets || []).length - 1];
