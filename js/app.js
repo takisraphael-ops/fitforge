@@ -38,7 +38,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=146").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=147").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -7405,33 +7405,41 @@
 
   // Open any past day's breakdown, including days with nothing logged — those
   // never appear in a history list, so this is the only way to reach them.
-  function openDayPicker() {
-    const today = U.todayISO();
-    const items = recentDayItems(90);
-    const overlay = el("div", { class: "wsheet-overlay", "data-testid": "day-picker",
+  // Generic date wheel. Used to open a past day, and to re-date a workout.
+  function openDateSheet({ title, date, confirmLabel, testid, onPick }) {
+    const items = recentDayItems(120, date);
+    const overlay = el("div", { class: "wsheet-overlay", "data-testid": testid || "date-sheet",
       on: { click: (e) => { if (e.target === overlay) close(); } } });
     function onKey(e) { if (e.key === "Escape") { e.preventDefault(); close(); } }
     const close = () => { document.removeEventListener("keydown", onKey); overlay.remove(); };
     document.addEventListener("keydown", onKey);
 
-    let picked = items[1] ? items[1].value : today; // default to yesterday
+    let picked = date || (items[1] ? items[1].value : U.todayISO());
     const wheelC = buildWheel({
       items, value: picked, itemHeight: 44, visibleCount: 5,
-      variant: "wheel-sheet wheel-when-day", testid: "day-picker-wheel",
+      variant: "wheel-sheet wheel-when-day", testid: "date-sheet-wheel",
       onChange: (v) => { picked = v; }
     });
     overlay.appendChild(el("div", { class: "wsheet" },
-      el("div", { class: "wsheet-title" }, "Open a day"),
+      el("div", { class: "wsheet-title" }, title || "Pick a day"),
       el("div", { class: "wsheet-wheel" }, wheelC.el),
       el("div", { class: "wsheet-actions" },
         el("button", { class: "btn", on: { click: close } }, "Cancel"),
         el("button", {
-          class: "btn btn-primary", "data-testid": "day-picker-open",
-          on: { click: () => { const d = picked; close(); openNutritionDayDetail(d); } }
-        }, "Open")
+          class: "btn btn-primary", "data-testid": "date-sheet-ok",
+          on: { click: () => { const d = picked; close(); onPick && onPick(d); } }
+        }, confirmLabel || "Open")
       )
     ));
     document.body.appendChild(overlay);
+  }
+
+  function openDayPicker() {
+    openDateSheet({
+      title: "Open a day", testid: "day-picker", confirmLabel: "Open",
+      date: recentDayItems(2)[1] ? recentDayItems(2)[1].value : U.todayISO(),
+      onPick: (d) => openNutritionDayDetail(d)
+    });
   }
 
   // Shared handler: retime/re-date a logged meal from any list it appears in.
@@ -9082,6 +9090,76 @@
       }
     }
 
+    // —— Supplements for this day ——
+    // The daily checklist used to be today-only, so a day you forgot to tick
+    // could never be corrected. Same list, same toggle, bound to this date.
+    {
+      const supplements = await Storage.getSupplements();
+      if (supplements.length) {
+        const logs = await Storage.getSupplementLogs();
+        const dayLogs = logs.filter(l => l.date === date);
+        const taken = new Set(dayLogs.map(l => l.supplementId));
+        const sorted = supplements.slice().sort((a, b) =>
+          String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" }));
+
+        const group = el("div", { class: "meal-group", "data-testid": "day-supplements", style: "margin-bottom: 12px" });
+        const head = el("div", { class: "meal-group-kcal", "data-testid": "day-supp-count" },
+          `${taken.size} of ${sorted.length}`);
+        group.appendChild(el("div", { class: "meal-group-header" },
+          el("div", {}, el("div", { class: "meal-group-title" }, "Supplements")), head));
+
+        for (const sup of sorted) {
+          const row = el("div", { class: "meal-item day-supp-row", "data-supp": sup.id });
+          const log = () => dayLogs.find(l => l.supplementId === sup.id);
+          const meta = el("div", { class: "meal-item-meta" });
+          const btn = el("button", {
+            class: "supp-take", type: "button", "data-testid": "day-supp-take",
+            "aria-label": `Mark ${sup.name} taken on this day`
+          });
+          const paint = () => {
+            const l = log();
+            const on = !!l;
+            row.classList.toggle("is-taken", on);
+            btn.className = "supp-take" + (on ? " is-on" : "");
+            btn.textContent = on ? "Taken" : "Take";
+            btn.setAttribute("aria-pressed", on ? "true" : "false");
+            meta.textContent = formatSupplementDose(sup) + (on && l.time ? ` · ${l.time}` : "");
+            head.textContent = `${taken.size} of ${sorted.length}`;
+          };
+          btn.addEventListener("click", async () => {
+            const l = log();
+            if (l) {
+              await Storage.deleteSupplementLog(l.id);
+              const i2 = dayLogs.indexOf(l); if (i2 >= 0) dayLogs.splice(i2, 1);
+              taken.delete(sup.id);
+            } else {
+              // A backdated tick has no meaningful clock time, so use the
+              // supplement's own reminder time when it has one.
+              const obj = {
+                id: U.uid(), date, supplementId: sup.id, name: sup.name,
+                dose: sup.defaultDose ?? null, unit: sup.unit || "serving",
+                time: U.normalizeMealTime(sup.reminderTime) || (date === U.todayISO() ? U.nowMealTime() : "09:00"),
+                taken: true, savedAt: Date.now()
+              };
+              await Storage.saveSupplementLog(obj);
+              dayLogs.push(obj);
+              taken.add(sup.id);
+            }
+            paint();
+            renderMain();
+          });
+          row.append(
+            el("div", { style: "min-width:0; flex:1" },
+              el("div", { class: "meal-item-name" }, sup.name), meta),
+            btn
+          );
+          paint();
+          group.appendChild(row);
+        }
+        body.appendChild(group);
+      }
+    }
+
     const footer = el("div", {},
       el("button", { class: "btn", on: { click: closeModal } }, "Close"),
       // Re-logging something you eat often is the common case for a past day,
@@ -10006,76 +10084,247 @@
     view.appendChild(card);
   }
 
+  // Past-session detail. Everything here is editable: a session you logged
+  // last week is as correctable as one you logged five minutes ago, so this is
+  // the same view whether you are reviewing or fixing.
   function openWorkoutDetail(w) {
-    const burned = w.kcalBurned != null ? w.kcalBurned : workoutKcalTotal(w);
-    const body = el("div", {},
-      el("div", { class: "text-sm text-muted mb-8" },
-        `${U.formatDate(w.date, { year: "numeric", weekday: "long" })} · ${U.formatDuration(w.durationSec)}` +
-        (burned > 0 ? ` · ≈ ${burned} kcal burned` : "")
-      ),
-      w.notes ? el("div", { class: "workout-notes-view" },
-        el("div", { class: "label" }, "Session notes"),
-        el("div", { class: "text-sm" }, w.notes)
-      ) : null,
-      ...(w.exercises || []).map(ex =>
-        el("div", { class: "exercise-block", style: "margin-bottom: 12px" },
-          el("div", { class: "exercise-block-header" }, el("div", { class: "exercise-block-title" },
+    // Work on a copy; nothing is written until a change is actually made.
+    const draft = JSON.parse(JSON.stringify(w));
+
+    async function persist(rerender) {
+      draft.kcalBurned = workoutKcalTotal(draft);
+      await Storage.saveWorkout(draft);
+      Object.assign(w, JSON.parse(JSON.stringify(draft)));
+      renderMain();
+      if (rerender !== false) rebuild();
+    }
+
+    // A numeric cell that opens the app's numpad and writes straight back.
+    function numCell(obj, key, opts) {
+      const inp = el("input", {
+        class: "input input-num set-edit-cell",
+        type: "text", inputmode: "decimal",
+        value: obj[key] == null ? "" : String(obj[key]),
+        "data-testid": opts.testid || null
+      });
+      attachNumPad(inp, opts.pad || {});
+      const commit = async () => {
+        const raw = inp.value.trim();
+        const n = raw === "" ? null : Number(raw);
+        if (raw !== "" && !Number.isFinite(n)) { inp.value = obj[key] == null ? "" : String(obj[key]); return; }
+        if (obj[key] === n) return;
+        obj[key] = n;
+        await persist(false);
+        if (opts.onCommit) opts.onCommit();
+      };
+      inp.addEventListener("change", commit);
+      inp.addEventListener("blur", commit);
+      return inp;
+    }
+
+    function setRow(ex, s, i) {
+      const del = el("button", {
+        class: "icon-btn set-edit-del", title: "Delete set", "aria-label": `Delete set ${i + 1}`,
+        html: icons.trash,
+        on: { click: async () => {
+          ex.sets.splice(i, 1);
+          if (!ex.sets.length) {
+            const keep = await confirmDialog(`Remove ${ex.name} from this session?`,
+              { title: "No sets left", okLabel: "Remove exercise" });
+            if (keep) draft.exercises = draft.exercises.filter(x => x !== ex);
+            else ex.sets.push({});
+          }
+          await persist();
+        } }
+      });
+
+      if (ex.type === "custom" || s.value != null) {
+        const m = normalizeMetric(ex.metric);
+        return el("div", { class: "set-row type-custom set-row-edit", style: "grid-template-columns: 34px 1fr 60px 36px" },
+          el("div", { class: "set-index" }, String(i + 1)),
+          numCell(s, "value", { testid: "wd-value" }),
+          el("div", { class: "text-xs text-faint", style: "text-align:center" }, m.unit || ""),
+          del
+        );
+      }
+      if (ex.type === "cardio" || s.durationMin != null) {
+        const showDist = cardioTracksDistance(ex);
+        return el("div", { class: "set-row type-cardio set-row-edit", style: `grid-template-columns: 34px 1fr ${showDist ? "1fr " : ""}36px` },
+          el("div", { class: "set-index" }, String(i + 1)),
+          numCell(s, "durationMin", { testid: "wd-min", pad: { unit: "min" } }),
+          showDist ? numCell(s, "distanceKm", { testid: "wd-km", pad: { decimals: true, unit: "km" } }) : null,
+          del
+        );
+      }
+      if (ex.type === "hold" || s.seconds != null) {
+        return el("div", { class: "set-row set-row-edit", style: "grid-template-columns: 34px 1fr 60px 36px" },
+          el("div", { class: "set-index" }, String(i + 1)),
+          numCell(s, "seconds", { testid: "wd-sec", pad: { unit: "s" } }),
+          el("div", { class: "text-xs text-faint", style: "text-align:center" }, ex.perSide ? "s/side" : "sec"),
+          del
+        );
+      }
+      const e1 = el("div", { class: "mono text-muted set-edit-e1rm", style: "text-align:center" },
+        s.weight && s.reps ? `e1RM ${U.epley(s.weight, s.reps).toFixed(1)}` : "—");
+      const refreshE1 = () => {
+        e1.textContent = s.weight && s.reps ? `e1RM ${U.epley(s.weight, s.reps).toFixed(1)}` : "—";
+      };
+      return el("div", { class: "set-row set-row-edit" + (s.drop ? " is-drop" : ""), style: "grid-template-columns: 34px 1fr 1fr 1fr 36px" },
+        el("div", { class: "set-index" }, String(i + 1) + (s.drop ? " •" : "")),
+        numCell(s, "weight", { testid: "wd-weight", pad: { decimals: true, unit: "kg", wheel: "weight" }, onCommit: refreshE1 }),
+        numCell(s, "reps", { testid: "wd-reps", pad: { wheel: "reps" }, onCommit: refreshE1 }),
+        e1,
+        del
+      );
+    }
+
+    function build() {
+      const burned = draft.kcalBurned != null ? draft.kcalBurned : workoutKcalTotal(draft);
+      const body = el("div", { class: "workout-edit" });
+
+      // —— when + how long ——
+      body.appendChild(el("div", { class: "wd-meta" },
+        el("button", {
+          class: "wd-meta-chip", type: "button", "data-testid": "wd-date",
+          title: "Change the day this session was logged on",
+          on: { click: () => openDateSheet({
+            title: "Move this session", confirmLabel: "Move", date: draft.date,
+            onPick: async (d) => {
+              if (d === draft.date) return;
+              draft.date = d;
+              // completedAt drives the 14-day heat window, so it has to follow.
+              const at = new Date(d + "T12:00:00");
+              if (Number.isFinite(at.getTime())) draft.completedAt = at.getTime();
+              await persist();
+              toast(`Moved to ${U.formatDate(d)}`);
+            }
+          }) }
+        }, U.formatDate(draft.date, { year: "numeric", weekday: "long" })),
+        el("span", { class: "text-sm text-muted" },
+          U.formatDuration(draft.durationSec) + (burned > 0 ? ` · ≈ ${burned} kcal` : ""))
+      ));
+
+      // —— name ——
+      const nameI = el("input", {
+        class: "input", type: "text", maxlength: "60", value: draft.name || "",
+        placeholder: "Session name", "data-testid": "wd-name"
+      });
+      const commitName = async () => {
+        const v = nameI.value.trim();
+        if (v === (draft.name || "")) return;
+        draft.name = v;
+        await persist(false);
+        // Keep the modal heading in step without rebuilding the whole form,
+        // which would blur the field the user is still typing in.
+        const t = document.querySelector(".modal-overlay .modal-title");
+        if (t) t.textContent = v || "Workout";
+      };
+      nameI.addEventListener("change", commitName);
+      nameI.addEventListener("blur", commitName);
+      body.appendChild(el("label", { class: "field" },
+        el("span", { class: "label" }, "Session name"), nameI));
+
+      // —— exercises ——
+      for (const ex of (draft.exercises || [])) {
+        const block = el("div", { class: "exercise-block", style: "margin-bottom: 12px" });
+        block.appendChild(el("div", { class: "exercise-block-header" },
+          el("div", { class: "exercise-block-title" },
             ex.name,
-            ex.supersetGroup ? el("span", { class: "chip chip-sm", style: "margin-left:8px" }, "SS") : null,
-            exerciseKcalTotal(ex) > 0 ? el("span", { class: "chip chip-sm", style: "margin-left:8px" }, `≈ ${exerciseKcalTotal(ex)} kcal`) : null)),
-          el("div", { class: "exercise-block-body" },
-            ...ex.sets.map((s, i) => {
-              if (ex.type === "custom" || s.value != null) {
-                const m = normalizeMetric(ex.metric);
-                const valTxt = s.value != null ? `${s.value}${m.unit ? " " + m.unit : ""}` : "—";
-                return el("div", { class: "set-row type-custom", style: "grid-template-columns: 40px 1fr 1fr" },
-                  el("div", { class: "set-index" }, String(i + 1)),
-                  el("div", { class: "mono", style: "text-align:center" }, valTxt),
-                  el("div", { class: "mono text-muted", style: "text-align:center" },
-                    s.isPR ? el("span", { class: "pr-badge" }, "PR") : "—",
-                    s.note ? el("span", { class: "text-xs text-faint", style: "display:block" }, s.note) : null)
-                );
+            exerciseKcalTotal(ex) > 0
+              ? el("span", { class: "chip chip-sm", style: "margin-left:8px" }, `≈ ${exerciseKcalTotal(ex)} kcal`) : null),
+          el("button", {
+            class: "icon-btn", title: `Remove ${ex.name}`, "aria-label": `Remove ${ex.name}`,
+            html: icons.trash, "data-testid": "wd-del-exercise",
+            on: { click: async () => {
+              if (!(await confirmDialog(`Remove ${ex.name} from this session?`,
+                { title: "Remove exercise?", okLabel: "Remove", danger: true }))) return;
+              draft.exercises = draft.exercises.filter(x => x !== ex);
+              await persist();
+            } }
+          })
+        ));
+        const bodyEl = el("div", { class: "exercise-block-body" });
+        (ex.sets || []).forEach((s, i) => bodyEl.appendChild(setRow(ex, s, i)));
+        bodyEl.appendChild(el("button", {
+          class: "btn btn-ghost btn-sm wd-add-set", type: "button", "data-testid": "wd-add-set",
+          on: { click: async () => {
+            const last = (ex.sets || [])[ex.sets.length - 1] || {};
+            const blank = ex.type === "cardio" ? { durationMin: last.durationMin ?? null, distanceKm: last.distanceKm ?? null }
+              : ex.type === "hold" ? { seconds: last.seconds ?? null }
+              : ex.type === "custom" ? { value: last.value ?? null }
+              : { weight: last.weight ?? null, reps: last.reps ?? null };
+            blank.done = true;
+            ex.sets = (ex.sets || []).concat(blank);
+            await persist();
+          } }
+        }, "+ Add set"));
+        block.appendChild(bodyEl);
+        body.appendChild(block);
+      }
+
+      body.appendChild(el("button", {
+        class: "btn btn-block wd-add-ex", type: "button", "data-testid": "wd-add-exercise",
+        on: { click: async () => {
+          const all = await getAllExercises();
+          const picker = buildExercisePickerUI(all, {
+            confirmLabel: (n) => `Add ${n} to this session`,
+            existingIds: new Set((draft.exercises || []).map(e => e.exerciseId)),
+            customImmediate: true,
+            onConfirm: async (items) => {
+              closeModal();
+              const byId = new Map(all.map(e => [e.id, e]));
+              for (const it of items) {
+                const def = byId.get(it.id) || {};
+                const ex = { exerciseId: it.id, name: it.name, category: def.category || "", muscles: def.muscles || [], sets: [] };
+                normalizeWorkoutExercise(ex, def);
+                ex.sets = [ex.type === "cardio" ? { durationMin: null, done: true }
+                  : ex.type === "hold" ? { seconds: null, done: true }
+                  : ex.type === "custom" ? { value: null, done: true }
+                  : { weight: null, reps: null, done: true }];
+                draft.exercises = (draft.exercises || []).concat(ex);
               }
-              if (ex.type === "cardio" || s.durationMin != null) {
-                const showDist = cardioTracksDistance(ex) && s.distanceKm != null;
-                const cols = showDist ? "40px 1fr 1fr 1fr" : "40px 1fr 1fr";
-                return el("div", { class: "set-row type-cardio", style: `grid-template-columns: ${cols}` },
-                  el("div", { class: "set-index" }, String(i + 1)),
-                  el("div", { class: "mono", style: "text-align:center" }, `${s.durationMin || 0} min`),
-                  showDist ? el("div", { class: "mono", style: "text-align:center" }, `${s.distanceKm} km`) : null,
-                  el("div", { class: "mono text-muted", style: "text-align:center" },
-                    s.kcal ? `≈ ${s.kcal} kcal` : "—",
-                    s.isPR ? el("span", { class: "pr-badge" }, "PR") : null,
-                    s.note ? el("span", { class: "text-xs text-faint", style: "display:block" }, s.note) : null)
-                );
-              }
-              const isBW = (ex.type === "bodyweight") || (!s.weight && s.reps);
-              return el("div", { class: "set-row" + (s.drop ? " is-drop" : ""), style: "grid-template-columns: 40px 1fr 1fr 1fr 1fr" },
-                el("div", { class: "set-index" }, String(i + 1) + (s.drop ? " • drop" : "")),
-                el("div", { class: "mono", style: "text-align:center" }, isBW ? "BW" : `${s.weight}kg`),
-                el("div", { class: "mono", style: "text-align:center" }, `${s.reps}`),
-                el("div", { class: "mono text-muted", style: "text-align:center" },
-                  s.weight && s.reps ? `e1RM ${U.epley(s.weight, s.reps).toFixed(1)}` : "—"),
-                el("div", { class: "mono text-muted", style: "text-align:center" },
-                  s.kcal ? `≈ ${s.kcal}` : "—",
-                  s.isPR ? el("span", { class: "pr-badge" }, "PR") : null,
-                  s.note ? el("span", { class: "text-xs text-faint", style: "display:block" }, s.note) : null)
-              );
-            })
-          )
-        )
-      )
-    );
-    const footer = el("div", {},
-      el("button", { class: "btn btn-danger", on: { click: async () => {
-        if (!(await confirmDialog("Delete this workout permanently?", { title: "Delete workout?", okLabel: "Delete", danger: true }))) return;
-        await Storage.deleteWorkout(w.id);
-        closeModal();
-        renderMain();
-      } } }, "Delete"),
-      el("button", { class: "btn", on: { click: closeModal } }, "Close")
-    );
-    openModal(w.name || "Workout", body, footer);
+              await persist(false);
+              rebuild();
+            }
+          });
+          openModal("Add exercise", picker.el, null);
+        } }
+      }, "+ Add exercise"));
+
+      // —— notes ——
+      const notesI = el("textarea", {
+        class: "input", rows: "2", placeholder: "Session notes (optional)",
+        "data-testid": "wd-notes"
+      });
+      notesI.value = draft.notes || "";
+      const commitNotes = async () => {
+        const v = notesI.value.trim();
+        if (v === (draft.notes || "")) return;
+        draft.notes = v;
+        await persist(false);
+      };
+      notesI.addEventListener("change", commitNotes);
+      notesI.addEventListener("blur", commitNotes);
+      body.appendChild(el("label", { class: "field" },
+        el("span", { class: "label" }, "Session notes"), notesI));
+
+      const footer = el("div", {},
+        el("button", { class: "btn btn-danger", "data-testid": "wd-delete", on: { click: async () => {
+          if (!(await confirmDialog("Delete this workout permanently?", { title: "Delete workout?", okLabel: "Delete", danger: true }))) return;
+          await Storage.deleteWorkout(draft.id);
+          closeModal();
+          renderMain();
+        } } }, "Delete"),
+        el("button", { class: "btn btn-primary", on: { click: closeModal } }, "Done")
+      );
+      return { body, footer };
+    }
+
+    function rebuild() {
+      const { body, footer } = build();
+      openModal(draft.name || "Workout", body, footer);
+    }
+    rebuild();
   }
 
   // ============ SETTINGS / EXPORT / IMPORT ============

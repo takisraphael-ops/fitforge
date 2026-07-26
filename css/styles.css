@@ -4911,3 +4911,24 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 }
 /* Badges shouldn't compete with the preview */
 .body-map-stage.has-preview .body-map-badge { opacity: 0.35; }
+
+/* ---- Editable past-session detail ---- */
+.workout-edit .field { display: block; margin: 10px 0 14px; }
+.wd-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.wd-meta-chip {
+  font: inherit; font-weight: 600; font-size: 13px;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 999px; padding: 5px 12px; cursor: pointer;
+  transition: background .16s var(--ease-spring), transform .16s var(--ease-spring);
+}
+.wd-meta-chip:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.wd-meta-chip:active { transform: scale(0.96); }
+.set-row-edit { align-items: center; gap: 6px; }
+.set-edit-cell { text-align: center; padding: 7px 4px; font-family: var(--font-mono); }
+.set-edit-del { opacity: 0.55; }
+.set-edit-del:hover { opacity: 1; color: var(--danger, #e5484d); }
+.wd-add-set { width: 100%; margin-top: 6px; color: var(--text-muted); }
+.wd-add-ex { margin: 4px 0 12px; }
+.day-supp-row.is-taken .meal-item-name { color: var(--text-muted); }
+.day-supp-row .supp-take { flex: none; }
