@@ -3967,37 +3967,150 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 @keyframes hmPop { 0% { transform: scale(.4); } 55% { transform: scale(1.15); } 100% { transform: scale(1); } }
 .week-tile-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--text-faint); }
 
-/* Weekly plan editor + entry */
-.wplan-list { display: flex; flex-direction: column; gap: 8px; }
-.wplan-row {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 12px; border-radius: 12px;
-  background: var(--bg-elev); border: 1px solid var(--border);
-}
-.wplan-row.is-today { border-color: var(--accent); }
-.wplan-day { flex: 0 0 96px; display: flex; align-items: center; gap: 6px; }
-.wplan-day-name { font-size: 14px; font-weight: 600; }
-.wplan-today-tag {
-  font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
-  color: var(--accent); background: var(--accent-soft);
-  padding: 2px 5px; border-radius: 5px;
-}
-.wplan-row .select { flex: 1; min-width: 0; }
 @media (prefers-reduced-motion: reduce) {
   .today-hero, .week-tile-check { animation: none !important; }
 }
 
-/* Weekly plan quiz — review step rows */
-.wplan-review-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  width: 100%; padding: 15px 16px; cursor: pointer; text-align: left;
-  background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius);
-  color: var(--text); -webkit-tap-highlight-color: transparent;
+/* ============ Weekly plan ============
+   The whole week left to right on one screen. Seven columns must fit a 390px
+   phone without scrolling — seeing the week at a glance is the entire point —
+   which is why the focus labels have short forms. */
+.wplan {
+  position: fixed; inset: 0; z-index: 2500;
+  display: flex; flex-direction: column;
+  padding: calc(18px + env(safe-area-inset-top, 0px)) 16px calc(18px + env(safe-area-inset-bottom, 0px));
+  background: var(--bg);
+  animation: pquiz-fade 220ms ease;
+  overflow-y: auto; overscroll-behavior: contain;
 }
-.wplan-review-row:active { transform: scale(0.99); }
-.wplan-review-day { font-size: 15px; font-weight: 600; }
-.wplan-review-val { font-size: 14px; color: var(--text-faint); }
-.wplan-review-val.has { color: var(--accent); font-weight: 600; }
+.wplan.is-closing { animation: pquiz-fade 200ms ease reverse forwards; }
+.wplan-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.wplan-title { font-size: 26px; font-weight: 800; letter-spacing: -.02em; margin: 2px 0 0; }
+
+.wplan-splits { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 16px 0 4px; }
+.wplan-splits::-webkit-scrollbar { display: none; }
+.wplan-split-chip {
+  flex: none; padding: 9px 14px; border-radius: 100px; cursor: pointer;
+  font-size: 13px; font-weight: 700; white-space: nowrap;
+  color: var(--text-muted); background: var(--bg-elev);
+  border: 1px solid var(--border); transition: all 130ms ease;
+}
+.wplan-split-chip:active { transform: scale(0.97); }
+.wplan-split-chip.is-clear { color: var(--text-faint); }
+
+/* Seven fixed columns. No horizontal scroll — a week you have to scroll is
+   not a week you can read. */
+.wplan-row {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px;
+  margin-top: 14px;
+}
+.wday {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 10px 2px 9px; min-width: 0; cursor: pointer;
+  border-radius: 13px; background: var(--bg-elev);
+  border: 1px solid var(--border); color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 160ms ease, background 160ms ease, transform 120ms ease;
+}
+.wday:active { transform: scale(0.96); }
+.wday-letter {
+  font-size: 10px; font-weight: 800; letter-spacing: .1em;
+  color: var(--text-faint); text-transform: uppercase;
+}
+.wday-icon { display: block; width: 22px; height: 22px; color: var(--text-muted); }
+.wday-icon svg { width: 100%; height: 100%; display: block; }
+.wday-label {
+  font-size: 9.5px; font-weight: 700; line-height: 1.15; text-align: center;
+  color: var(--text-faint);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wday.is-set { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.wday.is-set .wday-icon { color: var(--accent); }
+.wday.is-set .wday-label { color: var(--text); }
+.wday.is-rest { background: var(--bg-sunken); }
+.wday.is-rest .wday-icon, .wday.is-rest .wday-label { color: var(--text-faint); }
+.wday.is-open { border-style: dashed; }
+
+/* Exactly one looping accent on the screen: today. Seven competing loops
+   would be noise; one reads as "you are here". */
+.wday.is-today { border-color: var(--accent); }
+.wday.is-today::after {
+  content: ""; position: absolute; inset: -1px; border-radius: 13px;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
+  animation: wday-breathe 2.8s ease-in-out infinite; pointer-events: none;
+}
+.wday { position: relative; }
+@keyframes wday-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 34%, transparent); }
+  50%      { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 0%, transparent); }
+}
+
+/* One-shot on assignment: the icon draws itself in. pathLength is normalised
+   to 100 in JS so a single keyframe serves every icon. */
+@keyframes wday-draw {
+  from { stroke-dasharray: 100; stroke-dashoffset: 100; }
+  to   { stroke-dasharray: 100; stroke-dashoffset: 0; }
+}
+@keyframes wday-pop {
+  0% { transform: scale(0.82); }
+  60% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+.wday-icon.just-set { animation: wday-pop 420ms cubic-bezier(.3,1.3,.5,1) both; }
+
+/* Copy mode: one day picked up, the rest are targets. */
+.wday.is-source { border-color: var(--accent); background: var(--accent-soft); }
+.wday.is-target { border-style: dashed; border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+
+.wplan-days { display: flex; flex-direction: column; gap: 4px; margin-top: 14px; }
+.wplan-dayrow {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; padding: 11px 13px; cursor: pointer; text-align: left;
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: 12px; color: var(--text); -webkit-tap-highlight-color: transparent;
+  transition: border-color 140ms ease;
+}
+.wplan-dayrow:active { transform: scale(0.995); }
+.wplan-dayrow.is-today { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.wplan-dayrow-day { font-size: 14px; font-weight: 700; }
+.wplan-dayrow-today {
+  font-size: 9px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--on-accent); background: var(--accent);
+  padding: 2px 6px; border-radius: 5px; margin-left: 7px;
+}
+.wplan-dayrow-val { font-size: 13px; color: var(--text-faint); text-align: right; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wplan-dayrow-val.has { color: var(--accent); font-weight: 600; }
+
+.wplan-hint {
+  font-size: 12.5px; color: var(--text-faint); line-height: 1.45;
+  padding: 12px 2px 0; text-align: center;
+}
+.wplan-hint.is-copying { color: var(--accent); font-weight: 600; }
+.wplan-foot { margin-top: auto; padding-top: 20px; }
+
+/* Assign sheet — one tap per row, no wheel to spin. */
+.wassign-list { display: flex; flex-direction: column; gap: 6px; max-height: 62vh; overflow-y: auto; }
+.wassign-row {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 11px 12px; cursor: pointer; text-align: left;
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: 13px; color: var(--text); -webkit-tap-highlight-color: transparent;
+}
+.wassign-row:active { transform: scale(0.99); }
+.wassign-row.is-sel { border-color: var(--accent); background: var(--accent-soft); }
+.wassign-icon { flex: none; width: 22px; height: 22px; color: var(--accent); }
+.wassign-icon svg { width: 100%; height: 100%; display: block; }
+.wassign-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.wassign-label { font-size: 14.5px; font-weight: 700; }
+.wassign-hint { font-size: 11.5px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wassign-tick { flex: none; width: 16px; height: 16px; color: var(--accent); }
+.wassign-tick svg { width: 100%; height: 100%; display: block; }
+
+@media (prefers-reduced-motion: reduce) {
+  .wplan, .wday-icon.just-set { animation: none !important; }
+  .wday.is-today::after { animation: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
+}
 
 /* Plan quiz — small divider label between templates and focuses */
 .pquiz-list-label {

@@ -39,7 +39,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=152").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=153").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -3348,29 +3348,29 @@
   const focusSvg = (inner) =>
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + inner + '</svg>';
   const DAY_FOCUSES = [
-    { key: "push", label: "Push", cat: "chest", desc: "Chest, shoulders & triceps",
+    { key: "push", label: "Push", short: "Push", cat: "chest", desc: "Chest, shoulders & triceps",
       icon: focusSvg('<path d="M4 12h9"/><path d="M10 8l4 4-4 4"/><path d="M18 4v16"/>') },
-    { key: "pull", label: "Pull", cat: "back", desc: "Back & biceps",
+    { key: "pull", label: "Pull", short: "Pull", cat: "back", desc: "Back & biceps",
       icon: focusSvg('<path d="M20 12h-9"/><path d="M14 8l-4 4 4 4"/><path d="M6 4v16"/>') },
-    { key: "legs", label: "Legs", cat: "legs", desc: "Quads, hamstrings & glutes",
+    { key: "legs", label: "Legs", short: "Legs", cat: "legs", desc: "Quads, hamstrings & glutes",
       icon: focusSvg('<path d="M9 3l-1 9-2 9"/><path d="M15 3l1 9 2 9"/><path d="M8.5 12h7"/>') },
-    { key: "upper", label: "Upper body", cat: "chest", desc: "Chest, back, shoulders & arms",
+    { key: "upper", label: "Upper body", short: "Upper", cat: "chest", desc: "Chest, back, shoulders & arms",
       icon: focusSvg('<path d="M6 8l2.5-3h7L18 8"/><path d="M8 5v6a4 4 0 008 0V5"/>') },
-    { key: "lower", label: "Lower body", cat: "legs", desc: "Legs & glutes",
+    { key: "lower", label: "Lower body", short: "Lower", cat: "legs", desc: "Legs & glutes",
       icon: focusSvg('<path d="M6 6h12l-1 6H7z"/><path d="M8.5 12l-1.5 9M15.5 12l1.5 9"/>') },
-    { key: "full", label: "Full body", cat: null, desc: "A bit of everything",
+    { key: "full", label: "Full body", short: "Full", cat: null, desc: "A bit of everything",
       icon: focusSvg('<circle cx="12" cy="4.5" r="2"/><path d="M12 7v7"/><path d="M6.5 9.5l5.5 2 5.5-2"/><path d="M12 14l-3.5 6M12 14l3.5 6"/>') },
-    { key: "arms", label: "Arms", cat: "arms", desc: "Biceps & triceps",
+    { key: "arms", label: "Arms", short: "Arms", cat: "arms", desc: "Biceps & triceps",
       icon: focusSvg('<path d="M7 21v-6a3 3 0 013-3h1"/><path d="M11 12V6a2.5 2.5 0 015 0c0 3 2 4 2 7a4 4 0 01-8 .5"/>') },
-    { key: "chest", label: "Chest", cat: "chest", desc: "Chest focus",
+    { key: "chest", label: "Chest", short: "Chest", cat: "chest", desc: "Chest focus",
       icon: focusSvg('<path d="M4 8h16v3a4 4 0 01-4 4h-2a2 2 0 01-4 0H8a4 4 0 01-4-4z"/><path d="M12 8v7"/>') },
-    { key: "back", label: "Back", cat: "back", desc: "Back focus",
+    { key: "back", label: "Back", short: "Back", cat: "back", desc: "Back focus",
       icon: focusSvg('<path d="M12 3v18"/><path d="M12 7L6 9v4M12 7l6 2v4"/>') },
-    { key: "shoulders", label: "Shoulders", cat: "shoulders", desc: "Delts",
+    { key: "shoulders", label: "Shoulders", short: "Delts", cat: "shoulders", desc: "Delts",
       icon: focusSvg('<circle cx="6.5" cy="12" r="3.5"/><circle cx="17.5" cy="12" r="3.5"/><path d="M10 12h4"/>') },
-    { key: "core", label: "Core", cat: "core", desc: "Abs & core",
+    { key: "core", label: "Core", short: "Core", cat: "core", desc: "Abs & core",
       icon: focusSvg('<rect x="8.5" y="4" width="7" height="16" rx="2"/><path d="M8.5 9.5h7M8.5 14.5h7"/>') },
-    { key: "cardio", label: "Cardio", cat: "cardio", desc: "Conditioning",
+    { key: "cardio", label: "Cardio", short: "Cardio", cat: "cardio", desc: "Conditioning",
       icon: focusSvg('<path d="M3 12h4l2-6 4 13 2.5-7H21"/>') }
   ];
   const REST_ICON = focusSvg('<path d="M20.5 14.5A8 8 0 1110.2 3.6a6 6 0 0010.3 10.9z"/>');
@@ -4760,205 +4760,284 @@
 
   // Guided, one-day-per-screen weekly plan builder — same stepped feel as the
   // profile quiz. Assigns a template / Rest / Open to each weekday.
+  // Weekly plan — the whole week on one screen, left to right.
+  //
+  // This replaced an eight-screen wizard (one per day, plus a review). The
+  // wizard made you spin a wheel and confirm seven times even though most
+  // people assign three to five days and leave the rest open, and you could
+  // never see the week while building it. Here a push/pull/legs week is six
+  // taps with the week visible throughout, and days you skip are simply open.
   async function openWeeklyPlanQuiz() {
     const templates = await getAllTemplates();
     const tplById = new Map(templates.map(t => [t.id, t]));
     const draft = { ...getWeeklyPlan() };
     const todayKey = weekdayKeyFor();
+    // Long-press a filled day to pick it up, then tap others to copy it —
+    // building PPL twice over is three picks and three taps, not six picks.
+    let copyFrom = null;
 
-    const STEPS = [...WEEKDAY_KEYS, "review"];
-    const LAST_DAY = WEEKDAY_KEYS.length - 1;
-    let idx = 0;
+    const overlay = el("div", { class: "wplan", "data-testid": "weekly-plan-quiz" });
+    const cells = {};
 
-    const overlay = el("div", { class: "pquiz", id: "weekly-plan-quiz", "data-testid": "weekly-plan-quiz" });
-    const bar = el("div", { class: "pquiz-bar-fill" });
-    const backBtn = el("button", {
-      type: "button", class: "pquiz-back", "data-testid": "wplan-back",
-      html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>'
-    });
-    const closeBtn = el("button", {
-      type: "button", class: "pquiz-close", "data-testid": "wplan-close",
-      html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>'
-    });
-    const stage = el("div", { class: "pquiz-stage" });
-    overlay.append(el("div", { class: "pquiz-topbar" }, backBtn, el("div", { class: "pquiz-bar" }, bar), closeBtn), stage);
-
-    const close = () => { overlay.classList.add("is-closing"); setTimeout(() => overlay.remove(), 220); };
-    backBtn.addEventListener("click", () => { if (idx > 0) goto(idx - 1, "back"); });
-    closeBtn.addEventListener("click", close);
-
-    function assignLabel(v) {
-      if (v === "rest") return "Rest day";
+    function assignInfo(v) {
+      if (v === "rest") return { label: "Rest", full: "Rest day", icon: REST_ICON, kind: "rest" };
       const f = focusFromValue(v);
-      if (f) return f.label;
-      if (v && tplById.get(v)) return tplById.get(v).name;
-      return "Open";
-    }
-
-    function choiceCard({ label, hint, icon, iconHtml, selected, onPick, testid }) {
-      const card = el("button", {
-        type: "button", class: "pquiz-choice" + (selected ? " is-sel" : ""),
-        "data-testid": testid, on: { click: onPick }
-      });
-      if (iconHtml) card.appendChild(el("div", { class: "pquiz-choice-icon pquiz-choice-icon-svg", html: iconHtml }));
-      else if (icon) card.appendChild(el("div", { class: "pquiz-choice-icon" }, icon));
-      card.appendChild(el("div", { class: "pquiz-choice-main" },
-        el("div", { class: "pquiz-choice-label" }, label),
-        hint ? el("div", { class: "pquiz-choice-hint" }, hint) : null
-      ));
-      if (selected) card.appendChild(el("div", { class: "pquiz-choice-tick",
-        html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>' }));
-      return card;
-    }
-
-    // Choice list for a day, as a scroll picker "wheel" — the centred option
-    // grows and brightens; spin to it and tap (or Continue) to pick.
-    const WHEEL_ITEM_H = 60;
-    const WHEEL_H = 300;
-    function renderDay(key) {
-      const items = [];
-      for (const t of templates) {
-        const n = (t.exercises || []).length;
-        // Presets read by what they are ("Conditioning · 43 min"); your own
-        // templates keep the plain exercise count.
-        const hint = t.preset
-          ? `${(t.pillar || "preset").replace(/^./, c => c.toUpperCase())} · ${t.desc || templateEstMin(t) + " min"}`
-          : `${n} exercise${n === 1 ? "" : "s"} · template`;
-        items.push({ value: t.id, label: t.name, hint, icon: TEMPLATE_ICON, testid: `wplan-pick-${t.id}` });
+      if (f) return { label: f.short || f.label, full: f.label, icon: f.icon, kind: "focus" };
+      const t = v && tplById.get(v);
+      if (t) {
+        // "Push Day" -> "Push", "Bands — Upper Body" -> "Upper Body", then a
+        // hard cap so the column never has to ellipsise.
+        const base = String(t.name).split(" — ").pop().replace(/\s+Day$/i, "").trim();
+        let sh = base;
+        if (sh.length > 7) sh = sh.split(/[\s/]+/)[0];
+        // A template called "Push Day" should look like Push, not like a
+        // generic document — seven identical icons defeat the whole grid.
+        const lower = base.toLowerCase();
+        const f2 = DAY_FOCUSES.find(x => {
+          const l = x.label.toLowerCase();
+          return lower === l || lower.startsWith(l) || (l.length >= 3 && l.startsWith(lower));
+        });
+        return {
+          label: f2 ? (f2.short || f2.label) : (sh || t.name),
+          full: t.name,
+          icon: f2 ? f2.icon : TEMPLATE_ICON,
+          kind: "template"
+        };
       }
+      return { label: "Open", full: "Open — decide at the gym", icon: OPEN_ICON, kind: "open" };
+    }
+
+    // A one-shot draw-on. pathLength normalises every icon to 100 units so one
+    // keyframe works whatever the path actually measures.
+    function playDrawIn(host) {
+      if (reduceMotion()) return;
+      const parts = host.querySelectorAll("path, circle, rect, line, polyline, polygon");
+      parts.forEach((n, i) => {
+        n.setAttribute("pathLength", "100");
+        n.style.animation = "none";
+        void n.getBoundingClientRect();
+        n.style.animation = `wday-draw 460ms ${i * 70}ms cubic-bezier(.4,0,.2,1) both`;
+      });
+      host.classList.remove("just-set");
+      void host.getBoundingClientRect();
+      host.classList.add("just-set");
+    }
+
+    function paintCell(key, { animate = false } = {}) {
+      const cell = cells[key];
+      const v = draft[key];
+      const info = assignInfo(v);
+      const icon = cell.querySelector(".wday-icon");
+      const label = cell.querySelector(".wday-label");
+      icon.innerHTML = info.icon;
+      label.textContent = info.label;
+      cell.className = "wday" +
+        // An unassigned day must not read as assigned — only a focus or a
+        // template earns the accent.
+        (info.kind === "open" ? " is-open" : "") +
+        (info.kind === "rest" ? " is-rest" : "") +
+        (info.kind === "focus" || info.kind === "template" ? " is-set" : "") +
+        (key === todayKey ? " is-today" : "") +
+        (copyFrom === key ? " is-source" : "") +
+        (copyFrom && copyFrom !== key ? " is-target" : "");
+      cell.setAttribute("aria-label", `${WEEKDAY_LABELS[key]} — ${info.full}`);
+      const rowVal = dayRows[key];
+      if (rowVal) {
+        rowVal.textContent = info.full;
+        rowVal.classList.toggle("has", info.kind !== "open");
+      }
+      if (animate) playDrawIn(icon);
+    }
+
+    function paintAll(opts) { for (const k of WEEKDAY_KEYS) paintCell(k, opts); }
+
+    function setHint() {
+      const n = WEEKDAY_KEYS.filter(k => draft[k] && draft[k] !== "rest").length;
+      hint.textContent = copyFrom
+        ? `Tap days to copy ${assignInfo(draft[copyFrom]).full} into · tap ${WEEKDAY_LABELS[copyFrom]} again to stop`
+        : n
+          ? `${n} training day${n === 1 ? "" : "s"} · tap a day to change it, hold to copy it`
+          : "Tap a day to assign it, or start from a split above";
+      hint.classList.toggle("is-copying", !!copyFrom);
+    }
+
+    // ---- the assign sheet ----
+    function openAssign(key) {
+      const items = [];
       for (const f of DAY_FOCUSES) {
         items.push({ value: "focus:" + f.key, label: f.label, hint: f.desc, icon: f.icon, testid: `wplan-pick-focus-${f.key}` });
       }
       items.push({ value: "rest", label: "Rest day", hint: "Recovery — no session", icon: REST_ICON, testid: "wplan-pick-rest" });
       items.push({ value: null, label: "Open", hint: "Decide at the gym", icon: OPEN_ICON, testid: "wplan-pick-open" });
-
-      const curVal = draft[key] != null ? draft[key] : null;
-      let activeIdx = items.findIndex(it => it.value === curVal);
-      if (activeIdx < 0) activeIdx = items.length - 1; // default to "Open"
-
-      const wheel = el("div", { class: "wheel", "data-testid": "wplan-wheel" });
-      const itemEls = items.map((it, i) => el("button", {
-        type: "button", class: "wheel-item", "data-i": String(i), "data-testid": it.testid,
-        on: { click: () => onTap(i) }
-      },
-        el("span", { class: "wheel-item-icon", html: it.icon }),
-        el("span", { class: "wheel-item-label" }, it.label)
-      ));
-      itemEls.forEach(e => wheel.appendChild(e));
-      const wrap = el("div", { class: "wheel-wrap" }, el("div", { class: "wheel-selection" }), wheel);
-      const caption = el("div", { class: "wheel-caption text-muted" }, items[activeIdx].hint || "");
-
-      function paint() {
-        const center = wheel.scrollTop + WHEEL_H / 2;
-        let best = 0, bd = Infinity;
-        for (let i = 0; i < itemEls.length; i++) {
-          const c = itemEls[i].offsetTop + itemEls[i].offsetHeight / 2;
-          const d = Math.abs(c - center);
-          if (d < bd) { bd = d; best = i; }
-          const dist = Math.min(3, d / WHEEL_ITEM_H);
-          itemEls[i].style.transform = `scale(${(1 - dist * 0.16).toFixed(3)})`;
-          itemEls[i].style.opacity = String(Math.max(0.2, 1 - dist * 0.34).toFixed(3));
-          itemEls[i].classList.toggle("is-active", false);
-        }
-        itemEls[best].classList.add("is-active");
-        activeIdx = best;
-        caption.textContent = items[best].hint || "";
+      for (const t of templates) {
+        const n = (t.exercises || []).length;
+        const h = t.preset
+          ? `${(t.pillar || "preset").replace(/^./, c => c.toUpperCase())} · ${t.desc || templateEstMin(t) + " min"}`
+          : `${n} exercise${n === 1 ? "" : "s"} · template`;
+        items.push({ value: t.id, label: t.name, hint: h, icon: TEMPLATE_ICON, testid: `wplan-pick-${t.id}` });
       }
-      let raf = null;
-      wheel.addEventListener("scroll", () => {
-        if (raf) return;
-        raf = requestAnimationFrame(() => { raf = null; paint(); });
-      }, { passive: true });
-
-      function centerOn(i, smooth) {
-        wheel.scrollTo({ top: i * WHEEL_ITEM_H, behavior: smooth ? "smooth" : "auto" });
-      }
-      function confirm(i) {
-        const v = items[i].value;
-        if (v == null) delete draft[key]; else draft[key] = v;
-        goto(idx + 1, "next");
-      }
-      function onTap(i) {
-        // Tap the centred item to pick it; tap another to spin it to centre.
-        if (i === activeIdx) confirm(i);
-        else { centerOn(i, true); }
-      }
-
-      // Position on the current selection once laid out.
-      requestAnimationFrame(() => {
-        wheel.scrollTop = activeIdx * WHEEL_ITEM_H;
-        paint();
-      });
-
-      return el("div", { class: "pquiz-panel" },
-        el("div", { class: "pquiz-head" },
-          el("div", { class: "pquiz-eyebrow" }, key === todayKey ? "Today" : "Your week"),
-          el("h2", { class: "pquiz-title" }, WEEKDAY_LABELS[key]),
-          el("div", { class: "pquiz-sub" }, "Spin to a focus, then tap it or Continue.")
-        ),
-        el("div", { class: "pquiz-content pquiz-content-wheel" }, wrap, caption),
-        el("div", { class: "pquiz-foot" },
-          el("button", {
-            type: "button", class: "btn btn-primary btn-block pquiz-next", "data-testid": "wplan-continue",
-            on: { click: () => confirm(activeIdx) }
-          }, "Continue"),
-          templates.length ? null : el("button", {
-            type: "button", class: "pquiz-skip", "data-testid": "wplan-new-template",
-            on: { click: () => { close(); openTemplateEditor(null); } }
-          }, "＋ Create a template first")
-        )
-      );
-    }
-
-    function renderReview() {
-      const list = el("div", { class: "pquiz-list" });
-      for (const key of WEEKDAY_KEYS) {
-        const v = draft[key];
+      const cur = draft[key] != null ? draft[key] : null;
+      const list = el("div", { class: "wassign-list", "data-testid": "wplan-assign" });
+      for (const it of items) {
         list.appendChild(el("button", {
-          type: "button", class: "wplan-review-row", "data-testid": `wplan-review-${key}`,
-          on: { click: () => goto(WEEKDAY_KEYS.indexOf(key), "back") }
+          type: "button",
+          class: "wassign-row" + (it.value === cur ? " is-sel" : ""),
+          "data-testid": it.testid,
+          on: { click: () => {
+            if (it.value == null) delete draft[key]; else draft[key] = it.value;
+            closeModal();
+            paintCell(key, { animate: true });
+            setHint();
+          } }
         },
-          el("span", { class: "wplan-review-day" }, WEEKDAY_LABELS[key]),
-          el("span", { class: "wplan-review-val" + (v ? " has" : "") }, assignLabel(v))
+          el("span", { class: "wassign-icon", html: it.icon }),
+          el("span", { class: "wassign-main" },
+            el("span", { class: "wassign-label" }, it.label),
+            el("span", { class: "wassign-hint" }, it.hint)),
+          it.value === cur ? el("span", { class: "wassign-tick", html: icons.check }) : null
         ));
       }
-      return el("div", { class: "pquiz-panel" },
-        el("div", { class: "pquiz-head" },
-          el("div", { class: "pquiz-eyebrow" }, "Almost done"),
-          el("h2", { class: "pquiz-title" }, "Your week"),
-          el("div", { class: "pquiz-sub" }, "Tap any day to change it.")
-        ),
-        el("div", { class: "pquiz-content" }, list),
-        el("div", { class: "pquiz-foot" },
-          el("button", {
-            type: "button", class: "btn btn-primary btn-block pquiz-next", "data-testid": "wplan-save",
-            on: { click: async () => {
-              const next = {};
-              for (const key of WEEKDAY_KEYS) { if (draft[key]) next[key] = draft[key]; }
-              state.prefs.weeklyPlan = next;
-              await Storage.setPref("weeklyPlan", next);
-              close();
-              renderMainKeepScroll();
-              toast("Weekly plan saved");
-            } }
-          }, "Save plan")
-        )
-      );
+      openModal(WEEKDAY_LABELS[key], list, null);
     }
 
-    function goto(next, dir) {
-      idx = Math.max(0, Math.min(STEPS.length - 1, next));
-      const key = STEPS[idx];
-      const node = key === "review" ? renderReview() : renderDay(key);
-      node.classList.add(dir === "back" ? "slide-in-back" : "slide-in-next");
-      clear(stage);
-      stage.appendChild(node);
-      backBtn.style.visibility = idx > 0 ? "visible" : "hidden";
-      bar.style.width = Math.round((Math.min(idx, LAST_DAY + 1) / (LAST_DAY + 1)) * 100) + "%";
+    // ---- the week row ----
+    const row = el("div", { class: "wplan-row", "data-testid": "wplan-row" });
+    for (const key of WEEKDAY_KEYS) {
+      const cell = el("button", {
+        type: "button", class: "wday", "data-day": key, "data-testid": `wplan-day-${key}`
+      },
+        el("span", { class: "wday-letter" }, WEEKDAY_LETTERS[key]),
+        el("span", { class: "wday-icon" }),
+        el("span", { class: "wday-label" })
+      );
+      cells[key] = cell;
+
+      // Hold to pick up, tap to assign — or to paste while something is held.
+      let holdTimer = null, held = false;
+      const startHold = () => {
+        held = false;
+        clearTimeout(holdTimer);
+        holdTimer = setTimeout(() => {
+          held = true;
+          if (!draft[key]) return;                 // nothing to copy from an open day
+          copyFrom = copyFrom === key ? null : key;
+          try { if (navigator.vibrate) navigator.vibrate(12); } catch (_) {}
+          paintAll();
+          setHint();
+        }, 480);
+      };
+      const cancelHold = () => { clearTimeout(holdTimer); };
+      cell.addEventListener("pointerdown", startHold);
+      cell.addEventListener("pointerup", cancelHold);
+      cell.addEventListener("pointerleave", cancelHold);
+      cell.addEventListener("pointercancel", cancelHold);
+      cell.addEventListener("click", () => {
+        if (held) { held = false; return; }        // the hold already acted
+        if (copyFrom && copyFrom !== key) {
+          draft[key] = draft[copyFrom];
+          paintCell(key, { animate: true });
+          setHint();
+          return;
+        }
+        if (copyFrom === key) { copyFrom = null; paintAll(); setHint(); return; }
+        openAssign(key);
+      });
+      row.appendChild(cell);
     }
+
+    // ---- split shortcuts ----
+    const splitRow = el("div", { class: "wplan-splits", "data-testid": "wplan-splits" });
+    for (const split of STARTER_SPLITS) {
+      splitRow.appendChild(el("button", {
+        type: "button", class: "wplan-split-chip", "data-testid": `wplan-split-${split.key}`,
+        on: { click: () => {
+          for (const k of WEEKDAY_KEYS) {
+            if (split.days[k]) draft[k] = split.days[k]; else draft[k] = "rest";
+          }
+          copyFrom = null;
+          paintAll({ animate: true });
+          setHint();
+        } }
+      }, split.label));
+    }
+    splitRow.appendChild(el("button", {
+      type: "button", class: "wplan-split-chip is-clear", "data-testid": "wplan-clear",
+      on: { click: () => {
+        for (const k of WEEKDAY_KEYS) delete draft[k];
+        copyFrom = null;
+        paintAll({ animate: true });
+        setHint();
+      } }
+    }, "Clear"));
+
+    const hint = el("div", { class: "wplan-hint", "data-testid": "wplan-hint" });
+
+    // The grid is a glance; this is the detail. Same tap target, full names.
+    const dayList = el("div", { class: "wplan-days", "data-testid": "wplan-days" });
+    const dayRows = {};
+    for (const key of WEEKDAY_KEYS) {
+      const val = el("span", { class: "wplan-dayrow-val" });
+      const rowEl = el("button", {
+        type: "button", class: "wplan-dayrow" + (key === todayKey ? " is-today" : ""),
+        "data-testid": `wplan-dayrow-${key}`,
+        on: { click: () => {
+          if (copyFrom && copyFrom !== key) {
+            draft[key] = draft[copyFrom];
+            paintCell(key, { animate: true });
+            setHint();
+            return;
+          }
+          openAssign(key);
+        } }
+      },
+        el("span", { class: "wplan-dayrow-day" }, WEEKDAY_LABELS[key],
+          key === todayKey ? el("span", { class: "wplan-dayrow-today" }, "Today") : null),
+        val
+      );
+      dayRows[key] = val;
+      dayList.appendChild(rowEl);
+    }
+
+    const closeBtn = el("button", {
+      type: "button", class: "pquiz-close", "data-testid": "wplan-close",
+      html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>'
+    });
+    const close = () => { overlay.classList.add("is-closing"); setTimeout(() => overlay.remove(), 220); };
+    closeBtn.addEventListener("click", close);
+
+    overlay.append(
+      el("div", { class: "wplan-top" },
+        el("div", {},
+          el("div", { class: "pquiz-eyebrow" }, "Your week"),
+          el("h2", { class: "wplan-title" }, "Weekly plan")),
+        closeBtn),
+      splitRow,
+      row,
+      hint,
+      dayList,
+      el("div", { class: "wplan-foot" },
+        el("button", {
+          type: "button", class: "btn btn-primary btn-block", "data-testid": "wplan-save",
+          on: { click: async () => {
+            const next = {};
+            for (const key of WEEKDAY_KEYS) { if (draft[key]) next[key] = draft[key]; }
+            state.prefs.weeklyPlan = next;
+            await Storage.setPref("weeklyPlan", next);
+            close();
+            renderMainKeepScroll();
+            toast("Weekly plan saved");
+          } }
+        }, "Save plan"),
+        templates.length ? null : el("button", {
+          type: "button", class: "pquiz-skip", "data-testid": "wplan-new-template",
+          on: { click: () => { close(); openTemplateEditor(null); } }
+        }, "＋ Create a template first")
+      )
+    );
 
     document.body.appendChild(overlay);
-    goto(0, "next");
+    paintAll();
+    setHint();
   }
 
   async function offerSaveAsTemplate(workout) {
