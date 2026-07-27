@@ -84,6 +84,31 @@ silently and leave a whole suite looking clean; the first version's quote class
 stopped at the inner quote of `'[data-testid="x"]'` and reported every suite as
 driving nothing.
 
+## `quiz.js`
+
+Onboarding, end to end: eight steps, back-navigation, what lands in storage,
+that it does not reopen for a returning user, and that closing it still counts
+as onboarded so it stops nagging.
+
+    node tests/quiz.js
+
+It replaces a suite that had been broken for months without anyone noticing.
+That one drove the quiz through `pquiz-range` and `pquiz-bignum` — a slider and
+a big-number readout replaced by wheels — and it was the only suite reaching
+`pquiz-finish`, so while it sat broken the one flow every user walks exactly
+once, and cannot retry, had no coverage at all.
+
+Two things it is careful about, both learned from the suites it replaces:
+
+- It asserts the *values that land in storage*, not that the steps rendered.
+  `dob` in particular has to come out as a date rather than an age, which is
+  the shape of the change that broke the original.
+- Its taps are hit-tested, so a control buried under another layer fails here
+  instead of passing the way `element.click()` would.
+
+Worth confirming it can fail before trusting it — break the `dob` write in
+`saveQuiz` and the run should report `the DOB survived as a date, not an age`.
+
 ## `tap.js`
 
 `safeTap(page, selector)` for the Playwright suites. Asserts the element is
