@@ -164,6 +164,33 @@ set opens the rest timer, which owns the screen by design, so the second tap
 was intercepted and the run died before testing anything. Dismissing rest first
 is what a real user does.
 
+## `round-timer.js`
+
+The round timer's readout has to fit inside the ring's hole.
+
+    node tests/round-timer.js
+
+It did not. The label sits ~60px above centre, where the hole's chord is only
+~166px, but its box was 190px wide — so the ends of a long label ran out across
+the stroke. Because the label is painted in the same accent as the ring, that
+did not read as clipping: the text simply vanished. `1-2 STRAIGHT DOWN THE
+MIDDLE` showed as `-2 STRAIGHT DOWN THE`.
+
+Geometry rather than pixels: a circle's usable width at any row is the chord at
+that height, so each row is checked against its own chord, across four labels
+including one longer than anything the app ships. Confirm it can fail by
+restoring the old `max-width: min(190px, 54vw)` on `.ivr-label`.
+
+### On the general version of this
+
+The audit gained a narrow companion check — text that its own box clips with no
+ellipsis to show for it. Deliberately narrow. A wider version that hit-tested
+each end of every text run flagged around thirty things per screen, nearly all
+of them the fixed dock overlapping content at the current scroll position, or a
+decorative SVG painted behind the words. It did not catch the ring bug either,
+because that text was inside its own box — the box was wrong. A check that
+cries wolf gets ignored, so it only fires where text is provably lost.
+
 ## `tap.js`
 
 `safeTap(page, selector)` for the Playwright suites. Asserts the element is

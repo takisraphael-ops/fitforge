@@ -4961,11 +4961,16 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 }
 .ivr-name { font-size: 15px; font-weight: 800; letter-spacing: -.01em; }
 .ivr-totals { font-size: 13px; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.ivr-stage { position: relative; display: grid; place-items: center; width: 100%; }
+/* One source of truth for the ring's size, so everything that has to sit
+   inside its hole can be derived from it rather than guessed. */
+.ivr-stage {
+  position: relative; display: grid; place-items: center; width: 100%;
+  --ivr-d: min(264px, 76vw);
+}
 /* Conic ring rather than SVG — one custom property drives it, so the paint
    loop only ever writes a single value. */
 .ivr-ring {
-  width: 264px; height: 264px; max-width: 76vw; max-height: 76vw; border-radius: 50%;
+  width: var(--ivr-d); height: var(--ivr-d); border-radius: 50%;
   background:
     conic-gradient(var(--ivr-hue) calc(var(--frac, 1) * 360deg), transparent 0),
     radial-gradient(closest-side, var(--bg) 79%, transparent 80%);
@@ -4978,10 +4983,15 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   align-items: center; justify-content: center; gap: 4px; text-align: center;
 }
 .ivr-label {
-  /* Must live inside the ring's hole — exercise names run long, so clamp to
-     two lines rather than letting them spill across the stroke. */
-  max-width: 190px; max-width: min(190px, 54vw);
-  font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+  /* Must fit the ring's HOLE, and the hole is a circle — the usable width at
+     any row is the chord at that height, not the diameter. This sits ~60px
+     above centre where the chord is only ~166px, so a 190px box spilled its
+     ends across the stroke. And because the label is the same colour as the
+     stroke, the spill did not look clipped: it simply vanished, which is why
+     "1-2 STRAIGHT DOWN THE MIDDLE" read as "-2 STRAIGHT DOWN THE".
+     0.55 × diameter clears the chord with room to spare at any ring size. */
+  max-width: calc(var(--ivr-d, 264px) * 0.55);
+  font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
   line-height: 1.25; color: var(--ivr-hue); transition: color 240ms ease;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden; text-overflow: ellipsis;
@@ -4999,7 +5009,10 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 }
 .ivr-next {
   font-size: 12px; font-weight: 600; color: var(--text-muted);
-  max-width: 190px; max-width: min(190px, 54vw);
+  /* Sits below centre where the chord is ~182px. Muted rather than accent, so
+     an overflow here was merely clipped rather than invisible — but clipped is
+     not good enough either. */
+  max-width: calc(var(--ivr-d, 264px) * 0.62);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .ivr-plan { position: relative; width: 100%; max-width: 420px; height: 14px; }

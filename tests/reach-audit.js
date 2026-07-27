@@ -57,8 +57,32 @@ window.__audit = async function (layerRoots) {
   const nodes = [...root.querySelectorAll(sel)];
   if (root !== document.body && root.matches(sel)) nodes.push(root);
 
-  const out = { layer: rootName, checked: 0, offscreen: 0, hidden: 0, recovered: 0, fails: [] };
+  const out = { layer: rootName, checked: 0, offscreen: 0, hidden: 0, recovered: 0, fails: [], textFails: [] };
   const vw = window.innerWidth, vh = window.innerHeight;
+
+  // ---- text silently cut off by its own box ----
+  // Separate concern from reachability: a label can be perfectly tappable and
+  // still be unreadable. Deliberately narrow — only an element that clips its
+  // own overflowing text WITHOUT an ellipsis to show for it. A wider version
+  // that hit-tested each end of the text flagged ~30 things per screen, nearly
+  // all of them the fixed dock overlapping content at the current scroll, or a
+  // decorative SVG painted behind the words. A check that cries wolf gets
+  // ignored, so this one only fires where text is provably lost.
+  const TEXTY = 'div, span, p, h1, h2, h3, h4, label, button, a, li, td, th';
+  for (const t of root.querySelectorAll(TEXTY)) {
+    const own = [...t.childNodes]
+      .filter(n => n.nodeType === 3).map(n => n.textContent.trim()).join(' ').trim();
+    if (own.length < 3) continue;
+    const tcs = getComputedStyle(t);
+    if (tcs.display === 'none' || tcs.visibility === 'hidden' || tcs.opacity === '0') continue;
+    const tr = t.getBoundingClientRect();
+    if (tr.width < 4 || tr.height < 4) continue;
+    const clips = tcs.overflow === 'hidden' || tcs.overflowX === 'hidden';
+    const ell = tcs.textOverflow === 'ellipsis' || tcs.webkitLineClamp !== 'none';
+    if (clips && !ell && t.scrollWidth > t.clientWidth + 1) {
+      out.textFails.push({ label: describe(t), why: 'clipped with no ellipsis' });
+    }
+  }
 
   for (const el of nodes) {
     const cs = getComputedStyle(el);
@@ -442,23 +466,26 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   // ---- report ----
   console.log('=== reachability audit ===\n');
-  let totalChecked = 0, totalFails = 0, totalHollow = 0, totalWrongLayer = 0;
+  let totalChecked = 0, totalFails = 0, totalHollow = 0, totalWrongLayer = 0, totalText = 0;
   for (const r of results) {
     if (r.error) { console.log(`${r.name.padEnd(20)} ERROR ${r.error}`); continue; }
     totalChecked += r.checked;
     totalFails += r.fails.length;
     if (r.hollow != null) totalHollow++;
     if (r.wrongLayer) totalWrongLayer++;
+    totalText += (r.textFails || []).length;
     const status = r.wrongLayer ? `BURIED — expected ${r.expectLayer}, ${r.wrongLayer} is on top`
       : r.fails.length ? `${r.fails.length} UNREACHABLE`
       : r.hollow != null ? `EMPTY SHEET — ${r.hollow}` : 'ok';
     console.log(`${r.name.padEnd(20)} layer=${String(r.layer).padEnd(18)} checked=${String(r.checked).padStart(3)} offscreen=${String(r.offscreen).padStart(3)} scrolled-clear=${String(r.recovered).padStart(3)}  ${status}`);
     for (const f of r.fails) console.log(`    ✗ ${f.label}   covered by  ${f.by}`);
+    for (const t of (r.textFails || [])) console.log(`    ✂ ${t.label}   ${t.why}`);
   }
   console.log(`\ntotal interactive elements hit-tested: ${totalChecked}`);
   console.log(`unreachable: ${totalFails}`);
   console.log(`empty sheets: ${totalHollow}`);
   console.log(`buried layers: ${totalWrongLayer}`);
+  console.log(`text cut off: ${totalText}`);
   console.log('page errors:', errs.length ? errs : 'none');
   await b.close();
 })();

@@ -23,7 +23,8 @@ const SUITES = [
   { name: 'reach-audit', file: 'reach-audit.js', needsServer: true },
   { name: 'quiz', file: 'quiz.js', needsServer: true },
   { name: 'numpad', file: 'numpad.js', needsServer: true },
-  { name: 'set-logging', file: 'set-logging.js', needsServer: true }
+  { name: 'set-logging', file: 'set-logging.js', needsServer: true },
+  { name: 'round-timer', file: 'round-timer.js', needsServer: true }
 ];
 
 const up = () => new Promise((resolve) => {
