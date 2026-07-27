@@ -16,6 +16,7 @@
     play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
     minus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>',
     edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+    repeat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>',
     bookmark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>'
   };
 
@@ -39,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=155").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=156").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -3825,10 +3826,32 @@
 
     // Slim top bar: name + timer + Finish
     const timeElapsed = Math.floor((Date.now() - w.startedAt) / 1000);
+    // The day is editable while the session is live. Two reasons: you can log
+    // a session you forgot to record yesterday without inventing a live timer
+    // for it, and a session that runs past midnight stops silently landing on
+    // the wrong day with nothing on screen to reveal it.
+    const dayChip = el("button", {
+      class: "wtopbar-day" + (w.date !== U.todayISO() ? " is-past" : ""),
+      type: "button", "data-testid": "wtopbar-day",
+      title: "Change the day this session is logged on",
+      on: { click: () => openDateSheet({
+        title: "Log this session on", confirmLabel: "Use this day", date: w.date,
+        onPick: async (d) => {
+          if (d === w.date) return;
+          w.date = d;
+          await Storage.saveWorkout(w);
+          renderMainKeepScroll();
+          toast(d === U.todayISO() ? "Logging to today" : `Logging to ${U.formatDate(d)}`);
+        }
+      }) }
+    }, w.date === U.todayISO() ? "Today" : U.formatDate(w.date));
+
     screen.appendChild(el("div", { class: "wtopbar" },
       el("div", { class: "wtopbar-main" },
         el("div", { class: "wtopbar-name" }, w.name || "Workout"),
-        el("div", { class: "workout-timer", id: "workout-elapsed" }, U.formatTime(timeElapsed))
+        el("div", { class: "wtopbar-meta" },
+          el("div", { class: "workout-timer", id: "workout-elapsed" }, U.formatTime(timeElapsed)),
+          dayChip)
       ),
       el("button", { class: "btn btn-primary btn-sm", on: { click: onFinishWorkout } }, "Finish")
     ));
@@ -5221,8 +5244,17 @@
     if (w.exercises.length === 0) {
       if (!(await confirmDialog("No sets were logged. End workout anyway?", { title: "Finish workout?", okLabel: "End workout", danger: true }))) return;
     }
-    w.completedAt = Date.now();
-    w.durationSec = Math.floor((w.completedAt - w.startedAt) / 1000);
+    // A session logged against another day must complete on that day —
+    // stamping Date.now() would put it in the right list with the wrong
+    // timestamp, and completedAt drives the 14-day body-map heat window.
+    const elapsedSec = Math.max(0, Math.floor((Date.now() - w.startedAt) / 1000));
+    if (w.date && w.date !== U.todayISO()) {
+      const at = new Date(w.date + "T12:00:00");
+      w.completedAt = Number.isFinite(at.getTime()) ? at.getTime() : Date.now();
+    } else {
+      w.completedAt = Date.now();
+    }
+    w.durationSec = elapsedSec;
     w.kcalBurned = workoutKcalTotal(w);
 
     try {
@@ -11058,23 +11090,80 @@
       // The freshly-finished session (top of the list) gets a one-off flourish.
       const flourish = firstItem && finishFlourish ? " finish-flourish" : "";
       firstItem = false;
-      card.appendChild(el("div", {
-        class: "history-item" + flourish,
-        role: "button", tabindex: "0",
-        "aria-label": `${w.name || "Workout"}, ${U.formatDate(w.date, { year: "numeric" })}`,
-        on: {
-          click: () => openWorkoutDetail(w),
-          keydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openWorkoutDetail(w); } }
-        }
-      },
-        el("div", { class: "history-item-date" }, U.formatDate(w.date, { year: "numeric" })),
-        el("div", { class: "history-item-name" }, w.name || "Workout"),
-        el("div", { class: "history-item-summary" },
-          `${w.exercises.length} ${w.exercises.length === 1 ? "exercise" : "exercises"} · ${totalSets} ${totalSets === 1 ? "set" : "sets"}${volBit}${burnBit} · ${U.formatDuration(w.durationSec)}`)
+      card.appendChild(el("div", { class: "history-row" },
+        el("div", {
+          class: "history-item" + flourish,
+          role: "button", tabindex: "0",
+          "data-testid": "history-item",
+          "aria-label": `${w.name || "Workout"}, ${U.formatDate(w.date, { year: "numeric" })}`,
+          on: {
+            click: () => openWorkoutDetail(w),
+            keydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openWorkoutDetail(w); } }
+          }
+        },
+          el("div", { class: "history-item-date" }, U.formatDate(w.date, { year: "numeric" })),
+          el("div", { class: "history-item-name" }, w.name || "Workout"),
+          el("div", { class: "history-item-summary" },
+            `${w.exercises.length} ${w.exercises.length === 1 ? "exercise" : "exercises"} · ${totalSets} ${totalSets === 1 ? "set" : "sets"}${volBit}${burnBit} · ${U.formatDuration(w.durationSec)}`)
+        ),
+        el("button", {
+          class: "icon-btn history-repeat", type: "button",
+          "data-testid": "history-repeat",
+          title: `Log ${w.name || "this session"} on another day`,
+          "aria-label": `Log ${w.name || "this session"} on another day`,
+          html: icons.repeat,
+          on: { click: (e) => { e.stopPropagation(); repeatWorkoutOnDay(w); } }
+        })
       ));
     }
     finishFlourish = false;
     view.appendChild(card);
+  }
+
+  /** Clone a finished session onto another day, keeping what you actually
+      lifted. Most forgotten sessions are ones you have done before, so the
+      fastest honest way to reconstruct one is to copy the last time you did
+      it and correct whatever differed — rather than rebuild it from nothing. */
+  async function repeatWorkoutOnDay(src) {
+    return openDateSheet({
+      title: `Repeat ${src.name || "this session"} on`,
+      confirmLabel: "Log it",
+      date: (() => {
+        // Default to yesterday, which is what "I forgot to log it" nearly
+        // always means.
+        const d = new Date();
+        d.setDate(d.getDate() - 1);
+        return U.todayISO(d);
+      })(),
+      testid: "repeat-day",
+      onPick: async (day) => {
+        const at = new Date(day + "T12:00:00");
+        const when = Number.isFinite(at.getTime()) ? at.getTime() : Date.now();
+        const copy = JSON.parse(JSON.stringify(src));
+        copy.id = U.uid();
+        copy.date = day;
+        copy.completedAt = when;
+        copy.startedAt = when - (src.durationSec || 0) * 1000;
+        copy.notes = "";
+        // Every set carries its previous numbers and arrives ticked — the
+        // point is that you only touch what was different.
+        for (const ex of (copy.exercises || [])) {
+          for (const set of (ex.sets || [])) {
+            set.done = true;
+            delete set.isPR;      // a copy is not evidence of a new record
+            delete set.autoLogged;
+            delete set.adjusted;
+            delete set.prescribed;
+          }
+        }
+        copy.kcalBurned = workoutKcalTotal(copy);
+        await Storage.saveWorkout(copy);
+        renderMain();
+        toast(`Logged to ${U.formatDate(day)} — tap it to adjust`);
+        // Straight into the editor, since the numbers are a starting point.
+        setTimeout(() => openWorkoutDetail(copy), 420);
+      }
+    });
   }
 
   // Past-session detail. Everything here is editable: a session you logged

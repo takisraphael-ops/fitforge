@@ -1637,6 +1637,31 @@ input:disabled.input,
   .rest-ring-fill { transition: none; }
 }
 
+/* A finished session and its "log this on another day" action. The row is
+   the tap target; the repeat button sits beside it, not inside it. */
+.history-row { display: flex; align-items: stretch; gap: 6px; }
+.history-row .history-item { flex: 1; min-width: 0; }
+.history-repeat {
+  flex: none; align-self: center; width: 40px; height: 40px;
+  color: var(--text-faint);
+}
+.history-repeat:hover { color: var(--accent); }
+.history-repeat svg { width: 17px; height: 17px; }
+
+/* The day a live session will be logged against. Stands out only when it is
+   not today, since that is the case worth noticing. */
+.wtopbar-meta { display: flex; align-items: center; gap: 8px; }
+.wtopbar-day {
+  padding: 3px 9px; border-radius: 100px; cursor: pointer;
+  font-size: 11px; font-weight: 800; letter-spacing: .01em;
+  color: var(--text-muted); background: var(--bg-elev);
+  border: 1px solid var(--border);
+  -webkit-tap-highlight-color: transparent;
+}
+.wtopbar-day.is-past {
+  color: var(--on-accent); background: var(--accent); border-color: var(--accent);
+}
+
 /* ============ Empty states ============ */
 .empty {
   text-align: center;
