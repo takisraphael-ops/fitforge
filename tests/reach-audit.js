@@ -488,4 +488,15 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   console.log(`text cut off: ${totalText}`);
   console.log('page errors:', errs.length ? errs : 'none');
   await b.close();
+
+  // Exit non-zero on anything the audit found. Without this it printed
+  // UNREACHABLE / BURIED / EMPTY SHEET / ERROR and still exited 0, so
+  // run-all.js — which keys on the exit code — summarised it as "ok" no matter
+  // what. The one check the README calls "the one that matters" could not fail.
+  const canariesOk = canary.caught && hollowCanary.flagged && hollowCanary.cleared === null;
+  const setupErrors = results.filter(r => r.error).length;
+  const bad = totalFails + totalHollow + totalWrongLayer + totalText + setupErrors + errs.length;
+  if (!canariesOk) console.log('\nCANARY FAILED — this run measured nothing.');
+  if (setupErrors) console.log(`${setupErrors} surface(s) failed to open.`);
+  process.exit(bad || !canariesOk ? 1 : 0);
 })();

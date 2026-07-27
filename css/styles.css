@@ -8,7 +8,7 @@
   --border-strong: #c2ccd8;
   --text: #0e1319;
   --text-muted: #566070;
-  --text-faint: #8a94a4;
+  --text-faint: #626b79;   /* was #8a94a4 = 2.78:1 on light bg, below even the 3:1 large-text floor */
   /* Accent — overridden per theme colour below. Light-mode accents run deep
      because the accent is used as text (links, stat figures, PR numbers), and
      a pastel on near-white fails contrast at any size. */
@@ -18,10 +18,12 @@
   /* Text/icons drawn ON an accent fill. Flips with the mode: white on the deep
      light-mode accents, near-black on the bright dark-mode ones. */
   --on-accent: #ffffff;
+  --on-ok: #05231a;        /* text that sits ON --success */
+  --on-gold: #2b1d00;      /* text that sits ON --pr-gold */
   --success: #1f9d61;
   --success-soft: #d5f0e0;
   --warn: #c78a12;
-  --danger: #d64545;
+  --danger: #c02a2a;   /* was #d64545 = 3.97:1 on light bg */
   --pr-gold: #c48a1a;
   --pr-gold-soft: #f6e8c8;
   /* Macro colours are fixed, never accent-derived — protein/carbs/fat have to
@@ -58,11 +60,13 @@
   --border-strong: #2c3644;
   --text: #eef1f5;
   --text-muted: #7d8798;
-  --text-faint: #5a6473;
+  --text-faint: #798497;   /* was #5a6473 = 3.22:1 on dark bg */
   --accent: #57c9d6;
   --accent-hover: #74d6e1;
   --accent-soft: #10262a;
   --on-accent: #05242a;
+  --on-ok: #04231a;
+  --on-gold: #241800;
   --success: #3ecf8e;
   --success-soft: #0f2e22;
   --warn: #e0a83f;
@@ -910,13 +914,17 @@ button, a, [role="button"], input, textarea, select, .xpick-chip, .xrow, .xpick-
 .set-done:active { transform: scale(0.97); }
 .set-done.checked {
   background: var(--success);
-  color: white;
+  /* Was `white`: 2.0:1 on the dark-mode green, 3.47:1 in light — the single
+     most-repeated confirmation in the app, and the least legible thing in it.
+     --on-ok is the same idea as --on-accent: a colour chosen to sit ON the
+     token rather than beside it. */
+  color: var(--on-ok);
   border-color: var(--success);
   box-shadow: none;
 }
 .set-done.checked:hover {
   background: var(--success);
-  color: white;
+  color: var(--on-ok);
   filter: brightness(1.05);
 }
 .set-done svg { width: 18px; height: 18px; flex-shrink: 0; }
@@ -924,14 +932,14 @@ button, a, [role="button"], input, textarea, select, .xpick-chip, .xrow, .xpick-
 .set-done.pr {
   background: var(--pr-gold);
   border-color: var(--pr-gold);
-  color: white;
+  color: var(--on-gold);   /* was white: 1.9:1 in dark, 3.00:1 in light */
   position: relative;
 }
 .pr-badge {
   display: inline-block;
   padding: 1px 5px;
   background: var(--pr-gold);
-  color: white;
+  color: var(--on-gold);
   border-radius: 4px;
   font-size: 9px;
   font-weight: 700;

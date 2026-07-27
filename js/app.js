@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=165").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=166").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -5375,6 +5375,15 @@
             }
             autoCommitted += 1;
           }
+        } else if (ex.type === "hold" || ex.type === "interval") {
+          // Timed work: seconds are the whole record. Without this branch a
+          // plank you timed but did not tick was dropped by the finish prune,
+          // and if it was that exercise's only set the exercise vanished too.
+          const secs = s.seconds == null || s.seconds === "" ? NaN : Number(s.seconds);
+          if (secs > 0) {
+            s.done = true;
+            autoCommitted += 1;
+          }
         } else {
           const weight = s.weight == null || s.weight === "" ? null : Number(s.weight);
           const reps = s.reps == null || s.reps === "" ? null : Number(s.reps);
@@ -5394,63 +5403,38 @@
     const w = state.activeWorkout;
     if (!w) return;
 
-    // Flush any live set-row inputs into the workout model before commit.
-    // Covers the case where the user typed values and hit Finish without waiting
-    // for debounced save or without tapping the check button.
-    try {
-      const blocks = document.querySelectorAll(".exercise-block");
-      blocks.forEach((block, exIdx) => {
-        const ex = (w.exercises || [])[exIdx];
-        if (!ex) return;
-        const rows = block.querySelectorAll(".set-row");
-        rows.forEach((row, si) => {
-          const s = (ex.sets || [])[si];
-          if (!s) return;
-          const inputs = row.querySelectorAll("input.input-num, select");
-          if (ex.type === "cardio") {
-            // cardio row: duration, intensity, distance, optional manual kcal
-            const byField = (name) => row.querySelector(`[data-cardio-field="${name}"]`);
-            const durEl = byField("durationMin");
-            const intenEl = byField("intensity");
-            const distEl = byField("distanceKm");
-            const kcalEl = byField("kcal");
-            if (durEl && durEl.value !== "") s.durationMin = parseFloat(durEl.value);
-            if (intenEl) s.intensity = intenEl.value || s.intensity || "moderate";
-            if (distEl && distEl.value !== "") s.distanceKm = parseFloat(distEl.value);
-            if (kcalEl && kcalEl.value !== "") {
-              const k = parseFloat(kcalEl.value);
-              if (Number.isFinite(k) && k >= 0) {
-                s.kcal = Math.round(k);
-                s.kcalManual = true;
-              }
-            }
-          } else {
-            const nums = row.querySelectorAll("input.input-num");
-            // bodyweight: only reps; weighted: weight then reps
-            if (ex.type === "bodyweight") {
-              s.weight = 0;
-              if (nums[0] && nums[0].value !== "") s.reps = parseInt(nums[0].value, 10);
-            } else {
-              if (nums[0] && nums[0].value !== "") s.weight = parseFloat(nums[0].value);
-              if (nums[1] && nums[1].value !== "") s.reps = parseInt(nums[1].value, 10);
-            }
-          }
-        });
-      });
-    } catch (err) {
-      console.error("finishWorkout flush failed", err);
-    }
+    // NOTE: there was a pre-save "flush" here that walked .set-row elements and
+    // wrote their inputs back into the model. It was both wrong and unnecessary.
+    //
+    // Wrong: every set table's column header also carries class .set-row (see
+    // the headers around :5711-5809), so it was rows[0]. Set 1's inputs were
+    // written into set 2, set 2's into set 3, and the last set — having no row
+    // after it — was silently dropped. Reproduced: 100x8 / 90x6 / 80x5 typed and
+    // correctly stored was saved by Finish as 100x8 / 100x8 / 90x6. Volume,
+    // e1RM, PR detection and the CSV export all read the corrupted numbers, and
+    // it looked exactly like your own data-entry mistake.
+    //
+    // Unnecessary: mirrorStrengthInputs and mirrorCardioInputs already write
+    // every keystroke into the model on input, which is the job this loop
+    // claimed to do. commitFilledSets below handles typed-but-unticked sets.
+    // (flashCompletedSet at :854 shows the correct idiom for this query — it
+    // filters the header out by requiring a .set-done button.)
 
     const autoN = commitFilledSets(w);
 
-    // Remove empty exercises / trim empty sets
-    w.exercises = (w.exercises || []).map(ex => ({
+    // Ask FIRST, then prune. This used to assign the pruned array to
+    // w.exercises before the confirm, so answering "no" returned with
+    // w.exercises === [] — the pager still showed the exercises while the model
+    // was empty, and the next set you logged saved an empty session to disk.
+    // Declining a confirmation must leave the workout exactly as it was.
+    const kept = (w.exercises || []).map(ex => ({
       ...ex,
       sets: (ex.sets || []).filter(s => s.done)
     })).filter(ex => ex.sets.length > 0);
-    if (w.exercises.length === 0) {
+    if (kept.length === 0) {
       if (!(await confirmDialog("No sets were logged. End workout anyway?", { title: "Finish workout?", okLabel: "End workout", danger: true }))) return;
     }
+    w.exercises = kept;
     // A session logged against another day must complete on that day —
     // stamping Date.now() would put it in the right list with the wrong
     // timestamp, and completedAt drives the 14-day body-map heat window.
@@ -5863,7 +5847,11 @@
     });
     const persist = U.debounce(async () => {
       const v = secInput.value === "" ? null : parseInt(secInput.value, 10);
-      s.seconds = Number.isFinite(v) && v > 0 ? v : null;
+      const next = Number.isFinite(v) && v > 0 ? v : null;
+      // Timed rows never set `touched`, so seconds you typed but did not tick
+      // were invisible to commitFilledSets and deleted by the finish prune.
+      if (next !== s.seconds) s.touched = true;
+      s.seconds = next;
       await Storage.saveWorkout(state.activeWorkout);
     }, 300);
     secInput.addEventListener("input", persist);
@@ -5936,7 +5924,11 @@
     });
     const persist = U.debounce(async () => {
       const v = secInput.value === "" ? null : parseInt(secInput.value, 10);
-      s.seconds = Number.isFinite(v) && v > 0 ? v : null;
+      const next = Number.isFinite(v) && v > 0 ? v : null;
+      // Timed rows never set `touched`, so seconds you typed but did not tick
+      // were invisible to commitFilledSets and deleted by the finish prune.
+      if (next !== s.seconds) s.touched = true;
+      s.seconds = next;
       await Storage.saveWorkout(state.activeWorkout);
     }, 300);
     secInput.addEventListener("input", persist);
@@ -6072,8 +6064,9 @@
     };
 
     const mirrorCardioInputs = () => {
-      s.touched = true;
-      s.durationMin = durInput.value === "" ? null : parseFloat(durInput.value);
+      const nextDur = durInput.value === "" ? null : parseFloat(durInput.value);
+      if (nextDur !== s.durationMin) s.touched = true;   // see mirrorStrengthInputs
+      s.durationMin = nextDur;
       if (!s.intensity) s.intensity = "moderate";
       if (distInput) s.distanceKm = distInput.value === "" ? null : parseFloat(distInput.value);
       // Keep manual kcal when the user typed it; otherwise refresh estimate.
@@ -6235,8 +6228,9 @@
     });
 
     const mirror = () => {
-      s.touched = true;
-      s.value = valInput.value === "" ? null : parseFloat(valInput.value);
+      const next = valInput.value === "" ? null : parseFloat(valInput.value);
+      if (next !== s.value) s.touched = true;             // see mirrorStrengthInputs
+      s.value = next;
     };
     const debouncedSave = U.debounce(async () => {
       mirror();
@@ -6399,9 +6393,14 @@
     const toolsMeta = el("div", { class: "set-tools-meta mono text-xs text-muted" }, toolsE1, toolsKcal);
 
     const mirrorStrengthInputs = () => {
-      s.touched = true;
-      s.weight = isBodyweight ? (s.weight ?? 0) : (weightInput.value === "" ? null : parseFloat(weightInput.value));
-      s.reps = repsInput.value === "" ? null : parseInt(repsInput.value, 10);
+      const nextW = isBodyweight ? (s.weight ?? 0) : (weightInput.value === "" ? null : parseFloat(weightInput.value));
+      const nextR = repsInput.value === "" ? null : parseInt(repsInput.value, 10);
+      // Only a real change counts as "touched" — opening the numpad on a
+      // prefilled set commits its seeded value and fires input, which used to
+      // be enough for that set to be auto-logged at Finish.
+      if (nextW !== s.weight || nextR !== s.reps) s.touched = true;
+      s.weight = nextW;
+      s.reps = nextR;
       const e1 = s.weight && s.reps
         ? U.epley(s.weight, s.reps).toFixed(1)
         : (isBodyweight && s.reps ? `${s.reps}` : "—");
@@ -7235,7 +7234,13 @@
     const byId = new Map(all.map(e => [e.id, e]));
     const steps = buildCircuitSteps(w.exercises || [], spec, byId);
     const total = steps.reduce((a, st) => a + st.sec, 0);
-    const elapsed = (Date.now() - run.startedAt - (run.pausedTotal || 0)) / 1000;
+    // A run parked in pause has pausedAt set; that stretch has not been served
+    // and must be discounted too. Reading only pausedTotal meant pausing for a
+    // phone call and being killed made elapsed read as hours, so all three
+    // resume paths took the "finished while you were away" branch, deleted the
+    // run and marked the remaining efforts not-done.
+    const elapsed = (Date.now() - run.startedAt - (run.pausedTotal || 0)
+      - (run.pausedAt ? Date.now() - run.pausedAt : 0)) / 1000;
     if (elapsed >= total) {
       w.flowRun = null;
       await Storage.saveWorkout(w);
@@ -7265,7 +7270,13 @@
     if (!entries.length) { w.flowRun = null; await Storage.saveWorkout(w); return; }
     const steps = buildFlowSteps(entries, byId);
     const total = steps.reduce((a, st) => a + st.sec, 0);
-    const elapsed = (Date.now() - run.startedAt - (run.pausedTotal || 0)) / 1000;
+    // A run parked in pause has pausedAt set; that stretch has not been served
+    // and must be discounted too. Reading only pausedTotal meant pausing for a
+    // phone call and being killed made elapsed read as hours, so all three
+    // resume paths took the "finished while you were away" branch, deleted the
+    // run and marked the remaining efforts not-done.
+    const elapsed = (Date.now() - run.startedAt - (run.pausedTotal || 0)
+      - (run.pausedAt ? Date.now() - run.pausedAt : 0)) / 1000;
 
     if (elapsed >= total) {
       const r = IntervalRunner.create({ steps });
@@ -7305,7 +7316,13 @@
     if (!run || !run.startedAt) return;
     const plan = ex.plan || { steps: [] };
     const total = (plan.steps || []).reduce((s, st) => s + (st.sec || 0), 0);
-    const elapsed = (Date.now() - run.startedAt - (run.pausedTotal || 0)) / 1000;
+    // A run parked in pause has pausedAt set; that stretch has not been served
+    // and must be discounted too. Reading only pausedTotal meant pausing for a
+    // phone call and being killed made elapsed read as hours, so all three
+    // resume paths took the "finished while you were away" branch, deleted the
+    // run and marked the remaining efforts not-done.
+    const elapsed = (Date.now() - run.startedAt - (run.pausedTotal || 0)
+      - (run.pausedAt ? Date.now() - run.pausedAt : 0)) / 1000;
     const all = await getAllExercises();
     const def = all.find(x => x.id === ex.exerciseId) || {};
     const bwKg = await getBodyweightKg();
@@ -12965,7 +12982,13 @@
       }
       await Storage.importAll(data, mode);
       // Reload prefs into live state (import may have replaced prefs store).
-      await loadPrefs();
+      // The return value used to be dropped — loadPrefs is a pure reader, so
+      // the restored calorie goal, macros, profile, weekly plan and theme all
+      // stayed at their pre-import values until a manual reload, and opening
+      // Settings would write the stale ones straight back over the restore.
+      state.prefs = await loadPrefs();
+      applyTheme(state.prefs.theme);
+      applyAccent(state.prefs.accent);
       closeModal();
       renderMain();
       const bits = [];

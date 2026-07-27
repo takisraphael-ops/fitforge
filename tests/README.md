@@ -21,6 +21,37 @@ driving UI that had been redesigned away, and the only reason it came to light
 was a bug report about something else entirely. A suite nobody runs is not
 coverage; it is a note claiming coverage.
 
+## `version-check.js`
+
+    node tests/version-check.js
+
+`index.html`, `sw.js` and `js/app.js` must all agree on one release version, and
+`sw.js` must not hard-code asset versions of its own. Static, no browser.
+
+This exists because the hand-sync ritual failed ten times running: `sw.js`'s
+precache list stayed pinned at `?v=156` while the app shipped `?v=165`. Cache
+keys include the query string, so **not one precached script could serve a real
+request** — the app kept working purely on the runtime cache, which is exactly
+why nobody noticed. The precache list is now derived from `CACHE`, and
+`tools/bump.js` moves all three together so the mistake is not available.
+
+## `finish-workout.js`
+
+    node tests/finish-workout.js
+
+Finishing is the commit point of the primary journey and it had no test — which
+is how it shipped a loop that rewrote every set's numbers down one row and
+discarded the last one, on every single Finish.
+
+Everything is asserted against what lands in IndexedDB, not against what the
+screen showed a moment earlier. Covers: the numbers you logged are the numbers
+you keep; timed holds you typed but never ticked survive; declining "end
+anyway?" leaves the workout untouched; and opening a numpad to *look* at a
+prefilled value does not record that set as performed.
+
+Confirm it can fail by restoring the old flush loop — it reports
+`[[100,8],[100,8],[90,6]]` where you logged `100×8 / 90×6 / 80×5`.
+
 ## `reach-audit.js`
 
 Walks the app surface by surface and, for every interactive element on the
@@ -80,6 +111,19 @@ been shown to detect anything:
   fall silent once it is given content.
 
 If either canary fails, treat every other result on the run as meaningless.
+
+### It can actually fail now
+
+The audit printed `UNREACHABLE`, `BURIED`, `EMPTY SHEET` and canary failures and
+then **exited 0**, so `run-all.js` — which keys on the exit code — summarised it
+as `ok` no matter what it found. The check the top of this file calls "the one
+that matters" was the one that could not fail. It now exits non-zero on any
+finding, any failed surface setup, any page error, or a failed canary.
+
+The same shape had bitten `existence-sweep.js`: it globbed for `*_test.js`,
+every committed suite is named `quiz.js`, `numpad.js`… and pointed at `tests/`
+it matched **nothing** and printed a clean bill of health for zero files. It now
+refuses to report a clean sweep of an empty set.
 
 ## `existence-sweep.js`
 

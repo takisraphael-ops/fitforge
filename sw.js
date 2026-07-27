@@ -1,28 +1,21 @@
 // Service Worker — network-first for app code so bug fixes propagate, cache-first for icons/fonts
 // IMPORTANT: bump CACHE version whenever app JS/CSS/HTML changes materially so old clients recover.
-const CACHE = "fitforge-v165";
+const CACHE = "fitforge-v166";
+// Derived from CACHE, not hand-listed. This was pinned at ?v=156 while the app
+// shipped ?v=165 — and cache keys include the query string, so not one
+// precached script could ever serve a real request. The list and the version
+// were three files apart and drifted for ten releases without a sound.
+const V = CACHE.replace("fitforge-v", "");
+const VERSIONED = [
+  "./css/styles.css", "./js/app.js", "./js/storage.js", "./js/utils.js",
+  "./js/body-map.js", "./js/interval-runner.js", "./js/meal-search.js",
+  "./data/exercises.js", "./data/meals.js", "./data/sessions.js"
+];
 const PRECACHE = [
-  "./",
-  "./index.html",
-  "./css/styles.css?v=156",
-  "./js/app.js?v=156",
-  "./js/storage.js?v=156",
-  "./js/utils.js?v=156",
-  "./js/body-map.js?v=156",
-  "./js/interval-runner.js?v=156",
-  "./data/exercises.js?v=156",
-  "./data/meals.js?v=156",
-  "./data/sessions.js?v=156",
-  "./js/meal-search.js?v=156",
-  "./css/styles.css",
-  "./js/app.js",
-  "./js/storage.js",
-  "./js/utils.js",
-  "./js/body-map.js",
-  "./data/exercises.js",
-  "./manifest.webmanifest",
-  "./icons/icon-192.svg",
-  "./icons/icon-512.svg"
+  "./", "./index.html",
+  ...VERSIONED.map(u => `${u}?v=${V}`),
+  ...VERSIONED,                                   // bare URLs, for direct hits
+  "./manifest.webmanifest", "./icons/icon-192.svg", "./icons/icon-512.svg"
 ];
 
 self.addEventListener("install", (e) => {
@@ -58,15 +51,35 @@ self.addEventListener("fetch", (e) => {
                     url.pathname === "/" || url.pathname === "";
 
   if (isAppCode) {
-    // Network-first: try network, fall back to cache when offline.
+    // Network-first, but only for as long as the network deserves. Without a
+    // timeout the cache was consulted ONLY after fetch rejected — so on wifi
+    // you are joined to but that never routes (gyms, hotels, captive portals)
+    // launch hung on the splash for the browser's own multi-tens-of-seconds
+    // timeout with a complete cache sitting unused. That is the everyday
+    // offline case, and it looked like the app was broken.
+    const NET_MS = 2000;
+    const fromNet = fetch(e.request).then(res => {
+      if (res && res.status === 200 && res.type === "basic") {
+        const clone = res.clone();
+        caches.open(CACHE).then(c => c.put(e.request, clone));
+      }
+      return res;
+    });
     e.respondWith(
-      fetch(e.request).then(res => {
-        if (res && res.status === 200 && res.type === "basic") {
-          const clone = res.clone();
-          caches.open(CACHE).then(c => c.put(e.request, clone));
-        }
-        return res;
-      }).catch(() => caches.match(e.request).then(cached => cached || caches.match("./index.html")))
+      caches.match(e.request).then(cached => {
+        if (!cached) // Only a navigation may fall back to the shell. Handing index.html to a
+        // <script> tag returns HTML with status 200 and yields
+        // "Unexpected token '<'" and a white screen — a failure that looks
+        // nothing like the network problem it actually is.
+        return fromNet.catch(() =>
+          dest === "document" ? caches.match("./index.html") : Response.error());
+        // We have a copy: race it. Slow network yields to cache, and the fetch
+        // still completes in the background to refresh it for next time.
+        return Promise.race([
+          fromNet.catch(() => cached),
+          new Promise(resolve => setTimeout(() => resolve(cached), NET_MS))
+        ]);
+      })
     );
   } else {
     // Cache-first for images/icons/etc.

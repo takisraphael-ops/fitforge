@@ -19,12 +19,14 @@ const NODE_PATH = process.env.NODE_PATH || '/opt/node22/lib/node_modules';
 
 // Browser suites need the server; the sweep does not, so it runs either way.
 const SUITES = [
+  { name: 'version-check', file: 'version-check.js', needsServer: false },
   { name: 'existence-sweep', file: 'existence-sweep.js', args: [__dirname], needsServer: false },
   { name: 'reach-audit', file: 'reach-audit.js', needsServer: true },
   { name: 'quiz', file: 'quiz.js', needsServer: true },
   { name: 'numpad', file: 'numpad.js', needsServer: true },
   { name: 'set-logging', file: 'set-logging.js', needsServer: true },
-  { name: 'round-timer', file: 'round-timer.js', needsServer: true }
+  { name: 'round-timer', file: 'round-timer.js', needsServer: true },
+  { name: 'finish-workout', file: 'finish-workout.js', needsServer: true }
 ];
 
 const up = () => new Promise((resolve) => {

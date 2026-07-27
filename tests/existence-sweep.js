@@ -150,8 +150,11 @@ for (const m of app.matchAll(/\bclass(?:Name)?:\s*`([^`]*)`/g)) {
 // through, so it never appears as "data-testid" here. Those are declarations
 // too — and several double as class names (numpad-wheel-whole is both), so
 // they have to be collected before the class filter runs or they get held back.
-for (const m of app.matchAll(/\btestid:\s*"([^"]+)"/g)) {
-  if (looksLikeTestid(m[1])) RENDERABLE.exact.add(m[1]);
+for (const m of app.matchAll(/\btestid:\s*"([^"]+)"(\s*\+)?/g)) {
+  if (!looksLikeTestid(m[1])) continue;
+  // `testid: "pquiz-goal-" + key` is a family, not an id. Reading only the
+  // literal form reported pquiz-goal-cut as dead while the quiz suite taps it.
+  (m[2] ? RENDERABLE.prefix : RENDERABLE.exact).add(m[1]);
 }
 for (const m of app.matchAll(/\btestid:\s*`([^`]*)`/g)) {
   const head = m[1].split('${')[0];
@@ -330,7 +333,20 @@ function canary() {
 }
 
 // ---------- 3. report ----------
-const files = fs.readdirSync(DIR).filter(f => /_test\.js$/.test(f) && !f.startsWith('__canary')).sort();
+// Any .js in the directory that looks like a Playwright suite. This globbed
+// for /_test\.js$/ — the scratchpad naming — while every committed suite is
+// quiz.js, numpad.js, set-logging.js. Pointed at tests/ by run-all it matched
+// NOTHING and printed a clean bill of health for zero files, which is the exact
+// failure this tool exists to catch, in the tool itself.
+const SELF = new Set(['existence-sweep.js', 'run-all.js', 'tap.js']);
+const files = fs.readdirSync(DIR)
+  .filter(f => f.endsWith('.js') && !SELF.has(f) && !f.startsWith('__canary'))
+  .filter(f => /data-testid|page\.(goto|tap|click)/.test(fs.readFileSync(path.join(DIR, f), 'utf8')))
+  .sort();
+if (!files.length) {
+  console.error(`existence-sweep: no suites found in ${DIR} — refusing to report a clean sweep of nothing.`);
+  process.exit(1);
+}
 if (!canary()) { console.log('canary failed — the sweep is not measuring anything. Stopping.'); process.exit(1); }
 const rows = files.map(analyse).filter(Boolean);
 
