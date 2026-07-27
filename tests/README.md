@@ -54,6 +54,36 @@ been shown to detect anything:
 
 If either canary fails, treat every other result on the run as meaningless.
 
+## `existence-sweep.js`
+
+Static, no browser. Reads what the app renders out of `js/*.js`, then reads
+each suite and reports two things:
+
+    node tests/existence-sweep.js [suites-dir]
+
+**Undriven controls.** Every interactive testid a suite *observes* but never
+*operates*. This is the `wd-add-exercise` shape: the suite asserted the button
+was there, never pressed it, and a sheet that opened completely empty passed
+for weeks. Interactivity is read from the app source — `<button>`, an `on:`
+handler, `role="button"` — rather than guessed from the name, so containers and
+static labels are not reported.
+
+**Dead selectors.** Testids the app can no longer render. If the suite taps one
+it fails loudly, which is fine. If it asserts `!document.querySelector(...)` it
+passes forever no matter what the app does — an existence-only check that has
+become a tautology, which is worse than having no check at all.
+
+Reading `data-testid` values needs the *whole* value expression, not just the
+`"data-testid": "x"` form: the app also builds them by concatenation
+(`"dock-" + t.id`), by ternary, and by template literal. Matching only the
+simple form marks ~140 live selectors dead and buries the real ones.
+
+Its canary runs nine fixtures — one per drive form the matcher claims to
+understand, plus two that must be flagged. Each is a place the matcher can fail
+silently and leave a whole suite looking clean; the first version's quote class
+stopped at the inner quote of `'[data-testid="x"]'` and reported every suite as
+driving nothing.
+
 ## `tap.js`
 
 `safeTap(page, selector)` for the Playwright suites. Asserts the element is
