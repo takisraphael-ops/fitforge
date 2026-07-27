@@ -5,7 +5,21 @@ its own overlay — present in the DOM, invisible, and untappable — and it pas
 every test it had. The tests drove the app with `element.click()`, which
 dispatches straight at the node and never asks whether a finger could reach it.
 
-Run against a local server (`python3 -m http.server 8199` from the repo root).
+Run against a local server (`python3 -m http.server 8199` from the repo root),
+or let `run-all.js` start one for you.
+
+## `run-all.js`
+
+    node tests/run-all.js
+
+Runs everything and exits non-zero if anything fails. Starts a static server on
+8199 if one is not already up, and stops it afterwards.
+
+This is the one that matters. The recurring failure here was never a missing
+test — it was that nothing ran the tests. Five suites sat broken for months,
+driving UI that had been redesigned away, and the only reason it came to light
+was a bug report about something else entirely. A suite nobody runs is not
+coverage; it is a note claiming coverage.
 
 ## `reach-audit.js`
 

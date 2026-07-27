@@ -234,7 +234,11 @@ function analyse(file) {
   }
   // A selector the app can never render is the same weakness at its worst:
   // asserted as `!!x` in a "should be absent" check, it passes forever.
-  const dead = [...seen].filter(t => !t.includes('${') && !t.includes("' +") && !canExist(t));
+  // A selector the suite builds at runtime — '[data-testid="row-' + k + '"]',
+  // a template, a captured attribute — is not a literal id and cannot be
+  // checked against the app. Reporting the fragment as dead is noise.
+  const built = (t) => /[$`{}]|['"]\s*\+|\+\s*['"]/.test(t);
+  const dead = [...seen].filter(t => !built(t) && !canExist(t));
   return { file, seen: seen.size, driven: driven.size, gaps, dead };
 }
 
