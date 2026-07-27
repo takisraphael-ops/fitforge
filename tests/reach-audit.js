@@ -364,6 +364,34 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await sleep(900);
   }, { shots: true, expectLayer: '.numpad-overlay' });
 
+  // The round builder, raised from a boxing exercise on the workout screen.
+  await check('round-builder', async () => {
+    await closeLayers();
+    await page.evaluate(async () => {
+      await Storage.saveWorkout({
+        id: 'wbox', name: 'Boxing', date: U.todayISO(), startedAt: Date.now(), completedAt: null,
+        exercises: [{ exerciseId: 'heavy-bag', name: 'Heavy Bag', category: 'boxing', type: 'cardio',
+          sets: [{ durationMin: null, done: false }] }]
+      });
+      await Storage.setPref('activeWorkoutId', 'wbox');
+    });
+    await page.reload({ waitUntil: 'networkidle' });
+    await sleep(600);
+    await page.evaluate(() => { const s = document.getElementById('splash'); if (s) s.remove(); });
+    await sleep(2400);
+    await page.evaluate(() => {
+      const r = document.querySelector('[data-testid="button-resume-workout"]');
+      if (r) r.click(); else document.querySelector('[data-testid="dock-fab"]').click();
+    });
+    await sleep(1400);
+    await page.evaluate(() => {
+      const b = document.querySelector('[data-testid="rounds-cta"]');
+      if (!b) throw new Error('no round builder on this card');
+      b.click();
+    });
+    await sleep(900);
+  }, { shots: true, expectLayer: '.modal-overlay' });
+
   // ---- canary ----
   // A checker that can only ever print "ok" proves nothing. Cover a control
   // that just passed and confirm the audit notices; if this does not fail,

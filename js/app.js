@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=163").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=164").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1085,6 +1085,145 @@
   // same way cardio does, and none of them cover ground.
   const DURATION_CATEGORIES = new Set(["cardio", "boxing"]);
   const NO_DISTANCE_CATEGORIES = new Set(["boxing"]);
+  // Trained in rounds rather than as one block of minutes. These get a round
+  // builder on the exercise card, which writes the same interval plan the
+  // preset sessions use — so the guided timer, the cues and the per-round
+  // logging all come from machinery that already exists.
+  const ROUND_CATEGORIES = new Set(["boxing"]);
+
+  /** Whether to offer "Set up rounds" on this exercise. */
+  function supportsRounds(def, ex) {
+    const cat = (def && def.category) || (ex && ex.category);
+    return ROUND_CATEGORIES.has(cat);
+  }
+
+  /** Turn a round count into the interval plan the runner already understands. */
+  function roundPlanSteps({ rounds, workSec, restSec }) {
+    const steps = [];
+    for (let i = 0; i < rounds; i++) {
+      steps.push({ sec: workSec, intensity: "hard", label: `Round ${i + 1}`, work: true });
+      // No trailing rest — the session is over, there is nothing to recover for.
+      if (restSec > 0 && i < rounds - 1) {
+        steps.push({ sec: restSec, intensity: "easy", label: "Corner", work: false });
+      }
+    }
+    return steps;
+  }
+
+  function applyRoundPlan(ex, spec) {
+    const steps = roundPlanSteps(spec);
+    ex.type = "interval";
+    ex.plan = { steps };
+    ex.rounds = spec;
+    ex.sets = steps.filter(s => s.work).map(s => ({
+      seconds: s.sec, intensity: s.intensity, label: s.label, done: false
+    }));
+    delete ex.run;
+  }
+
+  /** Back to a single minutes box. Anything already served is rolled into it
+      rather than dropped — the rounds happened, whatever the row looks like. */
+  function revertToDuration(ex) {
+    const servedSec = (ex.sets || [])
+      .filter(s => s.done)
+      .reduce((n, s) => n + (s.seconds || 0), 0);
+    const mins = servedSec > 0 ? Math.max(1, Math.round(servedSec / 60)) : null;
+    ex.type = "cardio";
+    delete ex.plan;
+    delete ex.run;
+    delete ex.rounds;
+    ex.sets = [{ durationMin: mins, intensity: "moderate", distanceKm: null, done: mins != null }];
+    return mins;
+  }
+
+  const ROUND_OPTS = {
+    rounds: [3, 5, 6, 9, 12],
+    workSec: [60, 90, 120, 180],
+    restSec: [0, 30, 60]
+  };
+
+  /** Rounds sheet: how many, how long, how long between. Defaults to 3 × 3:00
+      with a minute in the corner, which is what a boxing gym runs. */
+  function openRoundBuilder(ex, opts = {}) {
+    const spec = {
+      rounds: (ex.rounds && ex.rounds.rounds) || 3,
+      workSec: (ex.rounds && ex.rounds.workSec) || 180,
+      restSec: (ex.rounds && ex.rounds.restSec) != null ? ex.rounds.restSec : 60
+    };
+    const secLabel = (s) => s === 0 ? "None" : U.formatTime(s);
+    const summary = el("div", { class: "rb-summary", "data-testid": "rb-summary" });
+    const rows = [];
+
+    function paint() {
+      for (const r of rows) {
+        for (const b of Array.from(r.el.children)) {
+          const on = String(spec[r.key]) === b.getAttribute("data-val");
+          b.classList.toggle("active", on);
+          b.setAttribute("aria-pressed", on ? "true" : "false");
+        }
+      }
+      const total = spec.rounds * spec.workSec + Math.max(0, spec.rounds - 1) * spec.restSec;
+      clear(summary);
+      summary.appendChild(el("div", { class: "rb-summary-main" },
+        `${spec.rounds} × ${U.formatTime(spec.workSec)}`));
+      summary.appendChild(el("div", { class: "rb-summary-sub" },
+        (spec.restSec ? `${U.formatTime(spec.restSec)} between · ` : "straight through · ") +
+        `${Math.round(total / 60)} min total`));
+    }
+
+    function row(key, label, values, fmt) {
+      const chips = el("div", { class: "rb-chips", "data-testid": `rb-${key}` });
+      for (const v of values) {
+        chips.appendChild(el("button", {
+          class: "xpick-chip rb-chip", type: "button", "data-val": String(v),
+          "aria-pressed": "false",
+          on: { click: () => { spec[key] = v; paint(); } }
+        }, fmt(v)));
+      }
+      rows.push({ key, el: chips });
+      return el("div", { class: "rb-row" }, el("div", { class: "rb-label" }, label), chips);
+    }
+
+    const body = el("div", { class: "rb" },
+      summary,
+      row("rounds", "Rounds", ROUND_OPTS.rounds, String),
+      row("workSec", "Round length", ROUND_OPTS.workSec, U.formatTime),
+      row("restSec", "Between rounds", ROUND_OPTS.restSec, secLabel)
+    );
+    paint();
+
+    const footer = el("div", {},
+      el("button", { class: "btn", on: { click: closeModal } }, "Cancel"),
+      // The type chip cannot switch an interval exercise back, so this sheet
+      // has to carry the way out. Without it, choosing rounds once would be a
+      // one-way door.
+      ex.type === "interval" ? el("button", {
+        class: "btn", "data-testid": "rb-plain",
+        on: { click: async () => {
+          const mins = revertToDuration(ex);
+          await Storage.saveWorkout(state.activeWorkout);
+          closeModal();
+          refreshExerciseBlock(ex);
+          toast(mins ? `Back to minutes — kept ${mins} min` : "Back to logging minutes");
+        } }
+      }, "Just log minutes") : null,
+      el("button", {
+        class: "btn btn-primary", "data-testid": "rb-start",
+        on: { click: async () => {
+          const anyLogged = (ex.sets || []).some(s => s.done);
+          if (anyLogged && !(await confirmDialog(
+            "This replaces what is already logged for this exercise.",
+            { title: "Set up rounds?", okLabel: "Replace" }))) return;
+          applyRoundPlan(ex, spec);
+          await Storage.saveWorkout(state.activeWorkout);
+          closeModal();
+          await refreshExerciseBlock(ex);
+          if (opts.thenRun !== false) openIntervalRunner(ex);
+        } }
+      }, ex.type === "interval" ? "Update rounds" : "Set up rounds")
+    );
+    openModal(ex.name || "Rounds", body, footer);
+  }
 
   /** Whether a cardio exercise should show/track a distance (km) field. */
   function cardioTracksDistance(ex) {
@@ -5527,6 +5666,14 @@
         body.appendChild(el("div", { class: "text-xs text-faint", style: "margin:6px 0 10px; text-align:center" },
           "Cues each change. Keep the screen on for sound."));
       }
+      // Rounds you built yourself stay editable, and stay escapable — the type
+      // chip refuses to move an interval exercise back to anything else.
+      if (ex.rounds) {
+        body.appendChild(el("button", {
+          class: "btn btn-block btn-ghost rb-edit", type: "button", "data-testid": "rounds-edit",
+          on: { click: () => openRoundBuilder(ex, { thenRun: false }) }
+        }, "Change rounds"));
+      }
       const header = el("div", { class: "set-row set-row-header type-interval" },
         el("div", { class: "set-index" }, "#"),
         el("div", {}, "Effort"),
@@ -5560,6 +5707,19 @@
       body.appendChild(controls);
     } else if (isCardio) {
       const showDist = cardioTracksDistance(ex);
+      // Boxing is trained in rounds, so offer to build them — but above the
+      // minutes row, not instead of it. Someone who did twenty minutes on the
+      // bag and wants to record twenty minutes should not have to go through
+      // a round builder to say so.
+      if (supportsRounds(def, ex)) {
+        body.appendChild(el("button", {
+          class: "btn btn-block rb-cta", type: "button", "data-testid": "rounds-cta",
+          on: { click: () => openRoundBuilder(ex) }
+        },
+          el("span", { class: "rb-cta-main" }, "Set up rounds"),
+          el("span", { class: "rb-cta-sub" }, "3 × 3:00 with a timer, or your own")
+        ));
+      }
       const header = el("div", { class: "set-row set-row-header type-cardio" + (showDist ? "" : " no-dist") },
         el("div", { class: "set-index" }, "#"),
         el("div", {}, "Min"),
