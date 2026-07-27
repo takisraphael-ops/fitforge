@@ -332,6 +332,85 @@ window.PRESET_SESSIONS = (function () {
     }]
   });
 
+  // ---- Boxing ----
+  // Rounds are the unit: three minutes on, one minute off, which is what a
+  // boxing gym runs and what the guided timer already models. Each work step
+  // is labelled with what to do in that round, so the runner tells you the
+  // focus instead of leaving you to invent one while a clock counts down.
+  //
+  // Shadow first, then the bag — the order every gym uses, because throwing
+  // hard at a bag cold is how wrists and shoulders get hurt. They are separate
+  // exercise entries so the time lands against the right activity, and each
+  // gets its own guided run.
+  const boxRounds = (n, focus, intensity = "hard") =>
+    Array.from({ length: n }, (_, i) => [
+      step(180, intensity, focus[i % focus.length]),
+      step(60, "easy", "Corner", false)
+    ]).flat();
+
+  S.push({
+    id: "preset-boxing-rounds",
+    name: "Boxing Rounds",
+    preset: true, pillar: "conditioning", venue: ["gym", "home"],
+    desc: "12 × 3 min rounds · shadow then bag",
+    detail: "A full boxing session in the shape a gym actually runs it: three rounds shadow boxing to warm into it, then nine on the bag, each with a focus so you are not just hitting it. Three minutes on, one minute in the corner. If a round falls apart, finish it anyway — that is usually the round that teaches you something.",
+    exercises: [
+      {
+        exerciseId: "shadow-boxing", name: "Shadow Boxing",
+        intervals: {
+          steps: [
+            ...warmup(5),
+            ...boxRounds(3, ["Loose — footwork only", "Jab and move", "Full combinations"], "moderate")
+          ]
+        }
+      },
+      {
+        exerciseId: "heavy-bag", name: "Heavy Bag",
+        intervals: {
+          steps: [
+            ...boxRounds(9, [
+              "Jab — range and timing",
+              "1-2 straight down the middle",
+              "Body shots",
+              "Hooks — turn the hips",
+              "Free — your combinations",
+              "Uppercuts on the inside",
+              "Move after every combination",
+              "Output — keep the hands going",
+              "Last round — empty the tank"
+            ]),
+            ...cooldown(5)
+          ]
+        }
+      }
+    ]
+  });
+
+  S.push({
+    id: "preset-shadow-rounds",
+    name: "Shadow Boxing Rounds",
+    preset: true, pillar: "conditioning", venue: ["home", "gym", "outdoors"],
+    desc: "6 × 3 min rounds · no equipment",
+    detail: "Six rounds, nothing but floor space — no bag, no gloves, no partner. Shadow boxing is where technique is actually built, because nothing absorbs a sloppy punch for you. Hands up between combinations, and move after every one.",
+    exercises: [{
+      exerciseId: "shadow-boxing", name: "Shadow Boxing",
+      intervals: {
+        steps: [
+          ...warmup(4),
+          ...boxRounds(6, [
+            "Footwork only — no punches",
+            "Jab and move",
+            "1-2 with the hips",
+            "Add the hook",
+            "Head movement between combinations",
+            "Free — keep the output up"
+          ], "moderate"),
+          ...cooldown(4)
+        ]
+      }
+    }]
+  });
+
   S.push({
     id: "preset-kb-complex",
     name: "Kettlebell Complex",
@@ -786,8 +865,12 @@ window.PRESET_SESSIONS = (function () {
   //           has at least one item you own ("none" is always satisfied).
   //   gear  — the flat union, minus "none", for display and browse filters.
   const defsById = new Map((window.EXERCISE_DB || []).map(e => [e.id, e]));
+  // Mirrors GEAR_ORDER in app.js — kept in step so a session's gear chips read
+  // in the same order everywhere. A tag missing here sorts to the front rather
+  // than failing, which is exactly the kind of quiet drift worth avoiding.
   const GEAR_ORDER = ["none", "band", "dumbbell", "kettlebell", "barbell", "pullup-bar",
-    "dip-bars", "jump-rope", "ab-wheel", "machine", "cable", "cardio-machine"];
+    "dip-bars", "jump-rope", "ab-wheel", "machine", "cable", "cardio-machine",
+    "heavy-bag", "focus-pads"];
 
   for (const s of S) {
     const needs = [];

@@ -133,8 +133,37 @@ const looksLikeTestid = (s) => !!s && !/[\s<>{}:;()]/.test(s);
 // name that happens to share a testid's spelling costs one missed finding;
 // calling a live selector dead sends you chasing a bug that is not there, and
 // that is the more expensive mistake.
+//
+// One exception, and it is the one this sweep exists to catch: a name that
+// only ever appears as a CSS class is not a testid. `.ivr-name` is a class, so
+// a suite querying [data-testid="ivr-name"] gets null forever — and the
+// catch-all was vouching for it. Names collected from an explicit testid
+// position still win; only class-only names are held back.
+const CLASS_ONLY = new Set();
+for (const m of app.matchAll(/\bclass(?:Name)?:\s*"([^"]+)"/g)) {
+  for (const cls of m[1].split(/\s+/)) if (cls) CLASS_ONLY.add(cls);
+}
+for (const m of app.matchAll(/\bclass(?:Name)?:\s*`([^`]*)`/g)) {
+  for (const cls of m[1].replace(/\$\{[^}]*\}/g, ' ').split(/\s+/)) if (cls) CLASS_ONLY.add(cls);
+}
+// Helpers like buildWheel take their testid as a `testid:` option and pass it
+// through, so it never appears as "data-testid" here. Those are declarations
+// too — and several double as class names (numpad-wheel-whole is both), so
+// they have to be collected before the class filter runs or they get held back.
+for (const m of app.matchAll(/\btestid:\s*"([^"]+)"/g)) {
+  if (looksLikeTestid(m[1])) RENDERABLE.exact.add(m[1]);
+}
+for (const m of app.matchAll(/\btestid:\s*`([^`]*)`/g)) {
+  const head = m[1].split('${')[0];
+  if (!looksLikeTestid(head)) continue;
+  if (m[1].includes('${')) RENDERABLE.prefix.add(head); else RENDERABLE.exact.add(head);
+}
+const declaredTestids = new Set(RENDERABLE.exact);
 const KEBAB = /"([a-z][a-z0-9]*(?:-[a-z0-9]+)+)"/g;
-for (const m of app.matchAll(KEBAB)) RENDERABLE.exact.add(m[1]);
+for (const m of app.matchAll(KEBAB)) {
+  if (CLASS_ONLY.has(m[1]) && !declaredTestids.has(m[1])) continue;
+  RENDERABLE.exact.add(m[1]);
+}
 // Same for interpolated families — `sess-filter-venue-${v}` wherever it sits.
 for (const m of app.matchAll(/`([a-z][a-z0-9]*(?:-[a-z0-9]+)*-)\$\{/g)) RENDERABLE.prefix.add(m[1]);
 function canExist(tid) {
@@ -271,7 +300,11 @@ function canary() {
   // junk prefixes — `numpad-`, `set-done`, whole sentences — from expressions
   // that ran past the testid, and a prefix that broad marks everything live.
   const LIVE = ['numpad-wheel-int', 'numpad-wheel-tens', 'dock-fab', 'set-weight-0', 'preset-norwegian-4x4'];
-  const DEAD = ['numpad-wheel-reps', 'pquiz-bignum', 'totally-made-up-id', 'numpad-wheel-nonsense'];
+  // ivr-name and workout-timer are CSS classes, not testids — a suite querying
+  // them by data-testid gets null forever. Both were being vouched for by the
+  // kebab-case catch-all until class-only names were held back.
+  const DEAD = ['numpad-wheel-reps', 'pquiz-bignum', 'totally-made-up-id',
+    'numpad-wheel-nonsense', 'ivr-name', 'workout-timer'];
   const wrongLive = LIVE.filter(t => !canExist(t));
   const wrongDead = DEAD.filter(t => canExist(t));
   const junk = [...RENDERABLE.prefix].filter(p => p.length < 3 || !looksLikeTestid(p));
