@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=157").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=158").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -11460,7 +11460,12 @@
               rebuild();
             }
           });
-          openModal("Add exercise", picker.el, null);
+          // .body, not .el — the picker has never exposed an `el`, so this
+          // opened an empty sheet. refresh() then settles the pager on the
+          // starting category, which it cannot do until it is in the document.
+          openModal("Add exercise", picker.body, null);
+          picker.refresh();
+          setTimeout(picker.focus, 50);
         } }
       }, "+ Add exercise"));
 

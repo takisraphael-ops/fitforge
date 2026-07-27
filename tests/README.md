@@ -29,9 +29,30 @@ Three things it deliberately does **not** report, learned the hard way:
   so the centre of its bounding box lands on the chest. Probes sample a grid
   and pass if any point lands.
 
-It ends with a canary: a full-screen transparent blocker is added and the audit
-must notice. A checker that can only print "ok" proves nothing, so if the
-canary fails, treat every other result as meaningless.
+### Empty sheets
+
+Reachability alone has a blind spot: a sheet with nothing in it fails no check,
+because there is nothing to be covered by. "Add exercise" on a past session
+opened a completely empty modal for weeks — `openModal(title, picker.el)` where
+the builder returns `.body` — and no test noticed, because every test only
+asserted the *button* existed.
+
+So each surface also reports whether a deliberately-opened sheet rendered
+nothing at all. Deliberately "no children and no text", not "few controls":
+plenty of sheets are legitimately just text, and flagging those trains you to
+ignore the column.
+
+### Canaries
+
+Two, both for the same reason — a checker that can only ever print "ok" has not
+been shown to detect anything:
+
+- a full-screen transparent blocker is added, and the reachability pass must
+  report the controls it covers;
+- an empty modal body is injected, and the empty-sheet pass must flag it, then
+  fall silent once it is given content.
+
+If either canary fails, treat every other result on the run as meaningless.
 
 ## `tap.js`
 

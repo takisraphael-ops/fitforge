@@ -169,7 +169,20 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const has = await page.evaluate(() => typeof window.__audit === 'function');
     if (!has) await page.addScriptTag({ content: AUDIT });
     const r = await page.evaluate(roots => window.__audit(roots), LAYER_ROOTS);
-    results.push({ name, ...r });
+    // A sheet with nothing in it fails no reachability check — there is
+    // nothing to cover. "Add exercise" opened an empty modal for a month
+    // because every control in it was absent rather than buried, so count
+    // what a deliberately-opened layer actually offers.
+    // Not "has few controls" — plenty of sheets are legitimately just text.
+    // The bug shape is a body that rendered literally nothing, which happens
+    // when a builder's return value is destructured under the wrong key.
+    const hollow = await page.evaluate(() => {
+      const body = document.querySelector('.modal-overlay .modal-body, .wsheet');
+      if (!body) return null;
+      const empty = body.children.length === 0 && !(body.textContent || '').trim();
+      return empty ? 'nothing rendered' : null;
+    });
+    results.push({ name, ...r, hollow });
     if (shots) await page.screenshot({ path: `${SS}/audit_${name.replace(/\W+/g, '_')}.png` });
   };
 
@@ -199,6 +212,18 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await page.evaluate(() => document.querySelector('[data-testid="date-sheet-ok"]').click());
     await sleep(1300);
   });
+
+  // Straight through to the editor and its exercise picker — the sheet a
+  // blank back-logged session consists entirely of.
+  await check('past-session-editor', async () => {
+    await page.evaluate(() => document.querySelector('[data-testid="past-blank"]').click());
+    await sleep(1600);
+  });
+
+  await check('past-add-exercise', async () => {
+    await page.evaluate(() => document.querySelector('[data-testid="wd-add-exercise"]').click());
+    await sleep(1400);
+  }, { shots: true });
 
   // ---- overlays and sheets ----
   await check('quick-sheet', async () => {
@@ -333,19 +358,44 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   console.log(`   before ${canary.beforeFails} fails, after ${canary.afterFails} fails, blocker identified: ${canary.caught}`);
   console.log(`   the audit detects a covered control: ${canary.caught ? 'PASS' : 'FAIL — this tool is not measuring anything'}\n`);
 
+  // Second canary, for the empty-sheet check. Same argument: a detector that
+  // has only ever printed "ok" has not been shown to detect anything.
+  const hollowCanary = await page.evaluate(() => {
+    const probe = () => {
+      const body = document.querySelector('.modal-overlay .modal-body, .wsheet');
+      if (!body) return null;
+      return body.children.length === 0 && !(body.textContent || '').trim() ? 'nothing rendered' : null;
+    };
+    const ov = document.createElement('div');
+    ov.className = 'modal-overlay';
+    ov.innerHTML = '<div class="modal"><div class="modal-body"></div></div>';
+    document.body.appendChild(ov);
+    const flagged = probe();
+    ov.querySelector('.modal-body').textContent = 'now it has content';
+    const cleared = probe();
+    ov.remove();
+    return { flagged, cleared };
+  });
+  console.log('=== canary: a sheet that rendered nothing ===');
+  console.log(`   flags an empty body: ${hollowCanary.flagged ? 'PASS' : 'FAIL'}` +
+    ` | stays quiet once it has content: ${hollowCanary.cleared === null ? 'PASS' : 'FAIL'}\n`);
+
   // ---- report ----
   console.log('=== reachability audit ===\n');
-  let totalChecked = 0, totalFails = 0;
+  let totalChecked = 0, totalFails = 0, totalHollow = 0;
   for (const r of results) {
     if (r.error) { console.log(`${r.name.padEnd(20)} ERROR ${r.error}`); continue; }
     totalChecked += r.checked;
     totalFails += r.fails.length;
-    const status = r.fails.length ? `${r.fails.length} UNREACHABLE` : 'ok';
+    if (r.hollow != null) totalHollow++;
+    const status = r.fails.length ? `${r.fails.length} UNREACHABLE`
+      : r.hollow != null ? `EMPTY SHEET — ${r.hollow}` : 'ok';
     console.log(`${r.name.padEnd(20)} layer=${String(r.layer).padEnd(18)} checked=${String(r.checked).padStart(3)} offscreen=${String(r.offscreen).padStart(3)} scrolled-clear=${String(r.recovered).padStart(3)}  ${status}`);
     for (const f of r.fails) console.log(`    ✗ ${f.label}   covered by  ${f.by}`);
   }
   console.log(`\ntotal interactive elements hit-tested: ${totalChecked}`);
   console.log(`unreachable: ${totalFails}`);
+  console.log(`empty sheets: ${totalHollow}`);
   console.log('page errors:', errs.length ? errs : 'none');
   await b.close();
 })();
