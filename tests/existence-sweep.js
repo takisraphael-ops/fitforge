@@ -55,35 +55,107 @@ while ((m = TAG_RE.exec(app))) {
 // ("dock-" + t.id), by ternary, and by template literal. Reading only the
 // simple form marks ~140 live selectors dead, which buries the few real ones.
 const RENDERABLE = { exact: new Set(), prefix: new Set() };
+
+/**
+ * Read one value expression starting at `from`, stopping at the comma that
+ * ends it. Quotes and template literals are scanned as strings, not as
+ * structure. Counting a backtick as an opening bracket — which this did at
+ * first — means a template literal never closes, so the "expression" runs on
+ * through sibling attributes and children, and every quoted fragment in them
+ * (CSS, labels, whole SVG documents) is harvested as a testid. `numpad-`
+ * became a prefix that way, which made numpad-wheel-reps look live when the
+ * reps wheel is numpad-wheel-int.
+ */
+function readExpr(src, from) {
+  let depth = 0, out = '';
+  for (let i = from; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === '"' || ch === "'" || ch === '`') {
+      const quote = ch;
+      let j = i + 1, str = ch;
+      for (; j < src.length; j++) {
+        const c = src[j];
+        str += c;
+        if (c === '\\') { str += src[++j] || ''; continue; }
+        if (quote === '`' && c === '$' && src[j + 1] === '{') {
+          // Nested expression inside a template — skip to its matching brace.
+          let d = 1; str += '{'; j += 2;
+          for (; j < src.length && d > 0; j++) {
+            if (src[j] === '{') d++;
+            else if (src[j] === '}') d--;
+            str += src[j];
+          }
+          j--; continue;
+        }
+        if (c === quote) break;
+      }
+      out += str; i = j; continue;
+    }
+    if ('([{'.includes(ch)) { depth++; out += ch; continue; }
+    if (')]}'.includes(ch)) { if (depth === 0) break; depth--; out += ch; continue; }
+    if (ch === ',' && depth === 0) break;
+    out += ch;
+  }
+  return out;
+}
+
+// A testid never contains whitespace or markup. Anything that does is a label
+// or a style that leaked in, and admitting it as a prefix silently absorbs
+// whole families of selectors.
+const looksLikeTestid = (s) => !!s && !/[\s<>{}:;()]/.test(s);
+
 {
   const re = /"data-testid":\s*/g;
   let k;
   while ((k = re.exec(app))) {
-    // Take the whole value expression: to the next comma at brace/paren depth 0.
-    let i = k.index + k[0].length, depth = 0, expr = '';
-    for (; i < app.length; i++) {
-      const ch = app[i];
-      if ('([{`'.includes(ch)) depth++;
-      else if (')]}'.includes(ch)) { if (depth === 0) break; depth--; }
-      else if (ch === ',' && depth === 0) break;
-      else if (ch === '\n' && depth === 0 && /,\s*$/.test(expr)) break;
-      expr += ch;
-    }
+    const expr = readExpr(app, k.index + k[0].length);
     // Plain literals in the expression are exact ids; a literal immediately
     // followed by an interpolation or a `+` is a prefix.
-    for (const m of expr.matchAll(/"([^"]*)"/g)) if (m[1]) {
+    for (const m of expr.matchAll(/"([^"]*)"/g)) if (looksLikeTestid(m[1])) {
       const after = expr.slice(m.index + m[0].length, m.index + m[0].length + 4);
       (/^\s*\+/.test(after) ? RENDERABLE.prefix : RENDERABLE.exact).add(m[1]);
     }
     for (const m of expr.matchAll(/`([^`]*)`/g)) {
       const head = m[1].split('${')[0];
-      if (m[1].includes('${')) { if (head) RENDERABLE.prefix.add(head); }
-      else if (head) RENDERABLE.exact.add(head);
+      if (!looksLikeTestid(head)) continue;
+      if (m[1].includes('${')) RENDERABLE.prefix.add(head);
+      else RENDERABLE.exact.add(head);
     }
   }
 }
-const canExist = (tid) => RENDERABLE.exact.has(tid) ||
-  [...RENDERABLE.prefix].some(p => tid.startsWith(p));
+// Catch-all. Testids also reach the DOM in ways no amount of expression
+// parsing will see: as a plain `testid:` option on buildWheel, positionally
+// (filterChip(kind, val, label, "sess-filter-all")), and through setAttribute.
+// Parsing alone reported sess-filter-all, body-map-male, donut-add and
+// empty-day-log-meal as dead when all four are live.
+//
+// So any kebab-case literal anywhere in the app counts as renderable. A class
+// name that happens to share a testid's spelling costs one missed finding;
+// calling a live selector dead sends you chasing a bug that is not there, and
+// that is the more expensive mistake.
+const KEBAB = /"([a-z][a-z0-9]*(?:-[a-z0-9]+)+)"/g;
+for (const m of app.matchAll(KEBAB)) RENDERABLE.exact.add(m[1]);
+// Same for interpolated families — `sess-filter-venue-${v}` wherever it sits.
+for (const m of app.matchAll(/`([a-z][a-z0-9]*(?:-[a-z0-9]+)*-)\$\{/g)) RENDERABLE.prefix.add(m[1]);
+function canExist(tid) {
+  if (RENDERABLE.exact.has(tid)) return true;
+  const p = [...RENDERABLE.prefix].filter(x => tid.startsWith(x))
+    .sort((a, b) => b.length - a.length)[0];
+  if (!p) return false;
+  // A template prefix can be much broader than what it actually produces:
+  // `numpad-${key}` covers numpad-0..9 and numpad-dot, but it was also
+  // vouching for numpad-wheel-reps, which does not exist — the reps wheel is
+  // numpad-wheel-int. So a prefix does not get to cover a family the app
+  // enumerates by name. If several exact ids share a longer prefix with this
+  // one, membership of that family is by name, and this is not a member.
+  const segs = tid.split('-');
+  for (let n = segs.length - 1; n > 0; n--) {
+    const family = segs.slice(0, n).join('-') + '-';
+    if (family.length <= p.length) break;
+    if ([...RENDERABLE.exact].filter(e => e.startsWith(family)).length >= 2) return false;
+  }
+  return true;
+}
 
 const isInteractive = (tid) => {
   if (interactive.has(tid)) return interactive.get(tid);
@@ -190,6 +262,22 @@ function canary() {
   ];
   let allOk = true;
   console.log('=== canary: does this sweep detect anything? ===');
+
+  // The dead-selector half needs its own proof. Its first version harvested
+  // junk prefixes — `numpad-`, `set-done`, whole sentences — from expressions
+  // that ran past the testid, and a prefix that broad marks everything live.
+  const LIVE = ['numpad-wheel-int', 'numpad-wheel-tens', 'dock-fab', 'set-weight-0', 'preset-norwegian-4x4'];
+  const DEAD = ['numpad-wheel-reps', 'pquiz-bignum', 'totally-made-up-id', 'numpad-wheel-nonsense'];
+  const wrongLive = LIVE.filter(t => !canExist(t));
+  const wrongDead = DEAD.filter(t => canExist(t));
+  const junk = [...RENDERABLE.prefix].filter(p => p.length < 3 || !looksLikeTestid(p));
+  if (wrongLive.length || wrongDead.length || junk.length) allOk = false;
+  console.log(`   ${wrongLive.length ? 'FAIL' : 'PASS'}  ids the app really renders are known live` +
+    (wrongLive.length ? `  — missed ${wrongLive.join(', ')}` : ''));
+  console.log(`   ${wrongDead.length ? 'FAIL' : 'PASS'}  ids the app cannot render are flagged` +
+    (wrongDead.length ? `  — let through ${wrongDead.join(', ')}` : ''));
+  console.log(`   ${junk.length ? 'FAIL' : 'PASS'}  no junk prefixes harvested` +
+    (junk.length ? `  — ${junk.slice(0, 5).map(s => JSON.stringify(s.slice(0, 24))).join(', ')}` : ''));
   for (const [label, body, tid, expectFlag] of CASES) {
     const name = '__canary_test.js';
     fs.writeFileSync(path.join(DIR, name), body + '\n');

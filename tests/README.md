@@ -122,6 +122,34 @@ Two things it is careful about, both learned from the suites it replaces:
 Worth confirming it can fail before trusting it — break the `dob` write in
 `saveQuiz` and the run should report `the DOB survived as a date, not an age`.
 
+## `numpad.js`
+
+The number pad in the active workout — the primary logging flow: the
+tens/ones/quarter columns for weight, the last-session chip, Next moving to
+reps, Log set, and that closing the pad commits the value.
+
+    node tests/numpad.js
+
+Replaces a suite that drove `numpad-wheel-whole` and `numpad-wheel-reps`.
+Standard weight was split into tens + ones + ¼ so heavy loads are a quick spin
+rather than a long scroll, and the reps column is `numpad-wheel-int`, so the
+old one failed on a null wheel every run.
+
+## `set-logging.js`
+
+Ticking a set updates in place rather than re-mounting the screen. Node
+identity is the whole assertion: if the pager and dock are the same objects
+afterwards, nothing rebuilt them. A full re-render loses scroll position and
+flashes the screen on every tap, which mid-set on a phone is the difference
+between usable and not.
+
+    node tests/set-logging.js
+
+Replaces a suite that tapped the same set button twice in a row. Completing a
+set opens the rest timer, which owns the screen by design, so the second tap
+was intercepted and the run died before testing anything. Dismissing rest first
+is what a real user does.
+
 ## `tap.js`
 
 `safeTap(page, selector)` for the Playwright suites. Asserts the element is
