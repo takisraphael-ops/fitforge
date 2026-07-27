@@ -166,6 +166,7 @@ window.U = {
     legs: 5.5,
     core: 3.8,
     cardio: 8.0,
+    boxing: 7.0,
     full_body: 6.5
   },
   // Intensity multipliers for cardio intervals.

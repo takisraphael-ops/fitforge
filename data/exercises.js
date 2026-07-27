@@ -1337,7 +1337,52 @@ window.EXERCISE_DB = [
     "Press gently through the supporting hand to deepen the rotation."
   ], mistakes: ["Hips drifting away from over the knees", "Forcing the shoulder into pain", "Holding the breath", "Collapsing the neck"],
     variations: ["With the top arm reaching overhead", "Child's pose thread", "Standing at a wall"],
-    alternatives: ["Thoracic rotation", "Child's pose side reach", "Cat-cow"] }
+    alternatives: ["Thoracic rotation", "Child's pose side reach", "Cat-cow"] },
+
+  // ===== Boxing =====
+  // Logged by duration, like cardio: rounds are time, and nobody counts
+  // punches. `type: "cardio"` is what puts a minutes field on the set row.
+  // METs are anchored to the Compendium of Physical Activities — punching bag
+  // 5.5, sparring 7.8 — nudged for how these are actually trained: continuous
+  // rounds rather than the compendium's lighter general entries.
+  { id: "shadow-boxing", name: "Shadow Boxing", category: "boxing", type: "cardio", met: 6.0,
+    muscles: ["Shoulders", "Core", "Legs", "Cardiovascular system"], equipment: "None", gear: ["none"], technique: [
+    "Stand in your guard: lead foot forward, feet about shoulder-width, weight on the balls of the feet.",
+    "Hands up at cheek height, elbows tucked to the ribs, chin down.",
+    "Move first, punch second — step, pivot and circle rather than standing square.",
+    "Throw combinations at about 70% and snap the hand straight back to the guard.",
+    "Turn the hips and pivot the rear foot on the cross; punches come from the ground, not the arm.",
+    "Breathe out sharply on every punch and keep the shoulders loose.",
+    "Work in rounds — 3 minutes on, 1 minute off is the standard."
+  ], mistakes: ["Dropping the hands between combinations", "Punching with the arm only, no hip rotation", "Standing flat-footed", "Holding the breath", "Going full power and burning out in a round"],
+    variations: ["Rounds with a focus (jab only, head movement only)", "With light hand weights", "In front of a mirror", "Footwork-only rounds"],
+    alternatives: ["Heavy Bag", "Pad Work", "Jump Rope"] },
+
+  { id: "pad-work", name: "Pad Work", category: "boxing", type: "cardio", met: 8.0,
+    muscles: ["Shoulders", "Arms", "Core", "Legs", "Cardiovascular system"], equipment: "Focus pads + partner", gear: ["focus-pads"], technique: [
+    "Gloves on, hands up — the pad holder calls the combination, you answer it.",
+    "Hit through the pad, not at it, and bring the hand straight back to the guard.",
+    "Match the holder's rhythm: they set the pace, you stay relayed to it.",
+    "Keep moving between combinations rather than resetting to a standstill.",
+    "Reset your stance after every combination — do not let the feet cross.",
+    "Sharp exhale on each punch; stay relaxed until the moment of contact.",
+    "Rounds are usually 2–3 minutes with 30–60 seconds between."
+  ], mistakes: ["Pushing punches instead of snapping them", "Watching the pads rather than the holder", "Dropping the non-punching hand", "Squaring up to the holder", "Overreaching and losing balance"],
+    variations: ["Fixed combinations", "Call-and-react rounds", "Defence added between combinations", "Conditioning finishers"],
+    alternatives: ["Heavy Bag", "Shadow Boxing"] },
+
+  { id: "heavy-bag", name: "Heavy Bag", category: "boxing", type: "cardio", met: 7.0,
+    muscles: ["Shoulders", "Arms", "Back", "Core", "Legs", "Cardiovascular system"], equipment: "Heavy bag + gloves", gear: ["heavy-bag"], technique: [
+    "Wrap the hands and glove up — the bag is unforgiving on bare knuckles and wrists.",
+    "Stay at the range where a straight punch lands just short of full extension.",
+    "Land on the flat of the knuckles with a straight wrist; never punch with a bent wrist.",
+    "Rotate the hips and pivot the rear foot on power shots.",
+    "Circle the bag rather than standing in front of it, and move as it swings back.",
+    "Work in rounds and keep the hands up between combinations.",
+    "Finish combinations with a step out, not by standing and admiring them."
+  ], mistakes: ["Punching with a bent wrist", "Skipping hand wraps", "Standing square in front of the bag", "Leaning on the bag when tired", "Throwing single punches instead of combinations"],
+    variations: ["3-minute rounds", "30-second power bursts", "Body-shot rounds", "Jab-only rounds"],
+    alternatives: ["Pad Work", "Shadow Boxing"] }
 ];
 
 // Group by category for quick access
@@ -1349,6 +1394,7 @@ window.EXERCISE_CATEGORIES = {
   legs: "Legs",
   core: "Core",
   cardio: "Cardio",
+  boxing: "Boxing",
   full_body: "Full Body",
   mobility: "Mobility"
 };

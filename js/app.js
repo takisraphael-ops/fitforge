@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=161").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=162").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1080,10 +1080,16 @@
   const CARDIO_IDS = new Set(["run", "rowing", "cycling", "jump-rope"]);
   // Cardio exercises that are not distance-based (e.g. jump rope) hide the km field.
   const NO_DISTANCE_CARDIO_IDS = new Set(["jump-rope"]);
+  // Categories logged by time rather than by sets and reps. Boxing rounds are
+  // minutes on the bag or the pads — nobody counts punches — so these log the
+  // same way cardio does, and none of them cover ground.
+  const DURATION_CATEGORIES = new Set(["cardio", "boxing"]);
+  const NO_DISTANCE_CATEGORIES = new Set(["boxing"]);
 
   /** Whether a cardio exercise should show/track a distance (km) field. */
   function cardioTracksDistance(ex) {
     if (!ex) return true;
+    if (NO_DISTANCE_CATEGORIES.has(ex.category)) return false;
     const id = String(ex.exerciseId || ex.id || "").toLowerCase();
     if (NO_DISTANCE_CARDIO_IDS.has(id)) return false;
     const name = String(ex.name || "").toLowerCase();
@@ -1093,7 +1099,7 @@
 
   function looksLikeCardio(ex) {
     if (!ex) return false;
-    if (ex.category === "cardio") return true;
+    if (DURATION_CATEGORIES.has(ex.category)) return true;
     if (ex.type === "cardio") return true;
     const id = String(ex.id || ex.exerciseId || "").toLowerCase();
     if (CARDIO_IDS.has(id)) return true;
@@ -3450,11 +3456,15 @@
   // move if you have ANY item in its list, and a session if that holds for
   // every exercise in it.
   const GEAR_ORDER = ["band", "dumbbell", "kettlebell", "barbell", "pullup-bar",
-    "dip-bars", "jump-rope", "ab-wheel", "machine", "cable", "cardio-machine"];
+    "dip-bars", "jump-rope", "ab-wheel", "machine", "cable", "cardio-machine",
+    "heavy-bag", "focus-pads"];
   const GEAR_META = {
     band: "Bands", dumbbell: "Dumbbells", kettlebell: "Kettlebells", barbell: "Barbell",
     "pullup-bar": "Pull-up bar", "dip-bars": "Dip bars", "jump-rope": "Jump rope",
-    "ab-wheel": "Ab wheel", machine: "Machines", cable: "Cables", "cardio-machine": "Cardio machine"
+    "ab-wheel": "Ab wheel", machine: "Machines", cable: "Cables", "cardio-machine": "Cardio machine",
+    // Pad work needs someone to hold them, so the kit entry says so — it is
+    // the thing that decides whether a session is on today.
+    "heavy-bag": "Heavy bag", "focus-pads": "Pads + partner"
   };
   const VENUE_META = { gym: "Gym", home: "Home", outdoors: "Outdoors" };
 
@@ -7870,7 +7880,9 @@
       legs: ["legL", "legR"],
       core: ["torsoL"],
       full_body: ["torsoU", "torsoL", "armL", "armR", "legL", "legR"],
-      cardio: ["torsoU", "torsoL", "legL", "legR"]
+      cardio: ["torsoU", "torsoL", "legL", "legR"],
+      // Punching is shoulders and arms driven from the legs through the trunk.
+      boxing: ["sh", "armL", "armR", "torsoU", "legL", "legR"]
     })[category] || ["torsoU"];
     const on = (id) => accent.includes(id) ? " xfig-on" : "";
     const svg =
