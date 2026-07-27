@@ -162,7 +162,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.addScriptTag({ content: AUDIT });
 
   const results = [];
-  const check = async (name, setup, { shots = false } = {}) => {
+  const check = async (name, setup, { shots = false, expectLayer = null } = {}) => {
     try { await setup(); } catch (e) { results.push({ name, error: String(e).slice(0, 120) }); return; }
     await sleep(900);
     // The audit helper is lost on reload/navigation, so re-inject defensively.
@@ -182,7 +182,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       const empty = body.children.length === 0 && !(body.textContent || '').trim();
       return empty ? 'nothing rendered' : null;
     });
-    results.push({ name, ...r, hollow });
+    // The audit only walks the topmost layer. If the thing you just opened is
+    // NOT on top, every control in it is skipped and the surface still prints
+    // "ok" — which is how a numpad at z-index 95 under a modal at 100 looked
+    // clean while being completely untappable. Name the layer you expect.
+    const wrongLayer = expectLayer && r.layer !== expectLayer ? r.layer : null;
+    results.push({ name, ...r, hollow, wrongLayer, expectLayer });
     if (shots) await page.screenshot({ path: `${SS}/audit_${name.replace(/\W+/g, '_')}.png` });
   };
 
@@ -224,6 +229,33 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await page.evaluate(() => document.querySelector('[data-testid="wd-add-exercise"]').click());
     await sleep(1400);
   }, { shots: true });
+
+  // The numpad raised from INSIDE a modal. At its old z-index of 95 it landed
+  // under the modal scrim (100) — visible through it, untappable — so the
+  // weight and rep boxes on a past session could not be used at all. The
+  // existing `numpad` surface missed it because that one opens from the active
+  // workout, where there is no modal to lose to.
+  await check('numpad-over-modal', async () => {
+    await closeLayers();
+    await page.evaluate(() => document.querySelector('[data-testid="dock-stats"]').click());
+    await sleep(1800);
+    await page.evaluate(() => document.querySelector('[data-testid="seg-history"]').click());
+    await sleep(1400);
+    // Earlier surfaces leave a blank back-logged session at the top of the
+    // list, and a session with no exercises has no weight box to open.
+    await page.evaluate(() => {
+      const rows = [...document.querySelectorAll('[data-testid="history-item"]')];
+      const seeded = rows.find(r => /Push Day/.test(r.textContent)) || rows[rows.length - 1];
+      if (seeded) seeded.click();
+    });
+    await sleep(1300);
+    await page.evaluate(() => {
+      const w = document.querySelector('[data-testid="wd-weight"]');
+      if (!w) throw new Error('no weight box on this session');
+      w.click();
+    });
+    await sleep(1200);
+  }, { shots: true, expectLayer: '.numpad-overlay' });
 
   // ---- overlays and sheets ----
   await check('quick-sheet', async () => {
@@ -330,7 +362,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       if (i) i.click();
     });
     await sleep(900);
-  }, { shots: true });
+  }, { shots: true, expectLayer: '.numpad-overlay' });
 
   // ---- canary ----
   // A checker that can only ever print "ok" proves nothing. Cover a control
@@ -382,13 +414,15 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   // ---- report ----
   console.log('=== reachability audit ===\n');
-  let totalChecked = 0, totalFails = 0, totalHollow = 0;
+  let totalChecked = 0, totalFails = 0, totalHollow = 0, totalWrongLayer = 0;
   for (const r of results) {
     if (r.error) { console.log(`${r.name.padEnd(20)} ERROR ${r.error}`); continue; }
     totalChecked += r.checked;
     totalFails += r.fails.length;
     if (r.hollow != null) totalHollow++;
-    const status = r.fails.length ? `${r.fails.length} UNREACHABLE`
+    if (r.wrongLayer) totalWrongLayer++;
+    const status = r.wrongLayer ? `BURIED — expected ${r.expectLayer}, ${r.wrongLayer} is on top`
+      : r.fails.length ? `${r.fails.length} UNREACHABLE`
       : r.hollow != null ? `EMPTY SHEET — ${r.hollow}` : 'ok';
     console.log(`${r.name.padEnd(20)} layer=${String(r.layer).padEnd(18)} checked=${String(r.checked).padStart(3)} offscreen=${String(r.offscreen).padStart(3)} scrolled-clear=${String(r.recovered).padStart(3)}  ${status}`);
     for (const f of r.fails) console.log(`    ✗ ${f.label}   covered by  ${f.by}`);
@@ -396,6 +430,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   console.log(`\ntotal interactive elements hit-tested: ${totalChecked}`);
   console.log(`unreachable: ${totalFails}`);
   console.log(`empty sheets: ${totalHollow}`);
+  console.log(`buried layers: ${totalWrongLayer}`);
   console.log('page errors:', errs.length ? errs : 'none');
   await b.close();
 })();

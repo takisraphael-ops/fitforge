@@ -2911,7 +2911,11 @@ input:disabled.input,
 
 /* ============ Numeric keypad (steppers + big keys) ============ */
 .numpad-overlay {
-  position: fixed; inset: 0; z-index: 95; /* above rest timer (90), below toast (100) */
+  /* Must clear the modal scrim (100) and the weekly planner (2500): the pad is
+     opened from inside those, and at 95 it rendered behind the very sheet that
+     raised it — visible through the scrim, untappable. Stays under the
+     confirm/alert dialogs (10000), which have to sit on top of everything. */
+  position: fixed; inset: 0; z-index: 3000;
   display: flex; align-items: flex-end; justify-content: center;
   background: rgba(4, 6, 12, 0.45);
   animation: fadeIn 0.15s ease;

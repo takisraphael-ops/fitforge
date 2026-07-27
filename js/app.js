@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=160").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=161").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1606,8 +1606,17 @@
   function closeNumPad() {
     if (!numpadState) return;
     document.removeEventListener("keydown", numpadState.keyHandler, true);
+    const input = numpadState.input;
     numpadState.overlay.remove();
     numpadState = null;
+    // Closing the pad IS the commit point — it is the whole editing session
+    // for that field. While it only dispatched "input", any field that saves
+    // on "change"/"blur" kept the number on screen and never wrote it, so it
+    // survived only if the user happened to tap another field afterwards.
+    if (input && input.isConnected) {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      try { input.blur(); } catch (_) {}
+    }
   }
 
   function attachNumPad(input, opts = {}) {
@@ -1630,7 +1639,18 @@
     const decimals = !!opts.decimals;
     const allowMinus = !!opts.allowMinus;
     const unit = opts.unit || "";
-    const wheelMode = opts.wheel || null; // "weight" | "reps" | null (digit keypad)
+    // A range config — { min, max, frac?, tens? } — or null for the digit
+    // keypad. Anything else (a bare name, a partial object) would reach the
+    // clamp as undefined and turn the value into NaN, so refuse it here and
+    // fall back to the keypad: a caller that gets this wrong should lose the
+    // wheel, not the ability to enter a number.
+    const wheelCfg = opts.wheel;
+    const wheelUsable = !!wheelCfg && typeof wheelCfg === "object" &&
+      Number.isFinite(wheelCfg.min) && Number.isFinite(wheelCfg.max) && wheelCfg.max > wheelCfg.min;
+    if (wheelCfg && !wheelUsable) {
+      console.warn("openNumPad: ignoring unusable wheel config", wheelCfg, "for", opts.label || opts.unit || input);
+    }
+    const wheelMode = wheelUsable ? wheelCfg : null;
     let raw = input.value || "";
     let fresh = true; // first digit replaces the current value
 
@@ -10944,8 +10964,22 @@
       };
       return el("div", { class: "set-row set-row-edit" + (s.drop ? " is-drop" : ""), style: "grid-template-columns: 34px 1fr 1fr 1fr 36px" },
         el("div", { class: "set-index" }, String(i + 1) + (s.drop ? " •" : "")),
-        numCell(s, "weight", { testid: "wd-weight", pad: { decimals: true, unit: "kg", wheel: "weight" }, onCommit: refreshE1 }),
-        numCell(s, "reps", { testid: "wd-reps", pad: { wheel: "reps" }, onCommit: refreshE1 }),
+        // wheel takes a range config, not a name. Passing the strings
+        // "weight"/"reps" left min and max undefined, so the wheel's clamp
+        // produced NaN and the cell filled with it — every weight and rep box
+        // in this editor was unusable.
+        numCell(s, "weight", {
+          testid: "wd-weight", onCommit: refreshE1,
+          pad: {
+            decimals: true, unit: "kg",
+            wheel: { min: ex.type === "weighted_bodyweight" ? -100 : 0, max: 400,
+              frac: "quarter", tens: ex.type !== "weighted_bodyweight" }
+          }
+        }),
+        numCell(s, "reps", {
+          testid: "wd-reps", onCommit: refreshE1,
+          pad: { unit: "reps", step: 1, wheel: { min: 1, max: 60 } }
+        }),
         e1,
         del
       );

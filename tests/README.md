@@ -42,6 +42,19 @@ nothing at all. Deliberately "no children and no text", not "few controls":
 plenty of sheets are legitimately just text, and flagging those trains you to
 ignore the column.
 
+### Buried layers
+
+The audit only walks the layer that owns the screen — background content
+behind a scrim is *supposed* to be unreachable. That leaves a hole: if the
+thing you just opened is not the layer on top, every control in it is skipped
+and the surface still prints `ok`.
+
+That is exactly how the numpad at `z-index: 95` sat under the modal scrim at
+`100` and looked clean while being completely untappable, so the weight and rep
+boxes on a past session could not be used at all. Pass `expectLayer` on any
+surface that opens something, and a mismatch reports `BURIED` instead of a
+silent pass on the wrong layer.
+
 ### Canaries
 
 Two, both for the same reason — a checker that can only ever print "ok" has not
