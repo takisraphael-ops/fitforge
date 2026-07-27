@@ -184,6 +184,22 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await check('you', async () => { await tapT('[data-testid="dock-stats"]'); await sleep(1600); });
   await check('library', async () => { await tapT('[data-testid="dock-library"]'); await sleep(1400); });
 
+  // The History segment of "You" — its own screen, with the back-log entry
+  // and a repeat button on every logged session.
+  await check('history', async () => {
+    await tapT('[data-testid="dock-stats"]');
+    await sleep(1800);
+    await page.evaluate(() => document.querySelector('[data-testid="seg-history"]').click());
+    await sleep(1400);
+  }, { shots: true });
+
+  await check('past-session-picker', async () => {
+    await page.evaluate(() => document.querySelector('[data-testid="log-past-session"]').click());
+    await sleep(800);
+    await page.evaluate(() => document.querySelector('[data-testid="date-sheet-ok"]').click());
+    await sleep(1300);
+  });
+
   // ---- overlays and sheets ----
   await check('quick-sheet', async () => {
     await closeLayers();

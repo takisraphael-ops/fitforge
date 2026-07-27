@@ -1648,6 +1648,30 @@ input:disabled.input,
 .history-repeat:hover { color: var(--accent); }
 .history-repeat svg { width: 17px; height: 17px; }
 
+/* Row zero of the log: back-fill a session that was never recorded. Dashed,
+   so it reads as an opening in the list rather than another entry in it. */
+.history-add {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 12px 14px; margin-bottom: 8px;
+  background: transparent; cursor: pointer; text-align: left;
+  border: 1px dashed var(--border); border-radius: var(--radius-md);
+  color: var(--text-muted);
+  transition: border-color .16s ease, color .16s ease, background .16s ease;
+}
+.history-add:hover, .history-add:focus-visible {
+  border-color: var(--accent); color: var(--accent);
+  background: var(--accent-soft, transparent);
+}
+.history-add-icon {
+  flex: none; display: grid; place-items: center;
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 1px solid currentColor;
+}
+.history-add-icon svg { width: 14px; height: 14px; }
+.history-add-title { display: block; font-size: 13px; font-weight: 700; color: inherit; }
+.history-add-sub { display: block; font-size: 11px; color: var(--text-faint); margin-top: 1px; }
+.history-add:hover .history-add-sub, .history-add:focus-visible .history-add-sub { color: inherit; opacity: .8; }
+
 /* The day a live session will be logged against. Stands out only when it is
    not today, since that is the case worth noticing. */
 .wtopbar-meta { display: flex; align-items: center; gap: 8px; }

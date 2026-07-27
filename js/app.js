@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=156").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=157").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -4051,13 +4051,14 @@
     return `${weekday} Workout`;
   }
 
-  async function startNewWorkout(template = null) {
-    const nameInput = document.getElementById("new-workout-name");
-    let name = (nameInput?.value || suggestedName()).trim();
-    if (template && (!nameInput || !nameInput.value.trim())) name = template.name;
-
-    let exercises = [];
-    if (template && Array.isArray(template.exercises)) {
+  /** Turn a template or preset into a session's worth of exercises: template
+      targets become values, and anything the template leaves open is shaped by
+      the last time you did that movement. Shared by "start this now" and
+      "log the one I forgot", which want identical contents and differ only in
+      whether the sets arrive ticked. */
+  async function expandTemplateExercises(template) {
+    if (!template || !Array.isArray(template.exercises)) return [];
+    {
       const all = await getAllExercises();
       // Prefill missing template targets from each exercise's last session.
       const lastById = new Map();
@@ -4068,7 +4069,7 @@
           if (hist[0]) lastById.set(te.exerciseId, hist[0]);
         } catch (_) {}
       }
-      exercises = template.exercises.map(te => {
+      return template.exercises.map(te => {
         const def = all.find(x => x.id === te.exerciseId);
         const type = def ? inferExerciseType(def) : "weighted";
         const prev = lastById.get(te.exerciseId);
@@ -4155,10 +4156,16 @@
         };
       });
     }
+  }
+
+  async function startNewWorkout(template = null) {
+    const nameInput = document.getElementById("new-workout-name");
+    let name = (nameInput?.value || suggestedName()).trim();
+    if (template && (!nameInput || !nameInput.value.trim())) name = template.name;
 
     return beginWorkoutSession({
       name,
-      exercises,
+      exercises: await expandTemplateExercises(template),
       templateId: template?.id || null,
       source: template ? "template" : "empty"
     });
@@ -4444,6 +4451,10 @@
   // more panels — eleven swipe targets would be unusable on a phone.
   function buildSessionPickerUI(mine, presets, opts = {}) {
     const onPicked = opts.onPicked || (() => {});
+    // What the primary button on a card does. Defaults to starting the session
+    // right now; the back-logging flow swaps in "record that I did this".
+    const onChoose = opts.onChoose || startNewWorkout;
+    const actionLabel = opts.actionLabel || "Start";
     const GROUPS = [
       { key: "conditioning", label: "Conditioning", items: presets.filter(t => t.pillar === "conditioning") },
       { key: "strength", label: "Strength", items: presets.filter(t => t.pillar === "strength") },
@@ -4512,7 +4523,7 @@
             : t.gear.map(g => el("span", { class: "sess-tag" }, GEAR_META[g] || g)))
         ),
         el("div", { class: "sess-card-actions" },
-          el("button", { class: "btn btn-primary btn-sm", on: { click: () => { onPicked(); startNewWorkout(t); } } }, "Start"),
+          el("button", { class: "btn btn-primary btn-sm", on: { click: () => { onPicked(); onChoose(t); } } }, actionLabel),
           preset
             ? el("button", { class: "btn btn-sm", on: { click: () => openSessionDetail(t) } }, "Details")
             : el("button", { class: "btn btn-sm", on: { click: () => { onPicked(); openTemplateEditor(t); } } }, "Edit"),
@@ -11018,6 +11029,20 @@
     const [workouts, meals] = await Promise.all([Storage.getWorkouts(), Storage.getMeals()]);
     const completed = workouts.filter(w => w.completedAt).sort((a, b) => b.startedAt - a.startedAt);
 
+    // Row zero of the log: the way in for a session that happened but was
+    // never recorded. Sits with the history rather than the workout tab
+    // because it is an act of book-keeping, not of training.
+    const backlogRow = () => el("button", {
+      class: "history-add", type: "button", "data-testid": "log-past-session",
+      on: { click: logPastSession }
+    },
+      el("span", { class: "history-add-icon", html: icons.plus }),
+      el("span", {},
+        el("span", { class: "history-add-title" }, "Log a past session"),
+        el("span", { class: "history-add-sub" }, "Trained but forgot to record it")
+      )
+    );
+
     if (completed.length === 0) {
       view.appendChild(emptyState({
         title: "No workouts logged yet",
@@ -11026,6 +11051,7 @@
         onPrimary: () => goTab("workout"),
         primaryTestId: "empty-history-start-workout"
       }));
+      view.appendChild(el("div", { class: "card" }, backlogRow()));
       return;
     }
 
@@ -11079,6 +11105,7 @@
     // Workout log
     const card = el("div", { class: "card" });
     card.appendChild(el("div", { class: "card-title" }, `Workout log (${completed.length})`));
+    card.appendChild(backlogRow());
     let firstItem = true;
     for (const w of completed) {
       const totalVol = (w.exercises || []).reduce((s, e) => s + U.volume(e.sets), 0);
@@ -11118,6 +11145,70 @@
     }
     finishFlourish = false;
     view.appendChild(card);
+  }
+
+  /** The other half of back-logging: a session you trained but never started
+      in the app, and have no earlier copy of to repeat. This is the one path
+      that has to ask what the session actually was, so it costs one extra
+      screen — day, then session, then the numbers. */
+  function logPastSession() {
+    openDateSheet({
+      title: "Log a session on",
+      confirmLabel: "Next",
+      // "I forgot to log it" nearly always means yesterday.
+      date: (() => { const d = new Date(); d.setDate(d.getDate() - 1); return U.todayISO(d); })(),
+      testid: "past-day",
+      onPick: (day) => choosePastSession(day)
+    });
+  }
+
+  async function choosePastSession(day) {
+    const mine = (await Storage.getTemplates()).slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    const picker = buildSessionPickerUI(mine, presetSessions(), {
+      onPicked: closeModal,
+      actionLabel: "Log it",
+      onChoose: (t) => createPastWorkout(day, t)
+    });
+    const footer = el("div", {},
+      el("button", { class: "btn", on: { click: closeModal } }, "Cancel"),
+      // Nothing in the library matches — start from an empty session and add
+      // exercises in the editor, same as any other correction.
+      // Deliberately not the primary button — the main path is "Log it" on a
+      // card, and an accent button down here would pull the eye off it.
+      el("button", {
+        class: "btn", "data-testid": "past-blank",
+        on: { click: () => { closeModal(); createPastWorkout(day, null); } }
+      }, "Blank session")
+    );
+    openModal(`What did you do on ${U.formatDate(day)}?`, picker.body, footer);
+    picker.refresh();
+  }
+
+  async function createPastWorkout(day, template) {
+    const at = new Date(day + "T12:00:00");
+    const when = Number.isFinite(at.getTime()) ? at.getTime() : Date.now();
+    const exercises = await expandTemplateExercises(template);
+    // Every set arrives ticked: you are recording what happened, not working
+    // through a plan, so the only job left is correcting the numbers.
+    for (const ex of exercises) for (const s of (ex.sets || [])) s.done = true;
+    const w = {
+      id: U.uid(),
+      name: (template && template.name) || "Workout",
+      date: day,
+      startedAt: when,
+      completedAt: when,
+      // Unknown rather than zero — the log renders this as "—" instead of
+      // claiming a session that took no time.
+      durationSec: null,
+      exercises,
+      notes: "",
+      templateId: (template && template.id) || null,
+      source: "backlog"
+    };
+    await Storage.saveWorkout(w);
+    renderMain();
+    toast(`Logged to ${U.formatDate(day)} — fill in what you did`);
+    setTimeout(() => openWorkoutDetail(w), 420);
   }
 
   /** Clone a finished session onto another day, keeping what you actually
