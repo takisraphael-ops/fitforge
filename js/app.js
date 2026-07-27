@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=158").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=159").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -8579,35 +8579,55 @@
   // Saved meals shortcut — quick sheet to re-log a saved meal (optionally into
   // a specific section) or jump to create/edit one.
   async function openSavedMealsSheet(sectionHint = null, dateHint = null) {
-    const templates = await Storage.getMealTemplates();
     const date = dateHint || U.todayISO();
     const isBackdated = date !== U.todayISO();
-    const body = el("div", {});
-    if (isBackdated) {
-      body.appendChild(el("div", { class: "saved-sheet-daynote", "data-testid": "saved-sheet-daynote" },
-        `Logging to ${U.formatDate(date, { weekday: "long", day: "numeric", month: "short" })}`));
-    }
-    if (!templates.length) {
-      body.appendChild(el("p", { class: "text-sm text-faint", style: "margin:4px 0 12px" },
-        "No saved meals yet. Log a meal, then tap the bookmark on it to keep it for next time."));
-    } else {
+    const body = el("div", { "data-testid": "saved-sheet-body" });
+
+    // Rebuilt in place after a delete rather than closed: clearing out a list
+    // you no longer use is usually more than one item, and reopening the sheet
+    // between each would make that tedious.
+    async function fill() {
+      const templates = await Storage.getMealTemplates();
+      clear(body);
+      if (isBackdated) {
+        body.appendChild(el("div", { class: "saved-sheet-daynote", "data-testid": "saved-sheet-daynote" },
+          `Logging to ${U.formatDate(date, { weekday: "long", day: "numeric", month: "short" })}`));
+      }
+      if (!templates.length) {
+        body.appendChild(el("p", { class: "text-sm text-faint", style: "margin:4px 0 12px", "data-testid": "saved-sheet-empty" },
+          "No saved meals yet. Log a meal, then tap the bookmark on it to keep it for next time."));
+        return;
+      }
       const sorted = templates.slice().sort((a, b) => (b.lastUsedAt || b.updatedAt || 0) - (a.lastUsedAt || a.updatedAt || 0));
       const list = el("div", { class: "saved-sheet-list" });
       for (const tpl of sorted) {
         const macroLine = U.formatMacroLine(tpl);
-        list.appendChild(el("div", { class: "saved-sheet-item" },
+        list.appendChild(el("div", { class: "saved-sheet-item", "data-testid": "saved-sheet-item" },
           el("button", {
             class: "saved-sheet-main", type: "button", title: `Log ${tpl.name}`,
+            "data-testid": "saved-sheet-log",
             on: { click: async () => { closeModal(); await logMealFromTemplate(tpl, sectionHint, dateHint); } }
           },
             el("div", { class: "saved-sheet-name" }, tpl.name),
             el("div", { class: "saved-sheet-meta" }, `${tpl.kcal || 0} kcal${macroLine ? ` · ${macroLine}` : ""}`)
           ),
-          el("button", { class: "icon-btn", title: "Edit saved meal", html: icons.edit, on: { click: () => { closeModal(); openMealTemplateEditor(tpl); } } })
+          el("button", {
+            class: "icon-btn", title: `Edit ${tpl.name}`, "aria-label": `Edit ${tpl.name}`,
+            "data-testid": "saved-sheet-edit", html: icons.edit,
+            on: { click: () => { closeModal(); openMealTemplateEditor(tpl); } }
+          }),
+          el("button", {
+            class: "icon-btn saved-sheet-del", title: `Delete ${tpl.name}`,
+            "aria-label": `Delete saved meal ${tpl.name}`,
+            "data-testid": "saved-sheet-delete", html: icons.trash,
+            on: { click: () => deleteSavedMeal(tpl, fill) }
+          })
         ));
       }
       body.appendChild(list);
     }
+
+    await fill();
     const footer = el("div", {},
       // Backdated: this sheet was opened from a day's breakdown, so going back
       // should land there rather than dumping you out to the tab.
@@ -8620,6 +8640,23 @@
     );
     const title = sectionHint ? `Saved → ${U.MEAL_SECTIONS[sectionHint].label}` : "Saved meals";
     openModal(title, body, footer);
+  }
+
+  /** Remove a saved meal. Deliberately does NOT touch the meals already logged
+      from it — those are a record of what you ate, not references to the
+      template. `after` re-renders whichever surface asked. */
+  async function deleteSavedMeal(tpl, after) {
+    const ok = await confirmDialog(
+      `Remove “${tpl.name}” from your saved meals? Meals you have already logged from it stay in your diary.`,
+      { title: "Delete saved meal?", okLabel: "Delete", danger: true });
+    if (!ok) return false;
+    await Storage.deleteMealTemplate(tpl.id);
+    toast(`Deleted “${tpl.name}”`);
+    // The tab behind the sheet shows a saved-meal count, so it has to refresh
+    // whether or not the caller rebuilds itself.
+    renderMain();
+    if (after) await after();
+    return true;
   }
 
   // ============ Reminders (in-app, time-aware nudges) ============
@@ -10709,6 +10746,12 @@
 
     const footer = el("div", {},
       el("button", { class: "btn", on: { click: closeModal } }, "Cancel"),
+      // Only when editing one that already exists — there is nothing to delete
+      // on a meal you have not saved yet.
+      isNew ? null : el("button", {
+        class: "btn btn-danger", type: "button", "data-testid": "meal-tpl-delete",
+        on: { click: async () => { if (await deleteSavedMeal(tpl)) closeModal(); } }
+      }, "Delete"),
       el("button", { class: "btn btn-primary", on: { click: async () => {
         if (!nameI.value.trim()) return toast("Enter a meal name");
         let kcal = parseInt(kcalI.value, 10);
@@ -13139,16 +13182,19 @@
 
   // ============ Modal helpers ============
   // ============ In-app confirm/alert (sandbox-safe replacements for window.confirm/alert) ============
+  // Stacks ON TOP of whatever asked the question rather than replacing it.
+  // It used to closeModal() on the way in and share the "modal-overlay" id, so
+  // asking "delete this?" from inside a sheet destroyed the sheet — and
+  // answering "no" left you staring at nothing you had chosen to leave.
   function confirmDialog(message, opts = {}) {
     return new Promise((resolve) => {
-      closeModal();
       const okLabel = opts.okLabel || "Confirm";
       const cancelLabel = opts.cancelLabel || "Cancel";
       const danger = !!opts.danger;
       let settled = false;
-      const done = (v) => { if (settled) return; settled = true; closeModal(); resolve(v); };
+      const done = (v) => { if (settled) return; settled = true; overlay.remove(); resolve(v); };
 
-      const overlay = el("div", { class: "modal-overlay", id: "modal-overlay",
+      const overlay = el("div", { class: "modal-overlay dialog-overlay", "data-testid": "confirm-dialog",
         on: { click: (e) => { if (e.target === overlay) done(false); } } });
       const modal = el("div", { class: "modal modal-sm" });
       modal.appendChild(el("div", { class: "modal-header" },
@@ -13180,11 +13226,12 @@
 
   function alertDialog(message, opts = {}) {
     return new Promise((resolve) => {
-      closeModal();
       let settled = false;
-      const done = () => { if (settled) return; settled = true; closeModal(); resolve(); };
+      const done = () => { if (settled) return; settled = true; overlay.remove(); resolve(); };
 
-      const overlay = el("div", { class: "modal-overlay", id: "modal-overlay",
+      // Same stacking rule as confirmDialog — an alert must not take the
+      // screen it was raised from with it.
+      const overlay = el("div", { class: "modal-overlay dialog-overlay", "data-testid": "alert-dialog",
         on: { click: (e) => { if (e.target === overlay) done(); } } });
       const modal = el("div", { class: "modal modal-sm" });
       modal.appendChild(el("div", { class: "modal-header" },

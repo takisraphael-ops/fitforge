@@ -341,6 +341,11 @@ button, a, [role="button"], input, textarea, select, .xpick-chip, .xrow, .xpick-
   z-index: 100;
   animation: fade-in 150ms ease;
 }
+/* Confirm and alert stack on top of whatever raised them — including the
+   weekly planner and the numpad, which sit far above a plain modal. Asking
+   "delete this?" from a layer at z-index 2500 must not render the question
+   behind it. */
+.dialog-overlay { z-index: 10000; }
 .modal {
   background: var(--bg-elev);
   border-radius: var(--radius-lg);
@@ -3672,6 +3677,12 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .saved-sheet-main { flex: 1; min-width: 0; text-align: left; background: transparent; border: none; cursor: pointer; padding: 8px 12px; }
 .saved-sheet-name { font-size: 15px; font-weight: 700; }
 .saved-sheet-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+/* Two icons now sit beside the row, so keep them from crowding the name and
+   make the destructive one read as destructive only on approach. */
+.saved-sheet-item .icon-btn { flex: none; width: 36px; height: 36px; color: var(--text-faint); }
+.saved-sheet-item .icon-btn svg { width: 16px; height: 16px; }
+.saved-sheet-item .icon-btn:hover { color: var(--text); }
+.saved-sheet-del:hover, .saved-sheet-del:focus-visible { color: var(--danger); }
 
 /* ============ Active workout — exercise card pager ============ */
 .wpager-screen {
