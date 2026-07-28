@@ -4476,7 +4476,15 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   transform: skewX(-18deg); pointer-events: none;
   animation: nsavedShine 6s ease-in-out infinite;
 }
-@keyframes nsavedShine { 0%, 20% { left: -60%; } 45% { left: 130%; } 100% { left: 130%; } }
+/* Travels on transform, not `left`. `left` is a layout property, so the old
+   version reflowed the hero every frame of a 6s loop that never ends while the
+   tab is open. translateX is percentage-of-itself, and the box is 45% of the
+   container, so the original -60% -> 130% sweep (190% of the container) is
+   190/45 = 422% of the box. */
+@keyframes nsavedShine {
+  0%, 20%   { transform: translateX(0)    skewX(-18deg); }
+  45%, 100% { transform: translateX(422%) skewX(-18deg); }
+}
 @media (prefers-reduced-motion: reduce) { .nsaved-hero-shine { display: none; } }
 .nmeals-donut { display: block; }
 .nmeals-donut circle { transition: stroke-dasharray 500ms ease; }
@@ -4677,6 +4685,10 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 /* ================= Tab loading screens (first visit per tab) ================= */
 .tabload {
   position: fixed; inset: 0; z-index: 9000; overflow: hidden;
+  /* Nothing here scrolls, so don't let the touch stack hold a `pointerdown`
+     back while it decides whether the finger is starting a scroll — that delay
+     is the difference between "tap to skip" working and appearing to be dead. */
+  touch-action: none;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 30px;
   background: var(--bg);
 }
@@ -4684,7 +4696,9 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   content: ""; position: absolute; inset: 0; pointer-events: none;
   background: radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 62%);
 }
-.tabload.tabload-out { animation: tlFadeOut .42s ease forwards; }
+/* Once it is on the way out it must not intercept anything — the tap that
+   dismissed it is usually the first of two aimed at the tab underneath. */
+.tabload.tabload-out { animation: tlFadeOut .42s ease forwards; pointer-events: none; }
 @keyframes tlFadeOut { to { opacity: 0; visibility: hidden; } }
 
 .tabload-mark { position: relative; width: 148px; height: 148px; }

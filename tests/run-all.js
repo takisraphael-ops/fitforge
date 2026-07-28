@@ -26,6 +26,7 @@ const SUITES = [
   { name: 'numpad', file: 'numpad.js', needsServer: true },
   { name: 'set-logging', file: 'set-logging.js', needsServer: true },
   { name: 'round-timer', file: 'round-timer.js', needsServer: true },
+  { name: 'tab-loader', file: 'tab-loader.js', needsServer: true },
   { name: 'finish-workout', file: 'finish-workout.js', needsServer: true }
 ];
 

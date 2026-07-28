@@ -52,6 +52,36 @@ prefilled value does not record that set as performed.
 Confirm it can fail by restoring the old flush loop — it reports
 `[[100,8],[100,8],[90,6]]` where you logged `100×8 / 90×6 / 80×5`.
 
+## `tab-loader.js`
+
+    node tests/tab-loader.js
+
+Two constant-cost performance defects — the kind a stopwatch finds and a code
+read talks you out of.
+
+The first visit to each tab dropped a full-screen overlay at `z-index: 9000`
+for 1.9s with no way out of it. It is decoration, and while it was up it ate
+every tap aimed at the tab underneath: three tabs, every fresh install. It is
+dismissible now, it releases pointer events the moment it starts fading, and
+`.tabload` sets `touch-action: none` so the touch stack does not sit on the
+`pointerdown` while it works out whether a scroll is starting. Without that,
+roughly one tap in twelve was simply ignored.
+
+The other is the Nutrition saved-meals highlight, which swept by animating
+`left` — a layout property — on a 6s infinite loop for as long as the tab was
+open. A reflow every frame, forever, at any data size. It moves on `transform`
+now, and the check parks the element at both ends of the old and the new
+version and compares: `left` percentages resolve against the containing block
+and `translateX` percentages against the element, so the conversion factor is
+easy to get wrong in a way nothing would ever report. Both are 528px.
+
+Neither of these gets worse as history grows, which is exactly why they were
+worth doing and the read-amplification findings alongside them were not — three
+years of seeded data renders indistinguishably from a fresh install.
+
+Section 1 is the control: left alone, the loader must still be up at 60% of its
+hold. Without it, "the tap removed it" and "it was never up long" look the same.
+
 ## `reach-audit.js`
 
 Walks the app surface by surface and, for every interactive element on the

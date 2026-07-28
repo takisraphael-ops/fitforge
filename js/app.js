@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=166").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=167").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1659,7 +1659,10 @@
   function showTabLoader(tabId) {
     const cfg = TAB_LOADERS[tabId];
     if (!cfg || reduceMotion()) return;
-    const overlay = el("div", { class: "tabload", "data-testid": "tab-loader", "data-tab": tabId },
+    const overlay = el("div", {
+      class: "tabload", "data-testid": "tab-loader", "data-tab": tabId,
+      role: "button", "aria-label": `${cfg.word} — ${cfg.sub}. Tap to skip.`
+    },
       tabLoaderMark(cfg.motif),
       el("div", { class: "tabload-text" },
         el("div", { class: "tabload-word" }, cfg.word),
@@ -1667,10 +1670,24 @@
       el("div", { class: "tabload-bar" }, el("i", {}))
     );
     document.body.appendChild(overlay);
-    setTimeout(() => {
-      overlay.classList.add("tabload-out");
+
+    // Tap (or any key) skips it. This covers the whole screen at z-index 9000,
+    // so while it is up it eats every tap aimed at the tab underneath — once on
+    // each of three tabs, on a fresh install. The animation is decoration; a
+    // finger on the screen is someone who has finished looking at it.
+    let hold = null, gone = false;
+    const dismiss = () => {
+      if (gone) return;
+      gone = true;
+      clearTimeout(hold);
+      document.removeEventListener("keydown", onKey, true);
+      overlay.classList.add("tabload-out");   // also drops pointer-events
       setTimeout(() => overlay.remove(), 430);
-    }, 1500);
+    };
+    const onKey = () => dismiss();
+    overlay.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", onKey, true);
+    hold = setTimeout(dismiss, 1500);
   }
 
   // Slide the outgoing view off in the travel direction while the incoming one
