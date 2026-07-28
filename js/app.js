@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=198").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=203").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -171,7 +171,6 @@
     document.documentElement.classList.toggle("dark", next === "dark");
     syncThemeColorMeta();
     await Storage.setPref("theme", next);
-    renderHeader();
   }
 
   // ============ Combined exercise list (built-in + custom) ============
@@ -1487,15 +1486,11 @@
     renderMain();
   }
 
-  function renderHeader() {
-    const header = $("#header");
-    clear(header);
-    header.appendChild(el("div", { class: "logo" },
-      el("span", { class: "logo-mark", html: `<svg viewBox="0 0 32 32" aria-label="FitForge logo"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-opacity=".2" stroke-width="2"/><circle cx="16" cy="16" r="13" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-dasharray="22 60" transform="rotate(-90 16 16)"/><circle cx="16" cy="16" r="7" fill="none" stroke="var(--accent)" stroke-opacity=".45" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="11 33" transform="rotate(120 16 16)"/><circle cx="16" cy="16" r="2.6" fill="var(--accent)"/></svg>` }),
-      "FitForge"
-    ));
-    // Theme + Settings now live in the You tab / Settings, not the header.
-  }
+  // The app mark. It used to sit in a 62px header bar shown on Home and
+  // nowhere else — a brand plate, with no controls on it, costing a fifth of
+  // the landing screen to tell you which app you had just opened. It is inline
+  // in the greeting row now and the bar is gone.
+  const LOGO_MARK = `<svg viewBox="0 0 32 32" aria-label="FitForge logo"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-opacity=".2" stroke-width="2"/><circle cx="16" cy="16" r="13" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-dasharray="22 60" transform="rotate(-90 16 16)"/><circle cx="16" cy="16" r="7" fill="none" stroke="var(--accent)" stroke-opacity=".45" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="11 33" transform="rotate(120 16 16)"/><circle cx="16" cy="16" r="2.6" fill="var(--accent)"/></svg>`;
 
   function reduceMotion() {
     return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -1522,12 +1517,11 @@
   }
 
   function renderMain() {
-    // The app header (logo + theme/settings) only appears on Home; other tabs
-    // hide it to give their content the full screen.
+    // No header bar anywhere: it carried the logo and nothing else, and the
+    // mark now rides in Home's greeting row.
     const headerEl = document.getElementById("header");
     if (headerEl) {
-      if (state.tab === "home") { headerEl.style.display = ""; renderHeader(); }
-      else { headerEl.style.display = "none"; }
+      headerEl.style.display = "none";
     }
 
     const main = $("#main");
@@ -3069,9 +3063,11 @@
     const c = 2 * Math.PI * r;
     const fillPct = Math.max(0, Math.min(100, pct));
     const dashOffset = c * (1 - fillPct / 100);
+    // Three stops of one state scale, never the brand accent — the ring is a
+    // reading, and the accent means "you can touch this".
     const near = fillPct >= 85 && !overBudget;
-    const endColor = overBudget ? "var(--danger, #e5484d)" : (near ? "var(--warning, #c48a2a)" : "var(--accent)");
-    const startColor = overBudget ? "#f0883e" : (near ? "#e0b04a" : "var(--accent-hover, #74d6e1)");
+    const endColor = overBudget ? "var(--state-over)" : (near ? "var(--state-warn)" : "var(--state-ok)");
+    const startColor = overBudget ? "var(--state-warn)" : (near ? "var(--state-ok)" : "var(--state-ok)");
     const gid = "ering-" + (++ringSeq);
 
     const wrap = el("div", { class: "energy-ring-wrap" });
@@ -3785,15 +3781,17 @@
 
     // Rest day.
     if (assign === "rest") {
+      // Edit week rides the eyebrow's row, the way it does on a training day.
+      // Left where it was — after the copy — the pill wrapped underneath and
+      // sat directly above "Train anyway", reading as two equal buttons when
+      // one is a quiet aside.
       return el("div", { class: "card today-hero today-hero-rest", "data-testid": "today-hero" },
-        el("div", { class: "row-between", style: "align-items:flex-start;gap:10px" },
-          el("div", {},
-            el("div", { class: "today-hero-eyebrow" }, "Today · Rest"),
-            el("div", { class: "today-hero-title" }, "Rest day"),
-            el("div", { class: "today-hero-sub" }, "Recovery is where the work pays off. Enjoy it.")
-          ),
+        el("div", { class: "row-between", style: "align-items:center;gap:10px" },
+          el("div", { class: "today-hero-eyebrow" }, "Today · Rest"),
           editLink()
         ),
+        el("div", { class: "today-hero-title" }, "Rest day"),
+        el("div", { class: "today-hero-sub" }, "Recovery is where the work pays off. Enjoy it."),
         el("button", {
           class: "btn btn-sm today-hero-rest-cta mt-8",
           on: { click: () => goTab("workout") }
@@ -3854,11 +3852,15 @@
             el("div", { class: "today-hero-eyebrow" }, `Today · ${WEEKDAY_LABELS[todayKey]}`),
             editLink()
           ),
-          el("div", { class: "row-between", style: "align-items:baseline;gap:12px;margin-top:4px" },
-            el("div", { class: "today-hero-title" }, tpl.name),
-            focus ? el("div", { class: "today-hero-focus" }, focus) : null
+          // The focus used to be right-aligned on the title's baseline, where
+          // it read as orphaned — too far from the title to belong to it, too
+          // small to be its own thing. It is the title's subtitle.
+          el("div", { class: "today-hero-title" }, tpl.name),
+          el("div", { class: "today-hero-meta" },
+            focus ? el("span", { class: "today-hero-focus" }, focus) : null,
+            focus ? el("span", { class: "today-hero-metasep" }, "·") : null,
+            el("span", {}, meta)
           ),
-          el("div", { class: "today-hero-meta" }, meta),
           chipRow,
           el("div", { class: "today-hero-actions" },
             el("button", {
@@ -3964,12 +3966,22 @@
     const profileName = (state.prefs?.profileName || "").trim();
     const dateStr = new Date().toLocaleDateString("en-GB",
       { weekday: "short", day: "numeric", month: "short" }).toUpperCase();
+    // One line, not three. This block used to be a 62px logo bar plus a 58px
+    // greeting in 26px type — 173px, a fifth of the first screen, before the
+    // thing the screen is about even started. And the greeting set at 26px sat
+    // directly above the session title at 34px, so two display lines competed
+    // and the ambient one won on position. The mark comes inline, the date and
+    // the greeting share a row at eyebrow size, and the hero gets the voice.
     const topbar = el("div", { class: "home-topbar" },
       el("div", { class: "home-topbar-main" },
-        el("div", { class: "home-date" }, dateStr),
-        el("h1", { class: "home-greeting" },
-          el("span", { class: "greet-part" }, profileName ? `Good ${greeting()}, ` : `Good ${greeting()}.`),
-          profileName ? el("span", { class: "greet-name" }, profileName) : null
+        el("div", { class: "home-idrow" },
+          el("span", { class: "home-mark", "aria-hidden": "true", html: LOGO_MARK }),
+          el("h1", { class: "home-greeting" },
+            el("span", { class: "home-date" }, dateStr),
+            el("span", { class: "greet-sep" }, "·"),
+            el("span", { class: "greet-part" }, profileName ? `Good ${greeting()}, ` : `Good ${greeting()}`),
+            profileName ? el("span", { class: "greet-name" }, profileName) : null
+          )
         )
       )
     );
