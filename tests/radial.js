@@ -295,6 +295,116 @@ const check = (label, ok, detail = '') => {
     await page.emulateMedia({ reducedMotion: 'no-preference' });
   }
 
+  // =============== 9. the press hint ========================================
+  //
+  // Nothing on screen says the + can be held, so pressing it starts filling a
+  // ring and, past halfway, ghosts the slices outward. It has to appear only
+  // for a press that is genuinely lingering, and it has to be gone in every
+  // way the hold can end — otherwise it is litter on top of the app.
+  console.log('\n=== 9. the press hint teaches, then gets out of the way ===');
+  {
+    await reset();
+    const hintUp = () => page.evaluate(() => !!document.querySelector('[data-testid="radial-hint"]'));
+    const f = await fab();
+
+    // A crisp tap must not flash anything.
+    await page.mouse.move(f.x, f.y);
+    await page.mouse.down();
+    await page.waitForTimeout(80);
+    const early = await hintUp();
+    await page.mouse.up();
+    await page.waitForTimeout(400);
+    check('a quick tap shows no hint', !early);
+    await dismissAll();
+
+    // Mid-hold it is up, with one ghost per slice.
+    await page.mouse.move(f.x, f.y);
+    await page.mouse.down();
+    await page.waitForTimeout(250);
+    const mid = await page.evaluate(() => {
+      const h = document.querySelector('[data-testid="radial-hint"]');
+      if (!h) return { up: false };
+      return {
+        up: true,
+        ghosts: h.querySelectorAll('.radial-hint-ghost').length,
+        ring: !!h.querySelector('.radial-hint-fill'),
+        // It teaches a gesture, so it must never be the thing you hit.
+        takesTaps: getComputedStyle(h).pointerEvents !== 'none'
+      };
+    });
+    console.log('   ', JSON.stringify(mid));
+    check('mid-hold the hint is up', mid.up);
+    check('with a ring and one ghost per slice', mid.ring && mid.ghosts === 3, JSON.stringify(mid.ghosts));
+    check('and it cannot be tapped', !mid.takesTaps);
+    // Once the real menu exists, the rehearsal has to be gone.
+    await page.waitForTimeout(400);
+    check('the menu opened', await isOpen());
+    check('the hint went with it', !(await hintUp()));
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    await dismissAll();
+
+    // Cancelled by a drag: no hint left behind.
+    await reset();
+    const f2 = await fab();
+    await page.mouse.move(f2.x, f2.y);
+    await page.mouse.down();
+    await page.waitForTimeout(200);
+    await page.mouse.move(f2.x, f2.y - 44, { steps: 6 });
+    await page.waitForTimeout(400);
+    check('a drag clears the hint', !(await hintUp()));
+    check('and still opens nothing', !(await isOpen()));
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    await dismissAll();
+  }
+
+  // =============== 10. the tip that retires itself ==========================
+  //
+  // The sheet carries a line teaching the hold, shown at the one moment
+  // someone is demonstrably taking the long way to the same three choices. It
+  // has to stop the first time the hold is actually used, or it is advice you
+  // have already taken.
+  console.log('\n=== 10. the sheet tip stops once you have used the hold ===');
+  {
+    await page.evaluate(async () => { await Storage.setPref('radialDiscovered', false); });
+    await reset();
+    const f = await fab();
+    await page.mouse.click(f.x, f.y);
+    await page.waitForTimeout(900);
+    check('before discovery, the sheet teaches the shortcut',
+      await page.evaluate(() => !!document.querySelector('[data-testid="quick-sheet-tip"]')));
+    await dismissAll();
+
+    // Use the hold for real.
+    await page.mouse.move(f.x, f.y);
+    await page.mouse.down();
+    await page.waitForTimeout(HOLD_MS + 180);
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    check('using it is recorded',
+      await page.evaluate(() => Storage.getPref('radialDiscovered')));
+
+    await page.waitForTimeout(700);
+    await page.mouse.click(f.x, f.y);
+    await page.waitForTimeout(900);
+    check('the sheet still opens', await sheetOpen());
+    check('but no longer teaches what you already know',
+      !(await page.evaluate(() => !!document.querySelector('[data-testid="quick-sheet-tip"]'))));
+    await dismissAll();
+
+    // And it stays retired across a reload.
+    await reset();
+    const f3 = await fab();
+    await page.mouse.click(f3.x, f3.y);
+    await page.waitForTimeout(900);
+    check('and it is still retired after a reload',
+      !(await page.evaluate(() => !!document.querySelector('[data-testid="quick-sheet-tip"]'))));
+    await dismissAll();
+  }
+
   console.log('\nERRORS:', errs.length ? errs : 'none');
   console.log(`\n${fails} failing check${fails === 1 ? '' : 's'}`);
   await b.close();

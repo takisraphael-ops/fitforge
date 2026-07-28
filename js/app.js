@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=181").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=186").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -497,6 +497,10 @@
       dob: await Storage.getPref("dob", null),
       // Which figure the body map draws ("male" | "female"); defaults to sex.
       bodyMapSex: await Storage.getPref("bodyMapSex", null),
+      // Set the first time the hold menu is opened. Only controls whether the
+      // quick sheet still teaches the shortcut. This list is explicit, so a
+      // pref written but not read here is written to nowhere the app can see.
+      radialDiscovered: !!(await Storage.getPref("radialDiscovered", false)),
       heightCm: await Storage.getPref("heightCm", null),
       // Lifestyle / NEAT only — training burn optional (default off for real-world accuracy)
       activityLevel: await Storage.getPref("activityLevel", "light"),
@@ -2141,6 +2145,19 @@
     overlay.appendChild(mealPanel);
     overlay.appendChild(el("button", { class: "qa-fork-close", "aria-label": "Close", title: "Close", html: CLOSE_ART, on: { click: close } }));
 
+    // Teach the shortcut at the one moment someone is demonstrably in the
+    // market for it — they are here, taking the long way to these same three
+    // choices. It stops appearing the first time the hold is actually used,
+    // so it is never advice you have already taken.
+    if (state.prefs && !state.prefs.radialDiscovered) {
+      overlay.appendChild(el("div", { class: "qa-fork-tip", "data-testid": "quick-sheet-tip" },
+        el("span", { class: "qa-fork-tip-hold", "aria-hidden": "true" }),
+        el("span", {}, "Next time, "),
+        el("strong", {}, "hold the +"),
+        el("span", {}, " to jump straight there.")
+      ));
+    }
+
     // Subtle hint that you can swipe to choose (chevrons breathe outward).
     const CHEV_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
     const CHEV_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
@@ -2199,6 +2216,7 @@
   // keyboard equivalent and fights VoiceOver, so the tap path is the one that
   // has to reach everything.
   const RADIAL_HOLD_MS = 420;   // under ~300 and ordinary taps start firing it
+  const RADIAL_HINT_MS = 130;   // a crisp tap is over before the hint appears
   const RADIAL_SLOP = 10;       // px of movement that means "this was a scroll"
   const RADIAL_DEAD = 42;       // px around the centre that selects nothing
 
@@ -2212,9 +2230,13 @@
     // arrives if the pointerup lands back on the trigger, and once the menu is
     // up the scrim can take it instead. A boolean would then stay armed and eat
     // the next genuine tap, minutes later. A deadline cannot.
-    let timer = null, open = null, startX = 0, startY = 0, moved = false, suppressUntil = 0;
+    let timer = null, hintTimer = null, open = null, startX = 0, startY = 0, moved = false, suppressUntil = 0;
 
-    const clearTimer = () => { if (timer) { clearTimeout(timer); timer = null; } };
+    const clearTimer = () => {
+      if (timer) { clearTimeout(timer); timer = null; }
+      if (hintTimer) { clearTimeout(hintTimer); hintTimer = null; }
+      hideHint();
+    };
     const buzz = (ms) => { try { navigator.vibrate && navigator.vibrate(ms); } catch (_) {} };
 
     // close() never arms the suppression. Only a pointer sequence that began
@@ -2229,8 +2251,77 @@
       o.overlay.remove();
     }
 
+    // The press hint. Nothing on screen says this control can be held, and for
+    // the whole 420ms a hold currently gives no feedback at all — so a press
+    // that stops just short feels like the app ignored you.
+    //
+    // A ring fills around the trigger, and past the halfway mark the slices
+    // ghost outward from it. Anyone whose thumb lingers discovers the menu by
+    // accident and never has to be told; anyone who taps crisply never sees it,
+    // because it does not start until 130ms in.
+    let hint = null;
+    function hideHint() {
+      if (!hint) return;
+      hint.remove();
+      hint = null;
+    }
+    function showHint() {
+      if (hint || open) return;
+      const r = trigger.getBoundingClientRect();
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      const RING = 34, SW = 3, box = (RING + SW) * 2;
+      const circ = 2 * Math.PI * RING;
+      const wrap = el("div", { class: "radial-hint", "data-testid": "radial-hint", "aria-hidden": "true" });
+
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", `0 0 ${box} ${box}`);
+      svg.setAttribute("class", "radial-hint-ring");
+      svg.style.cssText = `left:${cx}px; top:${cy}px; width:${box}px; height:${box}px`;
+      for (const [cls, extra] of [["radial-hint-track", ""], ["radial-hint-fill", `stroke-dasharray:${circ}; stroke-dashoffset:${circ}`]]) {
+        const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        c.setAttribute("cx", box / 2); c.setAttribute("cy", box / 2);
+        c.setAttribute("r", RING); c.setAttribute("class", cls);
+        if (extra) c.style.cssText = extra;
+        svg.appendChild(c);
+      }
+      // The fill is the remaining hold, honestly: it starts when the hint does
+      // and completes exactly when the menu opens.
+      svg.querySelector(".radial-hint-fill").style.animation =
+        `radialHintFill ${RADIAL_HOLD_MS - RADIAL_HINT_MS}ms linear forwards`;
+      wrap.appendChild(svg);
+
+      for (const [i, p] of layout(cx, cy).entries()) {
+        const g = el("div", {
+          class: "radial-hint-ghost",
+          style: `left:${p.x}px; top:${p.y}px; animation-delay:${(RADIAL_HOLD_MS - RADIAL_HINT_MS) * 0.35 + i * 26}ms`
+        }, el("span", { class: "radial-slice-ic", html: p.item.icon || "" }));
+        wrap.appendChild(g);
+      }
+      document.body.appendChild(wrap);
+      hint = wrap;
+    }
+
+    // Where the slices go. Shared by the menu and by the press hint, because a
+    // hint whose ghosts point somewhere the real slices do not is worse than
+    // no hint — it teaches the wrong gesture.
+    //
+    // Opens upward: the trigger lives in a fixed dock at the bottom, so a slice
+    // placed below it would sit under the home indicator.
+    function layout(cx, cy) {
+      const n = items.length;
+      const SPAN = n === 1 ? 0 : Math.min(150, 44 * (n - 1));
+      const start = -90 - SPAN / 2;
+      // 104 put the aimed slice, scaled up, into its neighbour's label.
+      const r = opts.radius || 114;
+      return items.map((it, i) => {
+        const a = ((n === 1 ? -90 : start + (SPAN / (n - 1)) * i)) * Math.PI / 180;
+        return { item: it, x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
+      });
+    }
+
     function openMenu(cx, cy) {
       if (open) return;
+      hideHint();
       const overlay = el("div", {
         class: "radial-overlay", "data-testid": "radial-overlay",
         role: "menu", "aria-label": opts.label || "Quick actions"
@@ -2238,19 +2329,8 @@
       const scrim = el("div", { class: "radial-scrim" });
       overlay.appendChild(scrim);
 
-      // Opens upward: the trigger lives in a fixed dock at the bottom, so a
-      // slice placed below it would sit under the home indicator.
-      const n = items.length;
-      const SPAN = n === 1 ? 0 : Math.min(150, 44 * (n - 1));
-      const start = -90 - SPAN / 2;
-      // 104 put the aimed slice, scaled up, into its neighbour's label.
-      const r = opts.radius || 114;
       const slices = [];
-
-      items.forEach((it, i) => {
-        const a = ((n === 1 ? -90 : start + (SPAN / (n - 1)) * i)) * Math.PI / 180;
-        const x = cx + Math.cos(a) * r;
-        const y = cy + Math.sin(a) * r;
+      layout(cx, cy).forEach(({ item: it, x, y }) => {
         const btn = el("button", {
           class: "radial-slice", type: "button", role: "menuitem",
           "data-testid": `radial-${it.key}`,
@@ -2263,6 +2343,11 @@
         overlay.appendChild(btn);
         slices.push({ btn, x, y, item: it });
       });
+      // Whoever gets here has found the gesture, so stop advertising it.
+      if (state.prefs && !state.prefs.radialDiscovered) {
+        state.prefs.radialDiscovered = true;
+        Storage.setPref("radialDiscovered", true);
+      }
 
       const onKey = (e) => {
         if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
@@ -2312,6 +2397,7 @@
       moved = false;
       startX = e.clientX; startY = e.clientY;
       clearTimer();
+      hintTimer = setTimeout(showHint, RADIAL_HINT_MS);
       timer = setTimeout(() => {
         timer = null;
         const r = trigger.getBoundingClientRect();

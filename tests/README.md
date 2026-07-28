@@ -109,6 +109,25 @@ ruins an app, one section each:
   hit-tested at its own centre the way `reach-audit` does.
 - **There is no way out.** Escape and the scrim both dismiss it.
 
+Sections nine and ten cover how anyone finds out the gesture exists, because
+nothing on screen says a button can be held.
+
+Nine is the press hint: a ring fills around the held control and, past halfway,
+the slices ghost outward. It must not appear for a crisp tap (confirmed by
+setting its delay to 0: the quick-tap check fails), must appear mid-hold with
+one ghost per slice (confirmed by removing it: 2 failures), must never take a
+tap itself, and must be gone in every way the hold can end — including when the
+menu it was rehearsing actually opens, which is easy to forget and looks like
+litter (confirmed by dropping that one `hideHint()`: 1 failure).
+
+Ten is the tip in the quick sheet, which retires itself the first time the hold
+is used. Its last check — that the tip is still gone *after a reload* — caught a
+real bug: `loadPrefs` returns an explicit map of known keys, so the pref was
+being written and never read back, and the tip would have reappeared forever.
+Confirmed by removing that line again: 1 failure, and only that check catches
+it. Anything written by `Storage.setPref` and expected in `state.prefs` has to
+be listed in `loadPrefs`, and nothing else in the app enforces that.
+
 The eighth section guards the highlight. The aimed slice scales, haloes, and
 its artwork comes alive — all decoration. With motion switched off the
 selection still has to be obvious, or someone who turned it off cannot use the

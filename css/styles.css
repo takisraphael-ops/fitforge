@@ -2860,6 +2860,43 @@ input:disabled.input,
      what makes a held control feel dead for the first 300ms. */
   touch-action: none;
 }
+/* The press hint — a ring filling around the held control, and past halfway
+   the slices ghosting outward from it. Purely a teaching surface: it never
+   takes a tap, and it is gone by the time the menu exists. */
+.radial-hint { position: fixed; inset: 0; z-index: 1900; pointer-events: none; }
+.radial-hint-ring {
+  position: fixed; transform: translate(-50%, -50%);
+  overflow: visible; pointer-events: none;
+}
+.radial-hint-track { fill: none; stroke: var(--border-strong); stroke-width: 3; opacity: .7; }
+.radial-hint-fill {
+  fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round;
+  transform: rotate(-90deg); transform-origin: 50% 50%;   /* start at 12 o'clock */
+}
+@keyframes radialHintFill { to { stroke-dashoffset: 0; } }
+.radial-hint-ghost {
+  position: fixed; transform: translate(-50%, -50%) scale(.6);
+  opacity: 0; pointer-events: none;
+  animation: radialGhostIn 160ms ease-out forwards;
+}
+/* Opaque, and lifted off the page. At half opacity they read as smudges over
+   whatever text happens to be behind them rather than as a preview of three
+   things you could pick — and there is no scrim yet to sit them against. */
+.radial-hint-ghost .radial-slice-ic {
+  width: 56px; height: 56px;
+  box-shadow: var(--shadow-md);
+}
+.radial-hint-ghost .radial-slice-ic svg { width: 28px; height: 28px; }
+@keyframes radialGhostIn {
+  to { opacity: 1; transform: translate(-50%, -50%) scale(.86); }
+}
+/* With motion off the ring simply appears, whole, and the ghosts are skipped:
+   the point is "you are holding something", which a static ring makes. */
+@media (prefers-reduced-motion: reduce) {
+  .radial-hint-fill { animation: none !important; stroke-dashoffset: 0 !important; opacity: .55; }
+  .radial-hint-ghost { display: none; }
+}
+
 .radial-overlay { position: fixed; inset: 0; z-index: 2000; }
 .radial-scrim {
   position: absolute; inset: 0;
@@ -5085,6 +5122,31 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 }
 
 /* Quick-fork · swipe hint + chosen feedback */
+/* Sits above the swipe hint, so it never competes with it for the same row.
+   Only ever shown to someone who has not yet used the hold. */
+.qa-fork-tip {
+  position: absolute; left: 50%; bottom: calc(74px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%); z-index: 3;
+  display: flex; align-items: center; gap: 7px;
+  max-width: min(340px, calc(100vw - 40px));
+  padding: 9px 15px; border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--text-muted); font-size: 12.5px; line-height: 1.35; text-align: center;
+  pointer-events: none;
+  animation: qaHintIn .5s ease .45s both;
+}
+.qa-fork-tip strong { color: var(--text); font-weight: 800; }
+/* A small pressed-finger mark: a filled dot inside a ring, which is what the
+   press hint itself looks like a moment in. */
+.qa-fork-tip-hold {
+  flex: none; width: 15px; height: 15px; border-radius: 50%;
+  border: 2px solid var(--accent); position: relative;
+}
+.qa-fork-tip-hold::after {
+  content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--accent);
+}
+
 .qa-fork-hint {
   position: absolute; left: 50%; bottom: calc(28px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%); z-index: 3;
