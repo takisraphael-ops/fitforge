@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=167").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=170").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -2282,7 +2282,7 @@
 
   function renderMuscleBalance(balance) {
     const card = el("div", { class: "card" });
-    card.appendChild(el("div", { class: "card-title" }, "Muscle-group balance (last 14 days)"));
+    card.appendChild(cardHead("Muscle balance", "Last 14 days"));
     const maxSets = Math.max(1, ...balance.map(b => b.sets));
     if (balance.every(b => b.sets === 0)) {
       card.appendChild(emptyState({
@@ -2334,9 +2334,12 @@
         latest && list.length > 1 ? (() => {
           const first = list[0];
           const delta = latest.kg - first.kg;
-          const cls = delta > 0 ? "text-success" : (delta < 0 ? "text-danger" : "text-muted");
+          // Neutral on purpose. This was green for a gain and red for a loss,
+          // which asserts that up is good — true if you are bulking, exactly
+          // wrong if you are cutting, and the app is not told which. The sign
+          // already carries the direction; the colour was adding a verdict.
           const sign = delta > 0 ? "+" : "";
-          return el("div", { class: "text-xs " + cls, style: "margin-top: 4px" },
+          return el("div", { class: "text-xs text-muted", style: "margin-top: 4px" },
             `${sign}${delta.toFixed(1)}kg since ${U.formatDate(first.date)}`);
         })() : null
       )
@@ -2730,7 +2733,37 @@
     return rows;
   }
 
-  function renderEnergyBudgetCard(energy, eatenKcal) {
+  // One sentence under the ring, or nothing at all.
+  //
+  // The bar for saying something is that it has to be a fact this app knows
+  // and the reader does not. Generated encouragement ("you're doing great!")
+  // reads as wallpaper by the second week, and restating the status chip six
+  // pixels above it is worse than silence — so every branch here either
+  // measures the remainder against the size of meals this person actually
+  // logs, or returns null.
+  function energyNarrative({ remaining, eaten, goal, meals }) {
+    if (!goal) return null;
+    if (!eaten) return "Nothing logged yet today.";
+    if (remaining < 0) {
+      return `${Math.abs(Math.round(remaining)).toLocaleString("en-GB")} kcal past today's room.`;
+    }
+    const since = new Date(); since.setDate(since.getDate() - 14);
+    const cutoff = U.todayISO(since);
+    const sizes = (meals || [])
+      .filter(m => m.date >= cutoff && (m.kcal || 0) > 0)
+      .map(m => m.kcal)
+      .sort((a, b) => a - b);
+    // Too few meals to know what "a meal" means for this person yet.
+    if (sizes.length < 4) return null;
+    const typical = sizes[Math.floor(sizes.length / 2)];
+    const n = remaining / typical;
+    if (n >= 1.6) return "Room for two more meals, going by your usual.";
+    if (n >= 0.85) return "Room for one more meal, going by your usual.";
+    if (n >= 0.4) return "Room for something light.";
+    return "About a snack's worth left.";
+  }
+
+  function renderEnergyBudgetCard(energy, eatenKcal, opts = {}) {
     const isPersonal = targetsArePersonal(energy);
     const card = el("div", {
       class: "card energy-budget-card" + (isPersonal ? " is-personal" : " is-estimate"),
@@ -2772,6 +2805,13 @@
     ));
 
     card.appendChild(el("div", { class: "energy-ring-block" }, ringWrap));
+
+    const narrative = energyNarrative({ remaining, eaten, goal, meals: opts.meals });
+    if (narrative) {
+      card.appendChild(el("div", {
+        class: "energy-narrative", "data-testid": "food-room-narrative"
+      }, narrative));
+    }
 
     card.appendChild(el("div", {
       class: "energy-summary-line" + (isPersonal ? "" : " is-estimate")
@@ -2889,7 +2929,7 @@
     const hideMacros = !!opts.hideMacros;
     const card = el("div", { class: "card", "data-testid": "home-nutrition-trend" },
       el("div", { class: "row-between" },
-        el("div", { class: "card-title", style: "margin: 0" }, opts.title || "Nutrition (14 days)"),
+        cardHead(opts.title || "Nutrition", opts.titleMeta || "Last 14 days"),
         el("button", { class: "btn btn-ghost btn-sm", on: { click: () => { state.tab = "nutrition"; renderMain(); } } }, "Open")
       )
     );
@@ -2983,6 +3023,19 @@
   }
 
   /** Home section wrapper — quiet label above a cluster of cards. */
+  // Card header: a title, and the window it covers as quiet meta beside it.
+  //
+  // These titles used to carry their own range in brackets — "Muscle-group
+  // balance (last 14 days)", "Training frequency (last 24 weeks)" — which
+  // reads like a column name rather than a heading, and puts the least
+  // interesting half of the string in the most prominent type on the card.
+  function cardHead(title, meta) {
+    return el("div", { class: "card-head" },
+      el("div", { class: "card-title", style: "margin: 0" }, title),
+      meta ? el("div", { class: "card-head-meta" }, meta) : null
+    );
+  }
+
   function homeSection(title, testId, ...children) {
     const wrap = el("section", {
       class: "home-section",
@@ -3331,16 +3384,19 @@
       ));
     }
 
-    // 2) Today's training — plan-driven hero (hidden while a workout is active)
+    // 2) Today's training — plan-driven hero (hidden while a workout is active).
+    // Tier 1: the one block on Home that breaks the page inset.
     if (!state.activeWorkout) {
-      view.appendChild(buildTodayWorkoutHero({ plan, tplById, exById }));
+      const hero = buildTodayWorkoutHero({ plan, tplById, exById });
+      hero.classList.add("home-bleed");
+      view.appendChild(hero);
     }
 
     // 3) Today — food room hero + stacked macro balance bar
     const todayBlock = homeSection(
       "Today",
       "home-section-today",
-      renderEnergyBudgetCard(energy, todaysKcal),
+      renderEnergyBudgetCard(energy, todaysKcal, { meals, todaysMeals }),
       renderMacroStackBar(todayMacros, macroGoals, energy)
     );
     view.appendChild(todayBlock);
@@ -3381,13 +3437,33 @@
     const weekDuo = el("div", { class: "week-duo" },
       el("div", { class: "card week-mini-card", "data-testid": "home-week-volume" },
         el("div", { class: "week-mini-title" }, "Training volume"),
-        miniBars(dayVols, { height: 58 })
+        miniBars(dayVols, { height: 58 }),
+        // Both charts shipped with no axis, no dates and no numbers, so the
+        // shape was the entire message and the scale was a guess.
+        el("div", { class: "week-mini-foot" },
+          el("span", {}, "Last 7 days"),
+          el("span", { class: "week-mini-peak" }, (() => {
+            const peak = Math.max(0, ...dayVols);
+            // No k-suffix here: "1.7k" + "kg" reads as "1.7kkg".
+            return peak ? `peak ${Math.round(peak).toLocaleString("en-GB")}kg` : "nothing logged";
+          })())
+        )
       ),
       el("div", { class: "card week-mini-card", "data-testid": "home-week-bodyweight" },
         el("div", { class: "week-mini-title" }, "Bodyweight trend"),
         bwVals.length >= 2
           ? sparkline(bwVals, { height: 58 })
-          : el("div", { class: "sparkline-empty", style: "height:58px" }, "No data yet")
+          : el("div", { class: "sparkline-empty", style: "height:58px" }, "No data yet"),
+        el("div", { class: "week-mini-foot" },
+          el("span", {}, "Last 30 days"),
+          // Net change only. The full range wrapped to two lines in a card
+          // this narrow, which looked like a rendering fault.
+          el("span", { class: "week-mini-peak" }, (() => {
+            if (bwVals.length < 2) return "log to start";
+            const d = bwVals[bwVals.length - 1] - bwVals[0];
+            return `${d > 0 ? "+" : ""}${d.toFixed(1)}kg`;
+          })())
+        )
       )
     );
     const weekStrip = buildWeekStrip(completed, plan);
@@ -3400,12 +3476,15 @@
       renderNutritionTrendCard(meals, goal, macroGoals, todayMacros, {
         estimate: !macrosArePersonal(macroGoals, energy),
         hideMacros: true,
-        title: "Nutrition (14 days)"
+        title: "Nutrition",
+        titleMeta: "Last 14 days"
       }),
       await renderBodyweightCard(),
       renderMuscleBalance(await computeMuscleBalance(14)),
       renderHeatmap(completed)
     );
+    // Tier 3: reference material. Same content, no card furniture.
+    trends.classList.add("home-chapter-quiet");
     view.appendChild(trends);
 
     // Quiet personalisation cue if still on estimates (setup CTA also lives on food room)
@@ -3756,7 +3835,7 @@
 
   function renderHeatmap(completed) {
     const card = el("div", { class: "card" });
-    card.appendChild(el("div", { class: "card-title" }, "Training frequency (last 24 weeks)"));
+    card.appendChild(cardHead("Training frequency", "Last 24 weeks"));
 
     const map = new Map(); // date → count
     for (const w of completed) map.set(w.date, (map.get(w.date) || 0) + 1);

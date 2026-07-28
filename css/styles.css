@@ -154,9 +154,11 @@ h3 { font-size: 16px; }
 
 /* ============ Layout ============ */
 .app {
+  /* Published so a full-bleed block can cancel it exactly, at either size. */
+  --page-pad: 24px;
   max-width: 1280px;
   margin: 0 auto;
-  padding: 20px 24px 132px;
+  padding: 20px var(--page-pad) 132px;
 }
 
 .header {
@@ -234,12 +236,16 @@ h3 { font-size: 16px; }
   box-shadow: var(--shadow-sm);
 }
 
+/* Sentence case, not uppercase. Home alone had sixteen uppercase runs, so the
+   treatment marked nothing; it is now reserved for the chapter rail. The size
+   and colour go up because a card title was competing with its own body text
+   at 13px/500 muted. */
 .card-title {
-  font-size: 13px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
+  font-size: 15px;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: -0.01em;
+  color: var(--text);
   margin-bottom: 12px;
 }
 
@@ -1855,7 +1861,7 @@ input:disabled.input,
 
 /* ============ Responsive ============ */
 @media (max-width: 640px) {
-  .app { padding: 16px 12px 96px; }
+  .app { --page-pad: 12px; padding: 16px var(--page-pad) 96px; }
   h1 { font-size: 22px; }
   /* Strength rows: primary = # · weight · reps · more · done */
   .set-row {
@@ -1949,7 +1955,7 @@ input:disabled.input,
   /* Slightly less card padding on tiny screens */
   .card { padding: 16px; }
   /* Muscle balance: narrower label column */
-  .muscle-row { grid-template-columns: 72px 1fr 40px; gap: 8px; }
+  .muscle-row { grid-template-columns: 72px 1fr 52px; gap: 8px; }
   .muscle-name { font-size: 12px; }
   /* Bodyweight input row wraps cleanly */
   .bodyweight-card-row { flex-wrap: wrap; }
@@ -2259,11 +2265,13 @@ input:disabled.input,
 
 /* Muscle balance card */
 .muscle-balance { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
-.muscle-row { display: grid; grid-template-columns: 90px 1fr 36px; gap: 10px; align-items: center; }
+.muscle-row { display: grid; grid-template-columns: 90px 1fr 52px; gap: 10px; align-items: center; }
 .muscle-name { font-size: 13px; color: var(--text-muted); }
 .muscle-bar { background: var(--bg-sunken); border-radius: 4px; height: 8px; overflow: hidden; }
 .muscle-bar-fill { height: 100%; background: var(--accent); border-radius: 4px; transition: width 0.3s; }
-.muscle-count { font-size: 12px; color: var(--text-faint); font-family: var(--font-mono); text-align: right; }
+/* "30 sets" wrapped onto two lines in a 36px column, which reads as a fault
+   rather than as a number and its unit. */
+.muscle-count { font-size: 12px; color: var(--text-faint); font-family: var(--font-mono); text-align: right; white-space: nowrap; }
 
 /* Template cards */
 .template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-top: 10px; }
@@ -2538,22 +2546,67 @@ input:disabled.input,
 }
 .home-greeting .greet-part { color: var(--text-muted); font-weight: 500; }
 .home-greeting .greet-name { color: var(--text); font-weight: 700; }
+/* ===================== Home hierarchy: three tiers ======================
+   Home had eleven blocks and ten of them were pixel-identical — same surface,
+   same 16px radius, same border — so nothing could be more important than
+   anything else regardless of what the copy said. Three tiers now:
+
+     1  hero   full-bleed, no frame, largest type. One per screen.
+     2  card   the existing treatment. The default.
+     3  quiet  no frame at all, separated by hairlines. Reference material.
+
+   Nothing here changes what Home says, only how loudly.                    */
+
 .home-section {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-top: 18px;
+  margin-top: 34px;
 }
 .home-section:first-of-type {
-  margin-top: 12px;
+  margin-top: 20px;
 }
+
+/* Chapter rail. Was 11px faint uppercase — the same weight as the card titles
+   underneath it, so it grouped nothing. Uppercase now means "chapter" and
+   nothing else on the screen, which is the only reason to keep it. */
 .home-section-label {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: var(--text-faint);
-  padding: 0 2px;
+  color: var(--text);
+  padding: 0 0 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+/* Tier 1 — breaks the page inset. Everything else on Home is inset, so a
+   single edge-to-edge block reads as the top of the hierarchy without needing
+   a louder colour. */
+.home-bleed {
+  margin-inline: calc(var(--page-pad, 24px) * -1);
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  padding-inline: var(--page-pad, 24px);
+}
+
+/* Tier 3 — reference material. Same content, no furniture. */
+.home-chapter-quiet .card {
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  box-shadow: none;
+  padding: 22px 2px;
+  margin: 0;
+}
+/* Not :first-of-type — the chapter rail is a div too, so it wins that match
+   and the first card keeps a rule it should not have, doubling the rail's. */
+.home-chapter-quiet .home-section-label + .card {
+  border-top: 0;
+  padding-top: 6px;
 }
 .home-now-actions {
   display: grid;
@@ -2910,6 +2963,29 @@ input:disabled.input,
   margin-bottom: 10px;
 }
 .mini-bars rect { transition: height 300ms ease; }
+.card-head {
+  display: flex; align-items: baseline; gap: 10px;
+  min-width: 0; margin-bottom: 12px;
+}
+.card-head .card-title { flex: 0 1 auto; min-width: 0; }
+.card-head-meta {
+  flex: none; font-size: 11.5px; color: var(--text-faint);
+  letter-spacing: 0.01em; white-space: nowrap;
+}
+
+/* A chart with no axis, no dates and no numbers is a shape, not a reading. */
+.week-mini-foot {
+  display: flex; justify-content: space-between; gap: 8px;
+  margin-top: 8px; font-size: 11px; color: var(--text-faint);
+}
+.week-mini-peak { font-variant-numeric: tabular-nums; text-align: right; }
+
+/* The sentence under the ring. Bigger than the eaten/goal line beneath it,
+   because it is the reading and that line is the arithmetic. */
+.energy-narrative {
+  margin-top: 10px; text-align: center;
+  font-size: 15px; font-weight: 600; color: var(--text);
+}
 
 @media (max-width: 560px) {
   .macro-tiles { gap: 8px; }
@@ -4025,6 +4101,15 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   text-transform: uppercase; color: var(--accent);
 }
 .today-hero-title { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.08; margin-top: 3px; }
+/* Tier 1 type. The page's largest text was 24px against a body that is mostly
+   11–13px — a ratio of about 2. There was no top of the hierarchy, only a
+   slightly bigger middle. */
+.today-hero.home-bleed { padding-block: 24px; }
+.today-hero.home-bleed .today-hero-title { font-size: 34px; line-height: 1.04; margin-top: 6px; }
+.today-hero.home-bleed .today-hero-sub { font-size: 15px; margin-top: 8px; }
+@media (max-width: 380px) {
+  .today-hero.home-bleed .today-hero-title { font-size: 29px; }
+}
 .today-hero-focus { flex: none; font-size: 13px; color: var(--text-muted); }
 .today-hero-sub { font-size: 14px; color: var(--text-muted); margin-top: 6px; line-height: 1.4; }
 .today-hero-meta { font-size: 13px; color: var(--text-muted); margin-top: 8px; font-variant-numeric: tabular-nums; }
@@ -4056,7 +4141,8 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .today-hero-plan .today-hero-browse { width: 100%; }
 
 /* Week strip */
-.week-strip-heading { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-faint); }
+/* A card title, so it is styled as one. Uppercase is the chapter rail's. */
+.week-strip-heading { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; color: var(--text); }
 .week-strip-count { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .week-strip-count-num { color: var(--accent); font-weight: 700; }
 .week-strip-row { display: flex; justify-content: space-between; margin-top: 14px; }
