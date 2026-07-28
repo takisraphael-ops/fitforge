@@ -2856,10 +2856,11 @@ input:disabled.input,
   -webkit-touch-callout: none;
   user-select: none;
   -webkit-user-select: none;
-  /* Nothing scrolls from here, and waiting to find out whether it might is
-     what makes a held control feel dead for the first 300ms. */
-  touch-action: none;
 }
+/* Nothing scrolls from the dock, and waiting to find out whether it might is
+   what makes a held control feel dead for the first 300ms. A trigger inside a
+   scrolling list is the opposite case and opts out. */
+.has-radial:not(.radial-scrolls) { touch-action: none; }
 /* The press hint — a ring filling around the held control, and past halfway
    the slices ghosting outward from it. Purely a teaching surface: it never
    takes a tap, and it is gone by the time the menu exists. */

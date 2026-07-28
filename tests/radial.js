@@ -543,6 +543,186 @@ const check = (label, ok, detail = '') => {
     await dismissAll();
   }
 
+  // =============== 13. the set row, mid-workout ============================
+  //
+  // Attached to "···" rather than the row: the row is mostly number inputs,
+  // where a tap opens the numpad and a hold would be arguing with it.
+  //
+  // This is the first trigger that lives inside a scroller and the first that
+  // can sit near the top of the screen, so it exercises two things the dock
+  // never could — keeping its touch-action so a drag still scrolls, and
+  // flipping the fan downward when there is no room above.
+  console.log('\n=== 13. holding "···" on a set row ===');
+  {
+    await page.evaluate(async () => {
+      await Storage.clearAll();
+      for (const [k, v] of Object.entries({ onboarded: true, sex: 'male', dob: '1995-04-12',
+        heightCm: 180, activityLevel: 'moderate', kcalGoal: 2600, radialDiscovered: true })) await Storage.setPref(k, v);
+      await Storage.saveBodyweight({ date: U.todayISO(), kg: 82 });
+      // Eight sets so the workout screen is taller than the viewport — the
+      // downward flip cannot be reached on a page that does not scroll.
+      const ex = (id, name) => ({ exerciseId: id, name, type: 'weighted',
+        sets: Array.from({ length: 8 }, () => ({ weight: 100, reps: 8, done: false })) });
+      await Storage.saveWorkout({ id: 'aw', name: 'Session', date: U.todayISO(), startedAt: Date.now() - 6e5,
+        exercises: [ex('bench-press-barbell', 'Barbell Bench Press')] });
+      await Storage.setPref('activeWorkoutId', 'aw');
+    });
+    const openWorkout = async () => {
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(4200);
+      await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"],.splash').forEach(n => n.remove()));
+      await page.evaluate(() => {
+        const r = document.querySelector('[data-testid="button-resume-workout"]');
+        if (r) r.click(); else document.querySelector('[data-testid="dock-fab"]').click();
+      });
+      await page.waitForTimeout(1500);
+    };
+    const moreAt = () => page.evaluate(() => {
+      const n = document.querySelector('[data-testid="set-more-0"]');
+      if (!n) return null;
+      const r = n.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await openWorkout();
+
+    const mb = await moreAt();
+    check('the workout screen has a "···" to hold', !!mb);
+    check('it keeps its touch-action so the list can still be dragged',
+      (await page.evaluate(() => getComputedStyle(document.querySelector('[data-testid="set-more-0"]')).touchAction)) !== 'none');
+
+    // A drag from the trigger scrolls, and opens nothing.
+    await page.mouse.move(mb.x, mb.y);
+    await page.mouse.down();
+    await page.mouse.move(mb.x, mb.y - 60, { steps: 8 });
+    await page.waitForTimeout(HOLD_MS + 200);
+    check('a drag from it opens nothing', !(await isOpen()));
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    await dismissAll();
+
+    // Held still, it opens with its three slices.
+    await page.mouse.move(mb.x, mb.y);
+    await page.mouse.down();
+    await page.waitForTimeout(HOLD_MS + 180);
+    const held = await page.evaluate(() => {
+      const o = document.querySelector('[data-testid="radial-overlay"]');
+      if (!o) return { open: false };
+      const slices = [...o.querySelectorAll('.radial-slice')];
+      return {
+        open: true,
+        ids: slices.map(s => s.getAttribute('data-testid')),
+        unreachable: slices.filter(s => {
+          const b = s.getBoundingClientRect();
+          const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+          return !(hit && (hit === s || s.contains(hit)));
+        }).map(s => s.getAttribute('data-testid'))
+      };
+    });
+    console.log('   ', JSON.stringify(held));
+    check('three slices, the same three on every exercise type',
+      held.open && held.ids.length === 3, JSON.stringify(held.ids));
+    check('all reachable', held.open && held.unreachable.length === 0, JSON.stringify(held.unreachable));
+    await page.screenshot({ path: `${SS}/radial_setrow.png` });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    await dismissAll();
+
+    // Drop set actually toggles, against storage rather than the screen.
+    const mb3 = await moreAt();
+    await page.mouse.move(mb3.x, mb3.y);
+    await page.mouse.down();
+    await page.waitForTimeout(HOLD_MS + 180);
+    const dropAt = await page.evaluate(() => {
+      const n = document.querySelector('[data-testid="radial-drop"]');
+      if (!n) return null;
+      const r = n.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    if (dropAt) {
+      await page.mouse.move(dropAt.x, dropAt.y, { steps: 8 });
+      await page.waitForTimeout(120);
+      await page.mouse.up();
+      await page.waitForTimeout(900);
+    } else { await page.mouse.up(); }
+    const dropped = await page.evaluate(async () => {
+      const w = (await Storage.getWorkouts()).find(x => x.id === 'aw');
+      return !!(w && w.exercises[0].sets[0].drop);
+    });
+    check('the Drop set slice marks the set as a drop set', dropped);
+    await dismissAll();
+  }
+
+  // =============== 14. picking twice in a row actually goes twice ===========
+  //
+  // Reported from real use: the Nutrition menu took you to Trends, and then
+  // every later pick left you sitting on Trends.
+  //
+  // The panel navigation went through nutritionScrollKey, which is a memory of
+  // where you were rather than a request to be moved — and the pager restores
+  // an exact pixel offset in preference to it. So the first pick worked
+  // (offset 0) and every one after it was overruled by the position the last
+  // one had left behind. A single pick can never catch this; the sequence is
+  // the test.
+  console.log('\n=== 14. a second pick is not overruled by the first ===');
+  {
+    await page.evaluate(async () => {
+      await Storage.clearAll();
+      for (const [k, v] of Object.entries({ onboarded: true, sex: 'male', dob: '1995-04-12',
+        heightCm: 180, activityLevel: 'moderate', kcalGoal: 2600, radialDiscovered: true })) await Storage.setPref(k, v);
+      for (let i = 0; i < 6; i++) {
+        const d = new Date(); d.setDate(d.getDate() - i);
+        for (const m of [['Oats', 520], ['Chicken & rice', 700]]) {
+          await Storage.saveMeal({ id: `m${i}-${m[0]}`, date: U.todayISO(d), name: m[0], kcal: m[1], protein: 40, carbs: 60, fat: 14 });
+        }
+      }
+    });
+    await reset();
+
+    const pickNutrition = async (slice) => {
+      const at = await page.evaluate(() => {
+        const r = document.querySelector('[data-testid="dock-nutrition"]').getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      });
+      await page.mouse.move(at.x, at.y);
+      await page.mouse.down();
+      await page.waitForTimeout(HOLD_MS + 170);
+      const t = await page.evaluate((s) => {
+        const n = document.querySelector(`[data-testid="radial-${s}"]`);
+        if (!n) return null;
+        const r = n.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      }, slice);
+      if (!t) { await page.mouse.up(); return null; }
+      await page.mouse.move(t.x, t.y, { steps: 8 });
+      await page.waitForTimeout(120);
+      await page.mouse.up();
+      await page.waitForTimeout(1100);
+      // Which panel is actually centred, not which one we asked for.
+      return page.evaluate(() => {
+        const pager = document.querySelector('.npager');
+        if (!pager) return null;
+        const centre = pager.scrollTop + pager.clientHeight / 2;
+        let best = -1, bd = Infinity;
+        for (let i = 0; i < pager.children.length; i++) {
+          const c = pager.children[i].offsetTop + pager.children[i].offsetHeight / 2;
+          if (Math.abs(c - centre) < bd) { bd = Math.abs(c - centre); best = i; }
+        }
+        return { panel: best, last: pager.children.length - 1 };
+      });
+    };
+
+    const first = await pickNutrition('trends');
+    check('Trends goes to the last panel', !!first && first.panel === first.last, JSON.stringify(first));
+    const second = await pickNutrition('supps');
+    check('Supps after Trends goes to Supps, not back to Trends',
+      !!second && second.panel === second.last - 1, JSON.stringify(second));
+    const third = await pickNutrition('today');
+    check('Today after that goes to the top', !!third && third.panel === 0, JSON.stringify(third));
+    const fourth = await pickNutrition('trends');
+    check('and Trends again still works', !!fourth && fourth.panel === fourth.last, JSON.stringify(fourth));
+    await dismissAll();
+  }
+
   console.log('\nERRORS:', errs.length ? errs : 'none');
   console.log(`\n${fails} failing check${fails === 1 ? '' : 's'}`);
   await b.close();

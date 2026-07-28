@@ -109,6 +109,24 @@ ruins an app, one section each:
   hit-tested at its own centre the way `reach-audit` does.
 - **There is no way out.** Escape and the scrim both dismiss it.
 
+Section fourteen exists because of a bug report, and it is the shape of report
+worth remembering: *"it doesn't go to Supplements if you choose Trends first."*
+
+Panel navigation went through `nutritionScrollKey`, which is a memory of where
+you were rather than a request to be moved — and the pager restores an exact
+pixel offset in preference to it. So the first pick worked, because the offset
+was 0, and every pick after it was overruled by the position the previous one
+had left behind. Not just Supplements: everything, for the rest of the session.
+
+**No single-pick test could ever have caught it.** Every check written up to
+that point held a control, picked one slice, and asserted where it landed —
+and all of them passed while the feature was broken on the second use. The
+sequence is the test. Restoring the old lookup fails three of its four checks.
+
+Section thirteen covers the set row's "···", which is the first trigger inside
+a scroller: it keeps its `touch-action` so a drag still scrolls the list, and
+removing that opt-out is caught.
+
 Section eleven is the one that earned its keep when the menu spread from the
 centre button to the four tabs. The `+` sits dead centre, so a symmetric fan
 always fitted and hid the whole problem; the outer tabs sit ~60px from the edge,

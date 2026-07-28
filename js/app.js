@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=192").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=198").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1575,6 +1575,13 @@
     sessions: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><rect x="9" y="8" width="30" height="32" rx="4" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><g class="qa2-lines" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="16" y1="18" x2="32" y2="18"/><line x1="16" y1="25" x2="32" y2="25"/><line x1="16" y1="32" x2="26" y2="32"/></g></svg>`
   };
 
+  // Marks for the set-row hold menu. "D" on a button is enough when it sits
+  // next to its own tooltip; on a 34px slice with a word under it, a drawing
+  // reads faster than a letter.
+  const setIcons = {
+    drop: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h9M4 12h6M4 18h3"/><path d="M18 5v12"/><path d="m14.5 13.5 3.5 3.5 3.5-3.5"/></svg>'
+  };
+
   // Small marks for the tab hold menus. Deliberately plain line icons rather
   // than the quick-actions artwork: those three are the app's headline verbs,
   // and reusing that weight for "jump to the supplements panel" would flatten
@@ -1623,10 +1630,10 @@
     nutrition: {
       label: "Nutrition sections",
       items: [
-        { key: "today", label: "Today", icon: navIcons.today, onPick: () => { nutritionScrollKey = "overview"; jumpTo("nutrition"); } },
+        { key: "today", label: "Today", icon: navIcons.today, onPick: () => { pendingNutritionPanel = "overview"; jumpTo("nutrition"); } },
         { key: "saved", label: "Saved", icon: navIcons.saved, onPick: () => jumpTo("nutrition", () => openSavedMealsSheet()) },
-        { key: "supps", label: "Supps", icon: navIcons.pill, onPick: () => { nutritionScrollKey = "supplements"; jumpTo("nutrition"); } },
-        { key: "trends", label: "Trends", icon: navIcons.trend, onPick: () => { nutritionScrollKey = "trends"; jumpTo("nutrition"); } }
+        { key: "supps", label: "Supps", icon: navIcons.pill, onPick: () => { pendingNutritionPanel = "supplements"; jumpTo("nutrition"); } },
+        { key: "trends", label: "Trends", icon: navIcons.trend, onPick: () => { pendingNutritionPanel = "trends"; jumpTo("nutrition"); } }
       ]
     },
     stats: {
@@ -2309,6 +2316,11 @@
     const items = (opts.items || []).filter(Boolean);
     if (!items.length || !trigger) return;
     trigger.classList.add("has-radial");
+    // A trigger inside a scroller must keep its touch-action, or a drag that
+    // happens to start on it silently refuses to scroll the page. The 10px
+    // slop and pointercancel do the work instead — slightly later, but a hold
+    // that occasionally needs a second try beats a control that eats swipes.
+    if (opts.scrollable) trigger.classList.add("radial-scrolls");
 
     // A deadline rather than a flag. The click that follows a hold is swallowed
     // so the control's own tap action does not also fire — but that click only
@@ -2408,7 +2420,7 @@
       const natural = n === 1 ? 0 : Math.min(150, 44 * (n - 1));
       const vw = window.innerWidth || 390;
 
-      const build = (r) => {
+      const build = (r, vs) => {
         const roomL = Math.max(0, cx - EDGE - SLICE_HALF);
         const roomR = Math.max(0, vw - EDGE - SLICE_HALF - cx);
         const deg = (v) => Math.asin(Math.min(1, v)) * 180 / Math.PI;
@@ -2422,7 +2434,7 @@
         return items.map((it, i) => {
           const phi = (n === 1 ? (lo + hi) / 2 : start + (span / (n - 1)) * i) * Math.PI / 180;
           // 104 put the aimed slice, scaled up, into its neighbour's label.
-          return { item: it, x: cx + Math.sin(phi) * r, y: cy - Math.cos(phi) * r };
+          return { item: it, x: cx + Math.sin(phi) * r, y: cy + vs * Math.cos(phi) * r };
         });
       };
 
@@ -2455,21 +2467,28 @@
         }
         return true;
       };
-      const onScreen = (pts) => pts.every(p => p.y - 48 >= EDGE);
+      const vh = window.innerHeight || 844;
+      const onScreen = (pts) => pts.every(p => p.y - 48 >= EDGE && p.y + 48 <= vh - EDGE);
 
+      // Upward only. A downward flip was written for triggers sitting too
+      // close to the top of the screen for a fan above them, and then no such
+      // trigger turned out to exist: the dock is pinned to the bottom, and the
+      // workout screen scrolls inside itself, so the set row's "···" never
+      // rises past ~250px. An unreachable branch is an untested one, so it is
+      // gone. The bounds check below still refuses an arc that would not fit,
+      // which is what would surface the need for it.
       const base = opts.radius || 114;
       for (let k = 1; k <= 2.4; k += 0.08) {
-        const pts = build(base * k);
+        const pts = build(base * k, -1);
         if (pts && onScreen(pts) && legible(pts)) return pts;
       }
       // Nothing fully legible fits; take the widest arc that is still on
       // screen rather than refusing to open.
-      let best = null;
       for (let k = 2.4; k >= 0.8; k -= 0.1) {
-        const pts = build(base * k);
-        if (pts && onScreen(pts)) { best = pts; break; }
+        const pts = build(base * k, -1);
+        if (pts && onScreen(pts)) return pts;
       }
-      return best || build(base) || [];
+      return build(base, -1) || [];
     }
 
     function openMenu(cx, cy) {
@@ -2545,6 +2564,11 @@
 
     trigger.addEventListener("pointerdown", (e) => {
       if (e.button != null && e.button !== 0) return;
+      // Something else can take the overlay out from under us — a re-render
+      // that clears body-level layers, or a screen being torn down while the
+      // menu is up. Holding a stale reference to a detached node makes the
+      // next press "close" a menu that is not there and open nothing.
+      if (open && !document.body.contains(open.overlay)) close();
       // Pressing the control again while its menu is up puts it away.
       if (open) { close(); suppressUntil = Date.now() + 500; return; }
       moved = false;
@@ -7321,7 +7345,9 @@
     }
 
     const tryDelete = async () => {
-      if (ex.sets.length <= 1) return;
+      // Reachable from a radial slice now, where silently doing nothing would
+      // read as the gesture having failed rather than as a rule.
+      if (ex.sets.length <= 1) { toast("An exercise needs at least one set"); return; }
       if (await confirmDialog("Delete this set?", { title: "Delete set?", okLabel: "Delete", danger: true })) {
         ex.sets.splice(si, 1);
         await Storage.saveWorkout(state.activeWorkout);
@@ -7332,6 +7358,36 @@
       if (e.target.closest("input,button,textarea,select")) return;
       e.preventDefault();
       tryDelete();
+    });
+
+    // Hold "···" for the actions inside the tray, without opening it.
+    //
+    // On the button rather than the row: the row is mostly number inputs,
+    // where a tap opens the numpad and a hold would be arguing with it. "···"
+    // already means "there is more here", so tap opens the tray — which also
+    // carries the e1RM and kcal readouts a radial cannot — and hold goes
+    // straight to the thing you wanted. Same bargain as the dock's +.
+    //
+    // Three slices, identical on every exercise type. The plate calculator is
+    // deliberately not among them: makePlatesBtn returns nothing for anything
+    // that is not a barbell, and a slice that is sometimes the second one and
+    // sometimes absent destroys the only thing a radial is for.
+    attachRadial(moreBtn, {
+      label: `Set ${si + 1} actions`,
+      scrollable: true,
+      items: [
+        {
+          key: "drop", label: s.drop ? "Undrop" : "Drop set", icon: setIcons.drop,
+          onPick: async () => {
+            s.drop = !s.drop;
+            if (s.drop) { expandedSetTools.add(toolsKey); expandedSetTools.delete(closedKey); }
+            await Storage.saveWorkout(state.activeWorkout);
+            refreshExerciseBlock(ex);
+          }
+        },
+        { key: "note", label: s.note ? "Edit note" : "Note", icon: icons.note, onPick: () => makeNoteBtn().click() },
+        { key: "delete", label: "Delete", icon: icons.trash, onPick: tryDelete }
+      ]
     });
     const indexCell = row.querySelector(".set-index");
     let lastTap = 0;
@@ -9797,6 +9853,14 @@
   // Remembers which nutrition card was active so an action-triggered re-render
   // returns there instead of snapping back to Overview. Cleared on dock nav.
   let nutritionScrollKey = null;
+  // An explicit "take me to this panel", as opposed to nutritionScrollKey,
+  // which is a memory of where you were. The two are not the same thing and
+  // sharing one variable made the hold menu work exactly once: the pager
+  // remembers an exact pixel offset and restores that in preference to the
+  // panel key, so after visiting Trends every later request was overruled by
+  // the position Trends had left behind. Only the caller asking to be moved
+  // ever writes this, and one render consumes it.
+  let pendingNutritionPanel = null;
   // Exact pixel scroll of the nutrition pager, so an in-place refresh restores
   // the precise position (no snap-to-panel jump). Cleared on dock nav.
   let nutritionScrollTop = 0;
@@ -10514,11 +10578,24 @@
     view.appendChild(screen);
     // Restore exact scroll (set synchronously to avoid a painted frame at 0),
     // falling back to the remembered panel the first time we land here.
+    // Consumed by this render, and read by both restoreScroll passes — the
+    // first runs before layout has settled, so the rAF one is the one that
+    // usually lands.
+    const wantPanel = pendingNutritionPanel;
+    pendingNutritionPanel = null;
     const restoreScroll = () => {
-      if (nutritionScrollTop > 0) { pager.scrollTop = nutritionScrollTop; }
+      const ri = wantPanel && panelKeys.includes(wantPanel) ? idxOf(wantPanel) : -1;
+      if (ri >= 0 && pager.children[ri]) {
+        // Asked for, so it outranks both the remembered offset and the
+        // remembered panel, and it updates them so the next in-place refresh
+        // does not undo it.
+        pager.scrollTop = pager.children[ri].offsetTop;
+        nutritionScrollTop = pager.scrollTop;
+        nutritionScrollKey = wantPanel;
+      } else if (nutritionScrollTop > 0) { pager.scrollTop = nutritionScrollTop; }
       else if (nutritionScrollKey && panelKeys.includes(nutritionScrollKey)) {
-        const ri = idxOf(nutritionScrollKey);
-        if (pager.children[ri]) pager.scrollTop = pager.children[ri].offsetTop;
+        const k = idxOf(nutritionScrollKey);
+        if (pager.children[k]) pager.scrollTop = pager.children[k].offsetTop;
       }
       // keep dots in sync with wherever we landed
       const center = pager.scrollTop + pager.clientHeight / 2;
