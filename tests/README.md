@@ -109,6 +109,22 @@ ruins an app, one section each:
   hit-tested at its own centre the way `reach-audit` does.
 - **There is no way out.** Escape and the scrim both dismiss it.
 
+Section eleven is the one that earned its keep when the menu spread from the
+centre button to the four tabs. The `+` sits dead centre, so a symmetric fan
+always fitted and hid the whole problem; the outer tabs sit ~60px from the edge,
+where a comfortable fan throws its outermost slice off-screen. The arc is fitted
+to the room on each side now — a fan from the middle, a quarter turn from the
+edges — and fifteen trigger/width pairs are checked.
+
+It checks **labels against other slices' circles**, not just label against
+label, and that distinction is the whole value of the section. A compressed fan
+makes the circles fit long before it makes the words fit: "This week" was
+perfectly clear of its neighbour's *label* while sitting squarely underneath its
+neighbour's *icon*. The first version of this check compared labels only, said
+everything was fine, and a mutation that removed the fix passed clean. The app's
+layout now models the same boxes and picks the first radius where nothing covers
+a label — pinning the radius reproduces seven failures across three widths.
+
 Sections nine and ten cover how anyone finds out the gesture exists, because
 nothing on screen says a button can be held.
 

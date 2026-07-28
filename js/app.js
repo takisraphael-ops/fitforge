@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=186").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=192").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1565,6 +1565,94 @@
     person: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M5 21c0-3.9 3.1-7 7-7s7 3.1 7 7"/></svg>'
   };
 
+  // Quick-action artwork. Shared by the fork sheet and the radial hold menu,
+  // because they are the same three choices — a generic "+" for Log meal is
+  // also the glyph on the button you are holding, which is exactly why it
+  // reads as nothing.
+  const QA_ART = {
+    workout: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><g class="qa2-dumbbell" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><line x1="18" y1="24" x2="30" y2="24"/><line x1="13" y1="18" x2="13" y2="30"/><line x1="8.5" y1="21" x2="8.5" y2="27"/><line x1="35" y1="18" x2="35" y2="30"/><line x1="39.5" y1="21" x2="39.5" y2="27"/></g></svg>`,
+    meal: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><g class="qa2-steam" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M18 15c-2.5-2-2.5-4 0-6"/><path d="M24 15c-2.5-2-2.5-4 0-6"/><path d="M30 15c-2.5-2-2.5-4 0-6"/></g><path d="M9 25h30a15 15 0 0 1-30 0z" fill="currentColor" fill-opacity="0.16"/><path d="M9 25h30a15 15 0 0 1-30 0z" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><line x1="7" y1="25" x2="41" y2="25" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>`,
+    sessions: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><rect x="9" y="8" width="30" height="32" rx="4" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><g class="qa2-lines" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="16" y1="18" x2="32" y2="18"/><line x1="16" y1="25" x2="32" y2="25"/><line x1="16" y1="32" x2="26" y2="32"/></g></svg>`
+  };
+
+  // Small marks for the tab hold menus. Deliberately plain line icons rather
+  // than the quick-actions artwork: those three are the app's headline verbs,
+  // and reusing that weight for "jump to the supplements panel" would flatten
+  // the distinction between starting something and navigating somewhere.
+  const navIcons = {
+    today: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg>',
+    week: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
+    trend: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-6 4 4 8-9"/><path d="M15 6h5v5"/></svg>',
+    saved: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/></svg>',
+    pill: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="8" width="19" height="8" rx="4" transform="rotate(-45 12 12)"/><path d="M9 9l6 6"/></svg>',
+    history: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4"/><path d="M12 7v5l3 2"/></svg>',
+    gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7.6 19.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3 14a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10 3.6V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>',
+    search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+    body: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="4" r="2.2"/><path d="M12 6.5v7M12 8.5 6.5 11M12 8.5 17.5 11M12 13.5 8.5 21M12 13.5 15.5 21"/></svg>'
+  };
+
+  // Go to a tab and then put the screen where the slice said it would.
+  // renderMain is what goTab does; calling it directly skips the tab-switch
+  // animation, which is right for a shortcut — you asked for a destination,
+  // not a journey.
+  function jumpTo(tab, after) {
+    state.tab = tab;
+    renderMain();
+    window.scrollTo(0, 0);
+    if (after) setTimeout(after, 90);
+  }
+  function scrollToTestId(testId) {
+    const n = document.querySelector(`[data-testid="${testId}"]`);
+    if (!n) return;
+    const y = n.getBoundingClientRect().top + window.scrollY - 74;
+    window.scrollTo({ top: Math.max(0, y), behavior: reduceMotion() ? "auto" : "smooth" });
+  }
+
+  // The hold menus for the four tab buttons. Fixed order, always — the whole
+  // value of a radial is that the third slice is in the same place tomorrow,
+  // so nothing here may ever be sorted by recency or filtered by state.
+  const TAB_RADIALS = {
+    home: {
+      label: "Home sections",
+      items: [
+        { key: "today", label: "Today", icon: navIcons.today, onPick: () => jumpTo("home", () => scrollToTestId("home-section-today")) },
+        { key: "week", label: "This week", icon: navIcons.week, onPick: () => jumpTo("home", () => scrollToTestId("home-section-week")) },
+        { key: "trends", label: "Trends", icon: navIcons.trend, onPick: () => jumpTo("home", () => scrollToTestId("home-section-trends")) }
+      ]
+    },
+    nutrition: {
+      label: "Nutrition sections",
+      items: [
+        { key: "today", label: "Today", icon: navIcons.today, onPick: () => { nutritionScrollKey = "overview"; jumpTo("nutrition"); } },
+        { key: "saved", label: "Saved", icon: navIcons.saved, onPick: () => jumpTo("nutrition", () => openSavedMealsSheet()) },
+        { key: "supps", label: "Supps", icon: navIcons.pill, onPick: () => { nutritionScrollKey = "supplements"; jumpTo("nutrition"); } },
+        { key: "trends", label: "Trends", icon: navIcons.trend, onPick: () => { nutritionScrollKey = "trends"; jumpTo("nutrition"); } }
+      ]
+    },
+    stats: {
+      label: "You sections",
+      items: [
+        { key: "trends", label: "Trends", icon: navIcons.trend, onPick: () => jumpTo("stats") },
+        { key: "history", label: "History", icon: navIcons.history, onPick: () => jumpTo("history") },
+        { key: "settings", label: "Settings", icon: navIcons.gear, onPick: () => openSettings() }
+      ]
+    },
+    library: {
+      label: "Exercise sections",
+      items: [
+        { key: "sessions", label: "Sessions", icon: QA_ART.sessions, onPick: () => jumpTo("library", openSessionsSheet) },
+        { key: "search", label: "Search", icon: navIcons.search, onPick: () => jumpTo("library", () => {
+            const i = document.getElementById("lib-search");
+            if (!i) return;
+            scrollToTestId("body-map");
+            i.focus({ preventScroll: true });
+          }) },
+        { key: "bodymap", label: "Body map", icon: navIcons.body, onPick: () => jumpTo("library", () => scrollToTestId("body-map")) }
+      ]
+    }
+  };
+
+
   function renderDock(main) {
     const old = document.querySelector(".dock");
     if (old) old.remove();
@@ -1609,13 +1697,19 @@
         continue;
       }
       const active = state.tab === it.id || (it.id === "stats" && state.tab === "history");
-      dock.appendChild(el("button", {
+      const btn = el("button", {
         class: "dock-item" + (active ? " active" : ""),
         title: it.label,
         "data-testid": "dock-" + it.id,
         html: it.icon,
         on: { click: () => switchTab(it.id) }
-      }));
+      });
+      // Hold a tab to land inside it rather than at the top of it. Tapping
+      // still just switches tabs, and every one of these is somewhere you can
+      // still reach by scrolling or tapping once you are there.
+      const radial = TAB_RADIALS[it.id];
+      if (radial) attachRadial(btn, { label: radial.label, items: radial.items });
+      dock.appendChild(btn);
     }
     document.body.appendChild(dock);
   }
@@ -2189,15 +2283,6 @@
     document.body.appendChild(overlay);
   }
 
-  // Quick-action artwork. Shared by the fork sheet and the radial hold menu,
-  // because they are the same three choices — a generic "+" for Log meal is
-  // also the glyph on the button you are holding, which is exactly why it
-  // reads as nothing.
-  const QA_ART = {
-    workout: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><g class="qa2-dumbbell" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><line x1="18" y1="24" x2="30" y2="24"/><line x1="13" y1="18" x2="13" y2="30"/><line x1="8.5" y1="21" x2="8.5" y2="27"/><line x1="35" y1="18" x2="35" y2="30"/><line x1="39.5" y1="21" x2="39.5" y2="27"/></g></svg>`,
-    meal: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><g class="qa2-steam" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M18 15c-2.5-2-2.5-4 0-6"/><path d="M24 15c-2.5-2-2.5-4 0-6"/><path d="M30 15c-2.5-2-2.5-4 0-6"/></g><path d="M9 25h30a15 15 0 0 1-30 0z" fill="currentColor" fill-opacity="0.16"/><path d="M9 25h30a15 15 0 0 1-30 0z" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><line x1="7" y1="25" x2="41" y2="25" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>`,
-    sessions: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><rect x="9" y="8" width="30" height="32" rx="4" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><g class="qa2-lines" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="16" y1="18" x2="32" y2="18"/><line x1="16" y1="25" x2="32" y2="25"/><line x1="16" y1="32" x2="26" y2="32"/></g></svg>`
-  };
 
   // ============ Radial hold menu ============
   //
@@ -2305,18 +2390,86 @@
     // hint whose ghosts point somewhere the real slices do not is worse than
     // no hint — it teaches the wrong gesture.
     //
-    // Opens upward: the trigger lives in a fixed dock at the bottom, so a slice
-    // placed below it would sit under the home indicator.
+    // Angles are measured from straight up, because up is the only direction
+    // guaranteed to be free: every trigger lives in a fixed dock at the bottom
+    // of the screen, so anything placed below one is under the home indicator.
+    //
+    // A symmetric fan is right for the centre button and wrong for everything
+    // else. The dock's outer items sit ~60px from the edge, and a fan wide
+    // enough to be comfortable there puts its outermost slice off-screen — so
+    // the arc is fitted to the room actually available on each side and slides
+    // inward when one side runs out. From the middle you get a fan; from the
+    // left-hand tab you get a quarter turn opening up and to the right.
+    const SLICE_HALF = 46;   // widest a slice box gets, including its label
+    const EDGE = 6;
+    const MAX_PHI = 52;      // past this a slice stops clearing the dock
     function layout(cx, cy) {
       const n = items.length;
-      const SPAN = n === 1 ? 0 : Math.min(150, 44 * (n - 1));
-      const start = -90 - SPAN / 2;
-      // 104 put the aimed slice, scaled up, into its neighbour's label.
-      const r = opts.radius || 114;
-      return items.map((it, i) => {
-        const a = ((n === 1 ? -90 : start + (SPAN / (n - 1)) * i)) * Math.PI / 180;
-        return { item: it, x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
-      });
+      const natural = n === 1 ? 0 : Math.min(150, 44 * (n - 1));
+      const vw = window.innerWidth || 390;
+
+      const build = (r) => {
+        const roomL = Math.max(0, cx - EDGE - SLICE_HALF);
+        const roomR = Math.max(0, vw - EDGE - SLICE_HALF - cx);
+        const deg = (v) => Math.asin(Math.min(1, v)) * 180 / Math.PI;
+        const lo = -Math.min(MAX_PHI, deg(roomL / r));
+        const hi = Math.min(MAX_PHI, deg(roomR / r));
+        if (hi - lo <= 0) return null;
+        const span = Math.min(natural, hi - lo);
+        let start = -span / 2;                    // centred on straight up...
+        if (start < lo) start = lo;               // ...unless a side is short
+        if (start + span > hi) start = hi - span;
+        return items.map((it, i) => {
+          const phi = (n === 1 ? (lo + hi) / 2 : start + (span / (n - 1)) * i) * Math.PI / 180;
+          // 104 put the aimed slice, scaled up, into its neighbour's label.
+          return { item: it, x: cx + Math.sin(phi) * r, y: cy - Math.cos(phi) * r };
+        });
+      };
+
+      // Near an edge the fan gets compressed and the slices bunch up. Angular
+      // room cannot grow, but arc length can — separation is r * delta-phi, so
+      // pushing the radius out is the only lever left.
+      //
+      // How far out is decided by the thing that actually breaks, rather than
+      // by a guessed minimum gap: a slice's label is wider than its circle, so
+      // it goes under the *next slice's circle* long before the circles
+      // themselves touch. Boxes are modelled here in the same terms the layout
+      // renders them, and the first radius where nothing covers a label wins.
+      const ICON = 64, LGAP = 6, LH = 16;                 // as laid out in CSS
+      const boxes = (p) => {
+        const w = Math.max(40, String(p.item.label || "").length * 7);
+        return {
+          icon: { l: p.x - ICON / 2, r: p.x + ICON / 2, t: p.y - (ICON + LGAP + LH) / 2, b: p.y - (ICON + LGAP + LH) / 2 + ICON },
+          label: { l: p.x - w / 2, r: p.x + w / 2, t: p.y + (ICON + LGAP + LH) / 2 - LH, b: p.y + (ICON + LGAP + LH) / 2 }
+        };
+      };
+      const overlaps = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+      const legible = (pts) => {
+        const bs = pts.map(boxes);
+        for (let i = 0; i < bs.length; i++) {
+          for (let j = 0; j < bs.length; j++) {
+            if (i === j) continue;
+            if (overlaps(bs[i].label, bs[j].icon)) return false;
+            if (j > i && overlaps(bs[i].label, bs[j].label)) return false;
+          }
+        }
+        return true;
+      };
+      const onScreen = (pts) => pts.every(p => p.y - 48 >= EDGE);
+
+      const base = opts.radius || 114;
+      for (let k = 1; k <= 2.4; k += 0.08) {
+        const pts = build(base * k);
+        if (pts && onScreen(pts) && legible(pts)) return pts;
+      }
+      // Nothing fully legible fits; take the widest arc that is still on
+      // screen rather than refusing to open.
+      let best = null;
+      for (let k = 2.4; k >= 0.8; k -= 0.1) {
+        const pts = build(base * k);
+        if (pts && onScreen(pts)) { best = pts; break; }
+      }
+      return best || build(base) || [];
     }
 
     function openMenu(cx, cy) {

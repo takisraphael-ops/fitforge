@@ -405,6 +405,144 @@ const check = (label, ok, detail = '') => {
     await dismissAll();
   }
 
+  // =============== 11. every tab's menu fits, at every width ================
+  //
+  // The + sits dead centre, so a symmetric fan always fitted and hid this
+  // entirely. The dock's outer tabs sit ~60px from the edge, where a fan wide
+  // enough to be comfortable throws its outermost slice off-screen — so the
+  // arc is fitted to the room on each side and slides inward.
+  //
+  // Two things are checked that "it opened" would not catch: each slice has to
+  // be the thing at its own coordinates, and adjacent LABELS must not overlap.
+  // Compressing the fan makes the circles fit long before it makes the words
+  // fit — "This week" sat underneath the next slice's circle, and "Supplements"
+  // could not fit at 320px at all, which is why it now reads "Supps".
+  console.log('\n=== 11. every tab menu fits and stays legible, 320-430px ===');
+  {
+    const TRIGGERS = ['home', 'nutrition', 'fab', 'stats', 'library'];
+    let worst = [];
+    for (const vw of [320, 390, 430]) {
+      await page.setViewportSize({ width: vw, height: 844 });
+      await reset();
+      for (const t of TRIGGERS) {
+        const sel = `[data-testid="dock-${t}"]`;
+        const at = await page.evaluate((s) => {
+          const n = document.querySelector(s);
+          if (!n) return null;
+          const r = n.getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        }, sel);
+        if (!at) { worst.push(`${vw}/${t}: no trigger`); continue; }
+        await page.mouse.move(at.x, at.y);
+        await page.mouse.down();
+        await page.waitForTimeout(HOLD_MS + 160);
+        const r = await page.evaluate((vw) => {
+          const o = document.querySelector('[data-testid="radial-overlay"]');
+          if (!o) return { open: false };
+          const slices = [...o.querySelectorAll('.radial-slice')];
+          const off = slices.filter(s => {
+            const b = s.getBoundingClientRect();
+            return b.left < -1 || b.right > vw + 1 || b.top < -1;
+          }).map(s => s.getAttribute('data-testid'));
+          const unreachable = slices.filter(s => {
+            const b = s.getBoundingClientRect();
+            const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+            return !(hit && (hit === s || s.contains(hit)));
+          }).map(s => s.getAttribute('data-testid'));
+          // Label against label AND label against every other slice's circle.
+          // Checking only label-to-label misses the way this actually went
+          // wrong: "This week" was legible against its neighbour's label and
+          // sat squarely underneath its neighbour's icon.
+          const parts = slices.map(s => ({
+            id: s.getAttribute('data-testid'),
+            label: s.querySelector('.radial-slice-label').getBoundingClientRect(),
+            icon: s.querySelector('.radial-slice-ic').getBoundingClientRect()
+          }));
+          const hits = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+          const clashes = [];
+          for (let i = 0; i < parts.length; i++) {
+            for (let j = 0; j < parts.length; j++) {
+              if (i === j) continue;
+              if (j > i && hits(parts[i].label, parts[j].label)) clashes.push(`${parts[i].id}/${parts[j].id} labels`);
+              if (hits(parts[i].label, parts[j].icon)) clashes.push(`${parts[i].id} label under ${parts[j].id}`);
+            }
+          }
+          return { open: true, n: slices.length, off, unreachable, clash: clashes.length, clashes };
+        }, vw);
+        if (!r.open) worst.push(`${vw}/${t}: did not open`);
+        else if (r.off.length) worst.push(`${vw}/${t}: off-screen ${r.off.join(',')}`);
+        else if (r.unreachable.length) worst.push(`${vw}/${t}: unreachable ${r.unreachable.join(',')}`);
+        else if (r.clash) worst.push(`${vw}/${t}: ${r.clashes.join(', ')}`);
+        await page.mouse.up();
+        await page.waitForTimeout(120);
+        await dismissAll();
+        await page.evaluate(() => document.querySelectorAll('.modal-overlay').forEach(n => n.remove()));
+      }
+    }
+    console.log(`   checked ${TRIGGERS.length * 3} trigger/width pairs`);
+    check('every menu opens, fits, is hit-testable and stays legible',
+      worst.length === 0, worst.join(' | '));
+    await page.setViewportSize({ width: 390, height: 844 });
+  }
+
+  // =============== 12. the slices go where they say ========================
+  console.log('\n=== 12. tab slices land on their destinations ===');
+  {
+    await reset();
+    const pick = async (tab, slice) => {
+      const at = await page.evaluate((s) => {
+        const r = document.querySelector(s).getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      }, `[data-testid="dock-${tab}"]`);
+      await page.mouse.move(at.x, at.y);
+      await page.mouse.down();
+      await page.waitForTimeout(HOLD_MS + 160);
+      const t = await page.evaluate((s) => {
+        const n = document.querySelector(s);
+        if (!n) return null;
+        const r = n.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      }, `[data-testid="radial-${slice}"]`);
+      if (!t) { await page.mouse.up(); return false; }
+      await page.mouse.move(t.x, t.y, { steps: 8 });
+      await page.waitForTimeout(120);
+      await page.mouse.up();
+      await page.waitForTimeout(1000);
+      return true;
+    };
+
+    check('You -> History lands on History',
+      (await pick('stats', 'history')) &&
+      (await page.evaluate(() => !!document.querySelector('[data-testid="seg-history"].active'))));
+    await dismissAll();
+
+    await reset();
+    check('Exercises -> Sessions opens the sessions sheet',
+      (await pick('library', 'sessions')) &&
+      (await page.evaluate(() => {
+        const m = document.querySelector('.modal-overlay');
+        return !!m && /Sessions/.test(m.textContent);
+      })));
+    await page.evaluate(() => document.querySelectorAll('.modal-overlay').forEach(n => n.remove()));
+
+    await reset();
+    const before = await page.evaluate(() => window.scrollY);
+    const landed = await pick('home', 'trends');
+    const after = await page.evaluate(() => ({
+      y: window.scrollY,
+      trendsNearTop: (() => {
+        const n = document.querySelector('[data-testid="home-section-trends"]');
+        if (!n) return false;
+        const t = n.getBoundingClientRect().top;
+        return t > -40 && t < 200;
+      })()
+    }));
+    console.log(`   home scrollY ${before} -> ${after.y}`);
+    check('Home -> Trends scrolls Trends into view',
+      landed && after.y > before && after.trendsNearTop, JSON.stringify(after));
+    await dismissAll();
+  }
+
   console.log('\nERRORS:', errs.length ? errs : 'none');
   console.log(`\n${fails} failing check${fails === 1 ? '' : 's'}`);
   await b.close();
