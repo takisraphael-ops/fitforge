@@ -252,6 +252,49 @@ const check = (label, ok, detail = '') => {
     }
   }
 
+  // =============== 8. the highlight is not made of motion ==================
+  //
+  // The aimed slice scales, haloes, and its artwork comes alive. All of that
+  // is decoration: with motion switched off the selection still has to be
+  // obvious, or someone who turned it off cannot use the menu at all.
+  console.log('\n=== 8. with motion off, you can still see what is selected ===');
+  {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await reset();
+    const f = await fab();
+    await page.mouse.move(f.x, f.y);
+    await page.mouse.down();
+    await page.waitForTimeout(HOLD_MS + 180);
+    const t = await page.evaluate(() => {
+      const r = document.querySelector('[data-testid="radial-meal"]').getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await page.mouse.move(t.x, t.y, { steps: 8 });
+    await page.waitForTimeout(300);
+    const m = await page.evaluate(() => {
+      const aim = document.querySelector('.radial-slice.is-aimed');
+      const idle = document.querySelector('.radial-slice:not(.is-aimed)');
+      const ic = n => n && getComputedStyle(n.querySelector('.radial-slice-ic'));
+      const anims = [...document.querySelectorAll('.radial-slice, .radial-slice *')]
+        .map(n => getComputedStyle(n).animationName).filter(a => a && a !== 'none');
+      return {
+        aimedBg: ic(aim) && ic(aim).backgroundColor,
+        idleBg: ic(idle) && ic(idle).backgroundColor,
+        aimedTransform: ic(aim) && ic(aim).transform,
+        running: [...new Set(anims)]
+      };
+    });
+    console.log('   ', JSON.stringify(m));
+    check('the aimed slice still looks different from the others',
+      !!m.aimedBg && m.aimedBg !== m.idleBg, `${m.aimedBg} vs ${m.idleBg}`);
+    check('and it is not doing it by moving',
+      m.aimedTransform === 'none' && m.running.length === 0, JSON.stringify(m.running));
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    await dismissAll();
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+  }
+
   console.log('\nERRORS:', errs.length ? errs : 'none');
   console.log(`\n${fails} failing check${fails === 1 ? '' : 's'}`);
   await b.close();

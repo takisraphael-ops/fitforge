@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=177").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=181").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1588,15 +1588,15 @@
           label: "Quick actions",
           items: [
             {
-              key: "workout", label: state.activeWorkout ? "Resume" : "Workout", icon: icons.dumbbell,
+              key: "workout", label: state.activeWorkout ? "Resume" : "Workout", icon: QA_ART.workout,
               onPick: () => { goTab("workout"); window.scrollTo(0, 0); }
             },
             {
-              key: "sessions", label: "Sessions", icon: icons.bookmark,
+              key: "sessions", label: "Sessions", icon: QA_ART.sessions,
               onPick: () => { goTab("workout"); window.scrollTo(0, 0); setTimeout(openSessionsSheet, 260); }
             },
             {
-              key: "meal", label: "Log meal", icon: icons.plus,
+              key: "meal", label: "Log meal", icon: QA_ART.meal,
               onPick: () => { goTab("nutrition"); window.scrollTo(0, 0); }
             }
           ]
@@ -2111,14 +2111,12 @@
     document.addEventListener("keydown", onKey, true);
     const go = (tab) => { close(); goTab(tab); window.scrollTo(0, 0); };
     // Animated marks — dumbbell "reps" on the workout path, steam rises off the meal bowl.
-    const DUMBBELL_ART = `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><g class="qa2-dumbbell" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><line x1="18" y1="24" x2="30" y2="24"/><line x1="13" y1="18" x2="13" y2="30"/><line x1="8.5" y1="21" x2="8.5" y2="27"/><line x1="35" y1="18" x2="35" y2="30"/><line x1="39.5" y1="21" x2="39.5" y2="27"/></g></svg>`;
-    const MEAL_ART = `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><g class="qa2-steam" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M18 15c-2.5-2-2.5-4 0-6"/><path d="M24 15c-2.5-2-2.5-4 0-6"/><path d="M30 15c-2.5-2-2.5-4 0-6"/></g><path d="M9 25h30a15 15 0 0 1-30 0z" fill="currentColor" fill-opacity="0.16"/><path d="M9 25h30a15 15 0 0 1-30 0z" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><line x1="7" y1="25" x2="41" y2="25" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>`;
     const CLOSE_ART = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>`;
     const workoutPanel = el("button", {
       class: "qa-fork-panel qa2-workout", "data-testid": "quick-start-workout",
       on: { click: () => go("workout") }
     },
-      el("span", { class: "qa2-art", html: DUMBBELL_ART }),
+      el("span", { class: "qa2-art", html: QA_ART.workout }),
       el("span", { class: "qa2-label" }, state.activeWorkout ? "Resume workout" : "Start workout"),
       el("span", { class: "qa2-sub" }, state.activeWorkout ? "Pick up where you left off" : "Pick an exercise to begin")
     );
@@ -2126,16 +2124,15 @@
       class: "qa-fork-panel qa2-meal", "data-testid": "quick-log-meal",
       on: { click: () => go("nutrition") }
     },
-      el("span", { class: "qa2-art", html: MEAL_ART }),
+      el("span", { class: "qa2-art", html: QA_ART.meal }),
       el("span", { class: "qa2-label" }, "Log meal"),
       el("span", { class: "qa2-sub" }, "Add food to today")
     );
-    const SESSION_ART = `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="8" width="30" height="32" rx="4"/><line x1="16" y1="18" x2="32" y2="18"/><line x1="16" y1="25" x2="32" y2="25"/><line x1="16" y1="32" x2="26" y2="32"/></g></svg>`;
     const sessionsPanel = el("button", {
       class: "qa-fork-panel qa2-sessions", "data-testid": "quick-sessions",
       on: { click: () => { close(); goTab("workout"); window.scrollTo(0, 0); setTimeout(openSessionsSheet, 260); } }
     },
-      el("span", { class: "qa2-art", html: SESSION_ART }),
+      el("span", { class: "qa2-art", html: QA_ART.sessions }),
       el("span", { class: "qa2-label" }, "Sessions"),
       el("span", { class: "qa2-sub" }, "Ready-made workouts")
     );
@@ -2174,6 +2171,16 @@
 
     document.body.appendChild(overlay);
   }
+
+  // Quick-action artwork. Shared by the fork sheet and the radial hold menu,
+  // because they are the same three choices — a generic "+" for Log meal is
+  // also the glyph on the button you are holding, which is exactly why it
+  // reads as nothing.
+  const QA_ART = {
+    workout: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><g class="qa2-dumbbell" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><line x1="18" y1="24" x2="30" y2="24"/><line x1="13" y1="18" x2="13" y2="30"/><line x1="8.5" y1="21" x2="8.5" y2="27"/><line x1="35" y1="18" x2="35" y2="30"/><line x1="39.5" y1="21" x2="39.5" y2="27"/></g></svg>`,
+    meal: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><g class="qa2-steam" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M18 15c-2.5-2-2.5-4 0-6"/><path d="M24 15c-2.5-2-2.5-4 0-6"/><path d="M30 15c-2.5-2-2.5-4 0-6"/></g><path d="M9 25h30a15 15 0 0 1-30 0z" fill="currentColor" fill-opacity="0.16"/><path d="M9 25h30a15 15 0 0 1-30 0z" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><line x1="7" y1="25" x2="41" y2="25" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>`,
+    sessions: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><rect x="9" y="8" width="30" height="32" rx="4" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><g class="qa2-lines" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="16" y1="18" x2="32" y2="18"/><line x1="16" y1="25" x2="32" y2="25"/><line x1="16" y1="32" x2="26" y2="32"/></g></svg>`
+  };
 
   // ============ Radial hold menu ============
   //
@@ -2236,7 +2243,8 @@
       const n = items.length;
       const SPAN = n === 1 ? 0 : Math.min(150, 44 * (n - 1));
       const start = -90 - SPAN / 2;
-      const r = opts.radius || 104;
+      // 104 put the aimed slice, scaled up, into its neighbour's label.
+      const r = opts.radius || 114;
       const slices = [];
 
       items.forEach((it, i) => {

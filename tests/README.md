@@ -109,6 +109,12 @@ ruins an app, one section each:
   hit-tested at its own centre the way `reach-audit` does.
 - **There is no way out.** Escape and the scrim both dismiss it.
 
+The eighth section guards the highlight. The aimed slice scales, haloes, and
+its artwork comes alive — all decoration. With motion switched off the
+selection still has to be obvious, or someone who turned it off cannot use the
+menu at all. Confirmed by making the highlight motion-only: it reports the same
+colour on both slices.
+
 The sixth section is the subtle one. The click that follows a hold is swallowed
 so the button's own action does not fire as well — but that click only arrives
 if the pointerup lands back on the trigger, and once the menu is up the scrim

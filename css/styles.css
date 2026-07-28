@@ -2875,31 +2875,95 @@ input:disabled.input,
   color: var(--text);
 }
 .radial-slice-ic {
-  width: 60px; height: 60px; border-radius: 50%;
+  position: relative;
+  width: 64px; height: 64px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
   background: var(--bg-elev);
   border: 1px solid var(--border-strong);
   box-shadow: var(--shadow-md);
   color: var(--text);
-  transition: transform 130ms ease, background 130ms ease, border-color 130ms ease;
+  /* Overshoots slightly on the way in — the aim wants to feel like the slice
+     jumped to meet the thumb, not like a hover state faded up. */
+  transition: transform 180ms cubic-bezier(.34, 1.56, .64, 1),
+              background 130ms ease, border-color 130ms ease, color 130ms ease;
 }
-.radial-slice-ic svg { width: 24px; height: 24px; }
+/* 24px inside a 60px circle left it mostly empty ring. The dumbbell is a wide
+   flat shape — 31x12 of a 48 viewBox — so it needs the extra size more than
+   the bowl does before it stops reading as a bar. */
+.radial-slice-ic svg { width: 34px; height: 34px; overflow: visible; }
 .radial-slice-label {
   font-size: 11.5px; font-weight: 700; letter-spacing: 0.02em;
   color: var(--text-muted); white-space: nowrap;
   text-shadow: 0 1px 6px var(--bg);
+  transition: color 130ms ease;
 }
+
+/* Slices arrive as the menu opens, outward from the control, staggered so the
+   eye reads them as a set rather than a flash. This is a transient surface
+   summoned by a deliberate gesture, not a screen you glance at five times a
+   day — the motion confirms the hold registered, which is worth its cost. */
+.radial-slice { animation: radialIn 170ms cubic-bezier(.2, .9, .3, 1) both; }
+.radial-slice:nth-child(3) { animation-delay: 24ms; }
+.radial-slice:nth-child(4) { animation-delay: 48ms; }
+@keyframes radialIn {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.68); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
 /* Aimed at — not hovered. The thumb is nowhere near it; the angle is. */
 .radial-slice.is-aimed .radial-slice-ic {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--on-accent);
-  transform: scale(1.14);
+  transform: scale(1.16);
 }
 .radial-slice.is-aimed .radial-slice-label { color: var(--text); }
+/* A halo, so the selection still reads at the edge of vision while the thumb
+   is covering most of the slice. */
+.radial-slice.is-aimed .radial-slice-ic::after {
+  content: ""; position: absolute; inset: -5px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  animation: radialHalo 1.1s ease-out infinite;
+}
+@keyframes radialHalo {
+  0%   { transform: scale(1); opacity: .85; }
+  70%  { transform: scale(1.28); opacity: 0; }
+  100% { transform: scale(1.28); opacity: 0; }
+}
+
+/* The artwork comes alive only on the slice you are aiming at. Animating the
+   others would put three things in motion competing to be noticed, when the
+   entire job of motion here is to say "this one". */
+.radial-slice .qa2-dumbbell,
+.radial-slice .qa2-steam path,
+.radial-slice .qa2-lines line { animation: none; }
+/* Same drawing as the sheet, one weight heavier. The bowl and the card are
+   large closed shapes; the dumbbell is five thin strokes, so at 34px it read
+   as a bar next to them until the ink matched. */
+.radial-slice .qa2-dumbbell { stroke-width: 4.4; }
+.radial-slice.is-aimed .qa2-dumbbell { animation: qaRep .9s ease-in-out infinite; }
+.radial-slice.is-aimed .qa2-steam path { animation: qaSteam 1.3s ease-in-out infinite; }
+.radial-slice.is-aimed .qa2-steam path:nth-child(2) { animation-delay: .16s; }
+.radial-slice.is-aimed .qa2-steam path:nth-child(3) { animation-delay: .32s; }
+.radial-slice.is-aimed .qa2-lines line { animation: qaLine .8s ease-out infinite; }
+.radial-slice.is-aimed .qa2-lines line:nth-child(2) { animation-delay: .1s; }
+.radial-slice.is-aimed .qa2-lines line:nth-child(3) { animation-delay: .2s; }
+@keyframes qaLine {
+  0%, 100% { opacity: .45; transform: translateX(0); }
+  40%      { opacity: 1; transform: translateX(2px); }
+}
+
+/* Every one of the above is decoration. The selection itself is carried by
+   colour and by the label, so switching motion off loses nothing you need. */
 @media (prefers-reduced-motion: reduce) {
-  .radial-slice-ic { transition: none; }
+  .radial-slice { animation: none; }
+  .radial-slice-ic { transition: background 130ms ease, border-color 130ms ease, color 130ms ease; }
   .radial-slice.is-aimed .radial-slice-ic { transform: none; }
+  .radial-slice.is-aimed .radial-slice-ic::after { animation: none; opacity: .9; }
+  .radial-slice.is-aimed .qa2-dumbbell,
+  .radial-slice.is-aimed .qa2-steam path,
+  .radial-slice.is-aimed .qa2-lines line { animation: none; }
+  .radial-slice .qa2-steam path { opacity: .7; }
 }
 
 /* Quick action sheet */
