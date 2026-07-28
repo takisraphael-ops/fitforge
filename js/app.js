@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=203").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=205").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1517,6 +1517,7 @@
   }
 
   function renderMain() {
+    applyDaypart();
     // No header bar anywhere: it carried the logo and nothing else, and the
     // mark now rides in Home's greeting row.
     const headerEl = document.getElementById("header");
@@ -3693,7 +3694,8 @@
     }
   ];
 
-  function buildTodayWorkoutHero({ plan, tplById, exById }) {
+  function buildTodayWorkoutHero(opts) {
+    const { plan, tplById, exById } = opts;
     const hasPlan = planHasAny(plan);
     const todayKey = weekdayKeyFor();
     const assign = plan[todayKey];
@@ -3785,6 +3787,21 @@
       // Left where it was — after the copy — the pill wrapped underneath and
       // sat directly above "Train anyway", reading as two equal buttons when
       // one is a quiet aside.
+      // A rest day was a title, one line, two small links and then ~250px of
+      // nothing — the one state where the landing screen looked unfinished
+      // rather than calm. It shows what the rest is *for*: the week already
+      // banked. Only when there is something banked; a grid of zeroes would
+      // be a worse void than an empty one.
+      const banked = weekBanked(opts.completed);
+      const bankedTime = fmtBankedTime(banked.secs);
+      const bankedCells = banked.sessions > 0 ? [
+        { value: String(banked.sessions), unit: banked.sessions === 1 ? "session" : "sessions" },
+        banked.volume > 0
+          ? { value: banked.volume >= 1000 ? `${(banked.volume / 1000).toFixed(1)}k` : String(banked.volume), unit: "kg moved" }
+          : null,
+        bankedTime
+      ].filter(Boolean) : [];
+
       return el("div", { class: "card today-hero today-hero-rest", "data-testid": "today-hero" },
         el("div", { class: "row-between", style: "align-items:center;gap:10px" },
           el("div", { class: "today-hero-eyebrow" }, "Today · Rest"),
@@ -3792,6 +3809,18 @@
         ),
         el("div", { class: "today-hero-title" }, "Rest day"),
         el("div", { class: "today-hero-sub" }, "Recovery is where the work pays off. Enjoy it."),
+        bankedCells.length
+          ? el("div", { class: "rest-banked", "data-testid": "rest-banked" },
+              el("div", { class: "rest-banked-row" },
+                ...bankedCells.map(c => el("div", { class: "rest-banked-cell" },
+                  el("div", { class: "rest-banked-value" }, c.value),
+                  el("div", { class: "rest-banked-unit" }, c.unit)
+                ))
+              ),
+              el("div", { class: "rest-banked-cap" },
+                "Banked this week. Today is when it turns into progress.")
+            )
+          : null,
         el("button", {
           class: "btn btn-sm today-hero-rest-cta mt-8",
           on: { click: () => goTab("workout") }
@@ -4027,7 +4056,7 @@
     // 2) Today's training — plan-driven hero (hidden while a workout is active).
     // Tier 1: the one block on Home that breaks the page inset.
     if (!state.activeWorkout) {
-      const hero = buildTodayWorkoutHero({ plan, tplById, exById });
+      const hero = buildTodayWorkoutHero({ plan, tplById, exById, completed });
       hero.classList.add("home-bleed");
       view.appendChild(hero);
     }
@@ -4252,6 +4281,14 @@
     return "evening";
   }
 
+  // Day or night, nothing in between. It only tints the hero band, and it is
+  // an attribute rather than inline style so the whole thing lives in CSS and
+  // costs one string comparison per render.
+  function applyDaypart() {
+    const h = new Date().getHours();
+    document.documentElement.setAttribute("data-daypart", (h >= 19 || h < 6) ? "night" : "day");
+  }
+
   function computeStreak(completed) {
     if (!completed.length) return 0;
     const dates = new Set(completed.map(w => w.date));
@@ -4328,6 +4365,31 @@
   }
 
   // Dates (ISO) for the Monday-first week containing `ref`.
+  // What this week has already banked. Calendar week, not a rolling seven
+  // days, so it can never disagree with the week strip sitting a screen below.
+  function weekBanked(completed) {
+    const inWeek = new Set(weekDatesFor().map(w => w.iso));
+    let sessions = 0, volume = 0, secs = 0;
+    for (const w of completed || []) {
+      if (!inWeek.has(w.date)) continue;
+      sessions += 1;
+      for (const ex of (w.exercises || [])) volume += U.volume(ex.sets);
+      // durationSec is null on a back-logged session, so fall back to the
+      // clock and ignore anything implausible rather than inventing time.
+      let s = Number(w.durationSec);
+      if (!(s > 0) && w.completedAt && w.startedAt) s = (w.completedAt - w.startedAt) / 1000;
+      if (s > 0 && s < 8 * 3600) secs += s;
+    }
+    return { sessions, volume: Math.round(volume), secs: Math.round(secs) };
+  }
+
+  function fmtBankedTime(secs) {
+    if (!secs) return null;
+    const m = Math.round(secs / 60);
+    if (m < 60) return { value: String(m), unit: "minutes trained" };
+    return { value: `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}`, unit: "time trained" };
+  }
+
   function weekDatesFor(ref = new Date()) {
     const monday = new Date(ref);
     monday.setDate(ref.getDate() - ((ref.getDay() + 6) % 7));

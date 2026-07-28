@@ -4347,6 +4347,44 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   .today-hero.home-bleed .today-hero-title { font-size: 38px; }
 }
 
+/* Banked this week — the rest day's answer to "what is this rest for". */
+.rest-banked {
+  margin-top: 22px; padding-top: 16px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+}
+.rest-banked-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.rest-banked-row:has(> :nth-child(2):last-child) { grid-template-columns: repeat(2, 1fr); }
+.rest-banked-row:has(> :first-child:last-child) { grid-template-columns: 1fr; }
+.rest-banked-cell { min-width: 0; }
+.rest-banked-value {
+  font-size: 25px; font-weight: 800; letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.rest-banked-unit {
+  margin-top: 4px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+.rest-banked-cap { margin-top: 14px; font-size: 13px; color: var(--text-muted); }
+
+/* ---- Atmosphere -------------------------------------------------------
+   Two states, not four. Dawn and dusk were close enough to each other that a
+   four-way split was three decisions to notice one difference; cool by day and
+   deep blue after dark is the difference you can actually feel. Light theme is
+   already "day", so its night step is a nudge rather than a mood. */
+html[data-daypart="night"] { --hero-wash-a: #e5e9f2; --hero-wash-b: #eef1f7; }
+html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16; }
+
+/* A whisper of grain, only on the hero. Large flat gradients on an OLED band
+   badly, and 6% noise is below the threshold of "texture" while being enough
+   to break the steps up. */
+.today-hero.home-bleed::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='150'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='150' height='150' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  background-size: 150px 150px;
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+}
+
 /* Edges, not rules. Three hairlines stacked up in the first 450px and the
    hero's own top and bottom were 1px lines, so the block that is supposed to
    own the screen read as a table row. A tonal step with a soft falloff at each

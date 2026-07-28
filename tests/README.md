@@ -82,6 +82,35 @@ years of seeded data renders indistinguishably from a fresh install.
 Section 1 is the control: left alone, the loader must still be up at 60% of its
 hold. Without it, "the tap removed it" and "it was never up long" look the same.
 
+## `landing.js`
+
+    node tests/landing.js
+
+The Home landing screen: what it spends the first fold on, and the two things
+that fill or tint it.
+
+It used to spend 173px of an 844px screen — a fifth — on a logo bar carrying no
+controls, plus a greeting set larger than the session title it sat above. The
+first section holds that back. Its sharpest check is not a pixel budget but a
+claim about *what the screen is about*: the biggest text painted above the fold
+has to be the name of today's session. Restoring the ring number to 48px fails
+it and names the culprit — `48px "2,674" vs title 46px`. Layout regressions
+arrive one innocuous margin at a time, and nothing else in the suite would
+notice.
+
+The rest-day summary is derived arithmetic presented as fact, so it is checked
+against what is in storage rather than against itself, and the fixture plants a
+200kg session in the *previous* week on purpose. Switching the window from the
+calendar week to a rolling seven days fails three checks with the exact numbers
+— `3 vs 2`, `6.3k vs 4.3k`, `3h 20 vs 1h 50`. The block is also required to be
+absent when nothing has been banked yet: a row of zeroes is a worse void than
+the empty one it replaced.
+
+The wash is two states, day and night, and the check reads the hour rule back
+rather than trusting the attribute. The grain is asserted to be a whisper
+(≤0.09 opacity) and to take no pointer events, because decoration that
+intercepts a tap is not decoration.
+
 ## `radial.js`
 
     node tests/radial.js
