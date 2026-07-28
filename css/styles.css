@@ -2849,6 +2849,59 @@ input:disabled.input,
 .dock-fab svg { width: 24px; height: 24px; }
 .dock-fab:active { transform: scale(0.94); }
 
+/* ============ Radial hold menu ============
+   A held control, slices thrown up around it, released toward one. Sits above
+   the dock but below the numpad and dialogs, which it can never coexist with. */
+.has-radial {
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+  /* Nothing scrolls from here, and waiting to find out whether it might is
+     what makes a held control feel dead for the first 300ms. */
+  touch-action: none;
+}
+.radial-overlay { position: fixed; inset: 0; z-index: 2000; }
+.radial-scrim {
+  position: absolute; inset: 0;
+  background: color-mix(in srgb, var(--bg) 62%, transparent);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+.radial-slice {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--text);
+}
+.radial-slice-ic {
+  width: 60px; height: 60px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-md);
+  color: var(--text);
+  transition: transform 130ms ease, background 130ms ease, border-color 130ms ease;
+}
+.radial-slice-ic svg { width: 24px; height: 24px; }
+.radial-slice-label {
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.02em;
+  color: var(--text-muted); white-space: nowrap;
+  text-shadow: 0 1px 6px var(--bg);
+}
+/* Aimed at — not hovered. The thumb is nowhere near it; the angle is. */
+.radial-slice.is-aimed .radial-slice-ic {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  transform: scale(1.14);
+}
+.radial-slice.is-aimed .radial-slice-label { color: var(--text); }
+@media (prefers-reduced-motion: reduce) {
+  .radial-slice-ic { transition: none; }
+  .radial-slice.is-aimed .radial-slice-ic { transform: none; }
+}
+
 /* Quick action sheet */
 /* ===== Quick Actions — full-screen "fork in the road" ===== */
 .qa-fork-overlay {

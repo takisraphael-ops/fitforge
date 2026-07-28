@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=173").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=177").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1574,13 +1574,34 @@
     const dock = el("nav", { class: "dock", "data-testid": "dock" });
     for (const it of items) {
       if (it.id === "__fab") {
-        dock.appendChild(el("button", {
+        const fab = el("button", {
           class: "dock-fab" + (state.tab === "workout" ? " active" : ""),
           title: it.label,
           "data-testid": "dock-fab",
           html: state.tab === "workout" ? icons.dumbbell : icons.plus,
           on: { click: openQuickSheet }
-        }));
+        });
+        // Hold for the same three choices the quick sheet offers, without the
+        // round trip. Tapping still opens the sheet — that path stays the one
+        // that has to work for everyone.
+        attachRadial(fab, {
+          label: "Quick actions",
+          items: [
+            {
+              key: "workout", label: state.activeWorkout ? "Resume" : "Workout", icon: icons.dumbbell,
+              onPick: () => { goTab("workout"); window.scrollTo(0, 0); }
+            },
+            {
+              key: "sessions", label: "Sessions", icon: icons.bookmark,
+              onPick: () => { goTab("workout"); window.scrollTo(0, 0); setTimeout(openSessionsSheet, 260); }
+            },
+            {
+              key: "meal", label: "Log meal", icon: icons.plus,
+              onPick: () => { goTab("nutrition"); window.scrollTo(0, 0); }
+            }
+          ]
+        });
+        dock.appendChild(fab);
         continue;
       }
       const active = state.tab === it.id || (it.id === "stats" && state.tab === "history");
@@ -2152,6 +2173,185 @@
     [workoutPanel, mealPanel].forEach(p => p.addEventListener("click", (e) => { if (didSwipe) { e.preventDefault(); e.stopPropagation(); } }, true));
 
     document.body.appendChild(overlay);
+  }
+
+  // ============ Radial hold menu ============
+  //
+  // Hold a control, flick toward what you want, let go. The payoff is not that
+  // a menu appears — it is that after a few uses the choice stops being a
+  // target you read and becomes a direction you throw your thumb in. Every
+  // slice sits at the same distance and the same angular width, so selection
+  // time stops depending on which one you want.
+  //
+  // That only pays off when the item set is small and, more importantly,
+  // *fixed*: if the slices ever reorder, muscle memory never forms and this is
+  // just a slower sheet. So callers pass a static list, never a sorted one.
+  //
+  // It is always a shortcut, never the only way. The control keeps its own tap
+  // behaviour, which is also the accessible route — a long press has no
+  // keyboard equivalent and fights VoiceOver, so the tap path is the one that
+  // has to reach everything.
+  const RADIAL_HOLD_MS = 420;   // under ~300 and ordinary taps start firing it
+  const RADIAL_SLOP = 10;       // px of movement that means "this was a scroll"
+  const RADIAL_DEAD = 42;       // px around the centre that selects nothing
+
+  function attachRadial(trigger, opts) {
+    const items = (opts.items || []).filter(Boolean);
+    if (!items.length || !trigger) return;
+    trigger.classList.add("has-radial");
+
+    // A deadline rather than a flag. The click that follows a hold is swallowed
+    // so the control's own tap action does not also fire — but that click only
+    // arrives if the pointerup lands back on the trigger, and once the menu is
+    // up the scrim can take it instead. A boolean would then stay armed and eat
+    // the next genuine tap, minutes later. A deadline cannot.
+    let timer = null, open = null, startX = 0, startY = 0, moved = false, suppressUntil = 0;
+
+    const clearTimer = () => { if (timer) { clearTimeout(timer); timer = null; } };
+    const buzz = (ms) => { try { navigator.vibrate && navigator.vibrate(ms); } catch (_) {} };
+
+    // close() never arms the suppression. Only a pointer sequence that began
+    // on the trigger produces a click for us to swallow — a slice tap does
+    // not, and arming it there left the next real tap on the control dead.
+    function close() {
+      if (!open) return;
+      const o = open;
+      open = null;
+      document.removeEventListener("keydown", o.onKey, true);
+      document.removeEventListener("pointermove", o.onMove, true);
+      o.overlay.remove();
+    }
+
+    function openMenu(cx, cy) {
+      if (open) return;
+      const overlay = el("div", {
+        class: "radial-overlay", "data-testid": "radial-overlay",
+        role: "menu", "aria-label": opts.label || "Quick actions"
+      });
+      const scrim = el("div", { class: "radial-scrim" });
+      overlay.appendChild(scrim);
+
+      // Opens upward: the trigger lives in a fixed dock at the bottom, so a
+      // slice placed below it would sit under the home indicator.
+      const n = items.length;
+      const SPAN = n === 1 ? 0 : Math.min(150, 44 * (n - 1));
+      const start = -90 - SPAN / 2;
+      const r = opts.radius || 104;
+      const slices = [];
+
+      items.forEach((it, i) => {
+        const a = ((n === 1 ? -90 : start + (SPAN / (n - 1)) * i)) * Math.PI / 180;
+        const x = cx + Math.cos(a) * r;
+        const y = cy + Math.sin(a) * r;
+        const btn = el("button", {
+          class: "radial-slice", type: "button", role: "menuitem",
+          "data-testid": `radial-${it.key}`,
+          style: `left:${x}px; top:${y}px`,
+          on: { click: (e) => { e.preventDefault(); e.stopPropagation(); close(); it.onPick(); } }
+        },
+          el("span", { class: "radial-slice-ic", html: it.icon || "", "aria-hidden": "true" }),
+          el("span", { class: "radial-slice-label" }, it.label)
+        );
+        overlay.appendChild(btn);
+        slices.push({ btn, x, y, item: it });
+      });
+
+      const onKey = (e) => {
+        if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
+      };
+      // Tracked on the document, not the trigger. Pointer capture is the tidy
+      // way to keep moves coming once the thumb leaves the control, but it is
+      // allowed to fail, and if it does the aim goes dead the moment you move
+      // — which is the only thing this menu is for.
+      const onMove = (e) => aim(e.clientX, e.clientY);
+      document.addEventListener("keydown", onKey, true);
+      document.addEventListener("pointermove", onMove, true);
+      scrim.addEventListener("pointerdown", () => close());
+
+      document.body.appendChild(overlay);
+      open = { overlay, slices, cx, cy, onKey, onMove, active: null };
+      buzz(12);
+    }
+
+    // Which slice is the thumb pointing at? Angle, not proximity — the whole
+    // point is that a direction is enough and the distance stops mattering.
+    function aim(px, py) {
+      if (!open) return;
+      const dx = px - open.cx, dy = py - open.cy;
+      let pick = null;
+      if (Math.hypot(dx, dy) >= RADIAL_DEAD) {
+        const a = Math.atan2(dy, dx);
+        let best = Infinity;
+        for (const s of open.slices) {
+          const sa = Math.atan2(s.y - open.cy, s.x - open.cx);
+          let d = Math.abs(a - sa);
+          if (d > Math.PI) d = 2 * Math.PI - d;
+          if (d < best) { best = d; pick = s; }
+        }
+        // Beyond ~50 degrees off any slice, the thumb is not pointing at one.
+        if (best > 0.9) pick = null;
+      }
+      if (pick === open.active) return;
+      open.active = pick;
+      for (const s of open.slices) s.btn.classList.toggle("is-aimed", s === pick);
+      if (pick) buzz(6);
+    }
+
+    trigger.addEventListener("pointerdown", (e) => {
+      if (e.button != null && e.button !== 0) return;
+      // Pressing the control again while its menu is up puts it away.
+      if (open) { close(); suppressUntil = Date.now() + 500; return; }
+      moved = false;
+      startX = e.clientX; startY = e.clientY;
+      clearTimer();
+      timer = setTimeout(() => {
+        timer = null;
+        const r = trigger.getBoundingClientRect();
+        openMenu(r.left + r.width / 2, r.top + r.height / 2);
+        try { trigger.setPointerCapture(e.pointerId); } catch (_) {}
+      }, RADIAL_HOLD_MS);
+    });
+
+    // Movement before the menu opens is a scroll starting, not a hold.
+    trigger.addEventListener("pointermove", (e) => {
+      if (open || moved) return;
+      if (Math.hypot(e.clientX - startX, e.clientY - startY) > RADIAL_SLOP) {
+        moved = true;
+        clearTimer();
+      }
+    });
+
+    const release = (e) => {
+      clearTimer();
+      if (!open) return;
+      try { trigger.releasePointerCapture(e.pointerId); } catch (_) {}
+      // A click always follows this pointerup, whatever we do next, because
+      // the press began on the trigger. Swallow it in every branch.
+      suppressUntil = Date.now() + 500;
+      const picked = open.active;
+      if (picked) {
+        const fn = picked.item.onPick;
+        close();
+        fn();
+        return;
+      }
+      // Released in the dead centre. Having travelled means "I changed my
+      // mind"; never having moved means the hold was the whole gesture, so
+      // leave the menu up and let it be tapped.
+      const travelled = Math.hypot(e.clientX - startX, e.clientY - startY) > RADIAL_DEAD;
+      if (travelled) close();
+    };
+    trigger.addEventListener("pointerup", release);
+    trigger.addEventListener("pointercancel", () => { clearTimer(); close(); });
+
+    // A hold must never also fire the control's own tap action.
+    trigger.addEventListener("click", (e) => {
+      if (Date.now() >= suppressUntil) return;
+      suppressUntil = 0;
+      e.preventDefault(); e.stopPropagation();
+    }, true);
+    // Desktop and Android raise their own menu on a long press.
+    trigger.addEventListener("contextmenu", (e) => e.preventDefault());
   }
 
   // ============ Stats shell (Trends | History) ============

@@ -28,6 +28,7 @@ const SUITES = [
   { name: 'round-timer', file: 'round-timer.js', needsServer: true },
   { name: 'tab-loader', file: 'tab-loader.js', needsServer: true },
   { name: 'muscle-map', file: 'muscle-map.js', needsServer: true },
+  { name: 'radial', file: 'radial.js', needsServer: true },
   { name: 'finish-workout', file: 'finish-workout.js', needsServer: true }
 ];
 

@@ -82,6 +82,43 @@ years of seeded data renders indistinguishably from a fresh install.
 Section 1 is the control: left alone, the loader must still be up at 60% of its
 hold. Without it, "the tap removed it" and "it was never up long" look the same.
 
+## `radial.js`
+
+    node tests/radial.js
+
+The hold menu on the dock's + button. Hold it, flick toward what you want, let
+go — the choice becomes a direction rather than a target, which is the only
+thing a radial buys over a sheet.
+
+It is a shortcut, never the only route: tapping still opens the quick sheet,
+and that tap path is also the accessible one, because a long press has no
+keyboard equivalent and fights VoiceOver.
+
+So the checks are not "does a menu appear" but the four ways a hidden gesture
+ruins an app, one section each:
+
+- **It fires when you did not mean it.** A 90ms press must open the sheet and
+  no menu. Confirmed by dropping the threshold to 60ms: 2 failures.
+- **It eats your scroll.** A press that travels more than 10px before the
+  threshold is someone scrolling past the dock. Confirmed by deleting the
+  cancellation: 2 failures.
+- **It goes somewhere unreachable.** Slices are placed by trigonometry around a
+  control pinned to the bottom of the viewport, so the arc has to open upward.
+  Confirmed by flipping it: 4 failures, including slices buried under the dock
+  — and note "on screen" alone would not have caught that, so each slice is
+  hit-tested at its own centre the way `reach-audit` does.
+- **There is no way out.** Escape and the scrim both dismiss it.
+
+The sixth section is the subtle one. The click that follows a hold is swallowed
+so the button's own action does not fire as well — but that click only arrives
+if the pointerup lands back on the trigger, and once the menu is up the scrim
+can take it instead. A boolean would then stay armed and kill the next genuine
+tap, minutes later. It is a deadline for that reason, and the section dismisses
+with **Escape rather than by picking a slice**: picking navigates, which
+re-renders the dock and hands you a brand new button with brand new state, so
+it could never catch this. Confirmed by making the deadline effectively
+permanent: 1 failure, and it is the right one.
+
 ## `muscle-map.js`
 
     node tests/muscle-map.js
