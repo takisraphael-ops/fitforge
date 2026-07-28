@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=170").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=173").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -2280,6 +2280,163 @@
     return Object.entries(totals).map(([group, v]) => ({ group, ...v }));
   }
 
+  // Stretching and timed holds are training, but they are not what "which
+  // muscles am I neglecting" is asking about. Hoisted so Home and the library
+  // grade the same sessions the same way.
+  const isMobilityEx = (e) => (e?.category === "mobility") || e?.type === "hold";
+
+  // ============ Muscle balance, drawn on the body ============
+  //
+  // Home showed this as six flat horizontal bars. The bars were accurate and
+  // said almost nothing: "Chest 30 / Back 0" is a fact you have to assemble
+  // into a picture yourself, and the whole question the block exists to answer
+  // — what am I neglecting? — is a spatial one. The library already ships the
+  // figures and the heat palette, so the picture costs no new assets.
+  //
+  // Deliberately not BodyMap.create(): that builds an interactive widget with
+  // a title, front/back toggle, sex toggle, heat checkbox, tap targets on
+  // every zone, a status line and a legend. Home wants a picture. This draws
+  // the same geometry with the same class names — so every heat colour, in
+  // both themes, comes from the CSS the library already has — with no
+  // listeners, no tabindex and no role="button" anywhere in it.
+  const MUSCLE_MAP_VIEWS = [
+    { view: "front", label: "Front" },
+    { view: "back", label: "Back" }
+  ];
+
+  function buildMuscleFigure(sex, view, heat) {
+    const NS = "http://www.w3.org/2000/svg";
+    const geo = (BodyMap.GEOMETRY[sex] || BodyMap.GEOMETRY.male)[view];
+    if (!geo) return null;
+    const node = (name, attrs) => {
+      const n = document.createElementNS(NS, name);
+      for (const [k, v] of Object.entries(attrs || {})) {
+        if (v == null || v === false) continue;
+        n.setAttribute(k, String(v));
+      }
+      return n;
+    };
+    // Same thresholds as the library's heatClass, so the two screens grade the
+    // same training identically.
+    const heatClass = (id) => {
+      const h = typeof heat[id] === "number" ? heat[id] : 0;
+      if (h <= 0) return "heat-0";
+      if (h < 0.25) return "heat-1";
+      if (h < 0.5) return "heat-2";
+      if (h < 0.75) return "heat-3";
+      return "heat-4";
+    };
+
+    const svg = node("svg", {
+      viewBox: "0 0 220 480", class: "body-map-svg", role: "img",
+      "aria-label": `${view === "front" ? "Front" : "Back"} view, muscles shaded by how much they were trained in the last 14 days`
+    });
+    svg.appendChild(node("ellipse", {
+      cx: 110, cy: 473, rx: sex === "female" ? 52 : 56, ry: 6, class: "body-map-ground"
+    }));
+
+    const under = node("g", { class: "body-map-underlay", "aria-hidden": "true" });
+    for (const d of (geo.silhouette || [])) {
+      under.appendChild(node("path", { d, class: "body-map-underlay-part" }));
+    }
+    svg.appendChild(under);
+
+    for (const zoneId of Object.keys(geo.regions || {})) {
+      if (!BodyMap.ZONES[zoneId]) continue;
+      const g = node("g", {
+        class: "body-map-region " + heatClass(zoneId),
+        "data-zone": zoneId, "aria-hidden": "true"
+      });
+      for (const part of (geo.regions[zoneId] || [])) {
+        if (typeof part === "string") g.appendChild(node("path", { d: part, class: "body-map-region-part" }));
+        else if (part && part.type === "ellipse") {
+          g.appendChild(node("ellipse", { cx: part.cx, cy: part.cy, rx: part.rx, ry: part.ry, class: "body-map-region-part" }));
+        } else if (part && part.d) g.appendChild(node("path", { d: part.d, class: "body-map-region-part" }));
+      }
+      svg.appendChild(g);
+    }
+
+    if (geo.detail && geo.detail.length) {
+      const det = node("g", { class: "body-map-detail", "aria-hidden": "true" });
+      for (const d of geo.detail) {
+        det.appendChild(node("path", { d, class: "body-map-detail-line", "fill-rule": "evenodd" }));
+      }
+      svg.appendChild(det);
+    }
+    return svg;
+  }
+
+  // A picture with no numbers would be a straight information loss against the
+  // bars, so the counts stay — as the two readings the bars made you derive.
+  function muscleMapReadout(heat) {
+    const drawn = Object.entries(BodyMap.ZONES)
+      .filter(([, z]) => (z.views || []).length && z.category !== "mobility")
+      .map(([id, z]) => ({ id, label: z.label, sets: Math.round(heat[id + "_sets"] || 0) }));
+    const busiest = drawn.filter(z => z.sets > 0).sort((a, b) => b.sets - a.sets).slice(0, 3);
+    const untouched = drawn.filter(z => z.sets === 0);
+    const row = el("div", { class: "mmap-readout" });
+    if (busiest.length) {
+      row.appendChild(el("div", { class: "mmap-read", "data-testid": "mmap-busiest" },
+        el("span", { class: "mmap-read-key" }, "Most work"),
+        el("span", { class: "mmap-read-val" },
+          busiest.map(z => `${z.label} ${z.sets}`).join(" · "))
+      ));
+    }
+    if (untouched.length) {
+      const names = untouched.map(z => z.label);
+      const shown = names.slice(0, 4).join(", ");
+      row.appendChild(el("div", { class: "mmap-read", "data-testid": "mmap-untouched" },
+        el("span", { class: "mmap-read-key" }, "Nothing logged"),
+        el("span", { class: "mmap-read-val is-quiet" },
+          names.length > 4 ? `${shown} +${names.length - 4}` : shown)
+      ));
+    }
+    return row.childNodes.length ? row : null;
+  }
+
+  function renderMuscleMap(heat, sex) {
+    const wrap = el("div", { class: "card mmap-card", "data-testid": "home-muscle-map" });
+    wrap.appendChild(cardHead("Muscle balance", "Last 14 days"));
+    const stage = el("div", { class: "body-map body-map-mini heat-on mmap-stage" });
+    for (const v of MUSCLE_MAP_VIEWS) {
+      const fig = buildMuscleFigure(sex, v.view, heat);
+      if (!fig) continue;
+      stage.appendChild(el("figure", { class: "mmap-fig" },
+        fig, el("figcaption", { class: "mmap-cap" }, v.label)));
+    }
+    if (!stage.childNodes.length) return null;   // geometry missing — caller falls back
+    wrap.appendChild(stage);
+    const readout = muscleMapReadout(heat);
+    if (readout) wrap.appendChild(readout);
+    return wrap;
+  }
+
+  // The map when it can be drawn, the bars when it cannot.
+  //
+  // body-map.js is a separate script tag, so on a cold start with a stale or
+  // partial cache it can genuinely be absent — and the geometry is data, so a
+  // bad entry could throw mid-draw. Either way Home still has to render, and
+  // the bars it replaces are a complete answer on their own rather than a
+  // placeholder. The empty state is the bars' too: "finish a workout" reads
+  // better than a body with nothing lit on it.
+  async function buildMuscleBalanceBlock(completed, exById) {
+    const balance = await computeMuscleBalance(14);
+    const bars = () => renderMuscleBalance(balance);
+    const usable = window.BodyMap
+      && typeof BodyMap.heatFromWorkouts === "function"
+      && BodyMap.GEOMETRY && BodyMap.ZONES;
+    if (!usable || balance.every(b => b.sets === 0)) return bars();
+    try {
+      const heat = BodyMap.heatFromWorkouts(completed, exById, 14, {
+        include: (e) => !isMobilityEx(e)
+      });
+      return renderMuscleMap(heat, state.prefs?.sex === "female" ? "female" : "male") || bars();
+    } catch (err) {
+      console.error("muscle map failed, falling back to bars", err);
+      return bars();
+    }
+  }
+
   function renderMuscleBalance(balance) {
     const card = el("div", { class: "card" });
     card.appendChild(cardHead("Muscle balance", "Last 14 days"));
@@ -3480,7 +3637,7 @@
         titleMeta: "Last 14 days"
       }),
       await renderBodyweightCard(),
-      renderMuscleBalance(await computeMuscleBalance(14)),
+      await buildMuscleBalanceBlock(completed, exById),
       renderHeatmap(completed)
     );
     // Tier 3: reference material. Same content, no card furniture.
@@ -7520,7 +7677,6 @@
     // Two heat models, kept separate on purpose: mixing stretch reps into
     // training heat would make a well-stretched muscle read as "trained hard".
     const hasBodyMap = !!(window.BodyMap && BodyMap.heatFromWorkouts);
-    const isMobilityEx = (e) => (e?.category === "mobility") || e?.type === "hold";
     const heat = hasBodyMap
       ? BodyMap.heatFromWorkouts(workouts, byId, 14, { include: (e) => !isMobilityEx(e) })
       : {};

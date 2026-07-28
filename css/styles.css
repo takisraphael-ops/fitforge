@@ -605,6 +605,50 @@ button, a, [role="button"], input, textarea, select, .xpick-chip, .xrow, .xpick-
   stroke: #ff8a50;
 }
 
+/* ============ Compact read-only map (Home) ============
+   Same geometry and the same heat palette as the library's map, with none of
+   its controls. It is a picture: no taps, no hover affordance, no transitions
+   to run while you scroll past it. */
+/* No frame of its own: it sits in tier 3, where nothing has furniture, and a
+   bordered box inside a frameless chapter reads as a mistake. */
+.body-map-mini {
+  display: block; background: none; border: 0; border-radius: 0;
+  padding: 0; margin: 0;
+}
+.mmap-stage {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  align-items: end; margin-top: 4px;
+}
+.mmap-fig { margin: 0; min-width: 0; display: flex; flex-direction: column; align-items: center; }
+/* The figures are 220x480, so at half of a 366px column they would stand 400px
+   tall and this one block would own two thirds of a phone screen. Capped by
+   height and centred, so the pair lands near 300px however wide the page is. */
+.mmap-fig .body-map-svg {
+  display: block; width: auto; height: auto;
+  max-width: 100%; max-height: 300px; margin: 0 auto;
+}
+.mmap-cap {
+  margin-top: 2px; text-align: center;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+.body-map-mini .body-map-region,
+.body-map-mini .body-map-region-part { pointer-events: none; transition: none; }
+.body-map-mini .body-map-region:hover .body-map-region-part { stroke-width: 1.1; filter: none; }
+.mmap-readout { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
+.mmap-read { display: flex; gap: 10px; align-items: baseline; font-size: 12.5px; }
+.mmap-read-key {
+  /* Wide enough for "Nothing logged" on one line — it wrapped at 92px. */
+  flex: none; width: 112px; color: var(--text-faint);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.mmap-read-val { flex: 1; min-width: 0; color: var(--text); font-variant-numeric: tabular-nums; }
+.mmap-read-val.is-quiet { color: var(--text-muted); }
+@media (max-width: 340px) {
+  .mmap-read { flex-direction: column; gap: 1px; }
+  .mmap-read-key { width: auto; }
+}
+
 .body-map-region:hover .body-map-region-part,
 .body-map-region:focus-visible .body-map-region-part {
   stroke: var(--accent);

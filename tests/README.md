@@ -82,6 +82,44 @@ years of seeded data renders indistinguishably from a fresh install.
 Section 1 is the control: left alone, the loader must still be up at 60% of its
 hold. Without it, "the tap removed it" and "it was never up long" look the same.
 
+## `muscle-map.js`
+
+    node tests/muscle-map.js
+
+Home's muscle balance, drawn on the body instead of as six flat bars. The bars
+were accurate and said almost nothing — "Chest 30 / Back 0" is a fact you have
+to assemble into a picture yourself, and the question the block exists to
+answer is a spatial one.
+
+It does **not** use `BodyMap.create()`. That builds an interactive widget: a
+title, front/back and male/female toggles, a heat checkbox, a status line, a
+legend, and a tap target on all fifteen zones. Home wants a picture. The
+compact version draws the same geometry with the same class names, so every
+heat colour in both themes comes from CSS that already existed, with no
+listeners, no `tabindex` and no `role="button"` anywhere in it.
+
+Three ways it could ship broken while still photographing well, one section
+each:
+
+- **The heat means nothing.** A body with every muscle the same colour is
+  decoration. So "chest is hot" is paired with a control — lats and hamstrings,
+  which the fixture never trains, must be `heat-0`. Without that control the
+  check is satisfied by painting everything hot, which is exactly the failure
+  that looks fine. Confirmed by making `heatClass` return `heat-4`
+  unconditionally: 3 failures.
+- **It becomes a control.** Home already has a dock, a hero and a food ring
+  competing for taps. Fifteen invisible tap targets on a figure is a trap, and
+  it would also make the reach audit's job meaningless. Confirmed by restoring
+  `role="button"` / `tabindex` on the regions: it reports 21.
+- **It cannot disappear.** `body-map.js` is its own script tag, so a cold start
+  on a partial cache can genuinely be missing it.
+
+That last one is worth spelling out. There are two independent mechanisms — a
+capability guard and a `try`/`catch` — and removing either one alone still
+passes, because the other catches it. Removing **both** does not just lose the
+map: `[data-testid="home-week-volume"]` disappears too, because the throw takes
+out the entire Home render. The fallback is not politeness about one card.
+
 ## `reach-audit.js`
 
 Walks the app surface by surface and, for every interactive element on the
