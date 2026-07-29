@@ -25,6 +25,10 @@ const check = (label, ok, detail = '') => {
 
 const REST = { mon: 'rest', tue: 'rest', wed: 'rest', thu: 'rest', fri: 'rest', sat: 'rest', sun: 'rest' };
 const TRAIN = { mon: 'preset-push', tue: 'preset-pull', wed: 'rest', thu: 'preset-legs', fri: 'preset-push', sat: 'rest', sun: 'rest' };
+// Which hero you get depends on what today is, so every fixture states it.
+// Without this the suite passes or fails on the day of the week: the training
+// sections quietly got the rest hero on a Wednesday and looked for controls
+// that were never rendered.
 
 // Sessions placed inside the current calendar week, never in the future.
 const seed = async (o) => {
@@ -32,7 +36,10 @@ const seed = async (o) => {
   for (const [k, v] of Object.entries({ onboarded: true, sex: 'male', dob: '1995-04-12', heightCm: 180,
     activityLevel: 'moderate', kcalGoal: 2600, profileName: 'Raphael', radialDiscovered: true,
     theme: o.theme || 'dark' })) await Storage.setPref(k, v);
-  await Storage.setPref('weeklyPlan', o.plan);
+  const plan = { ...o.plan };
+  const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+  if (o.todaySlot) plan[WEEKDAYS[(new Date().getDay() + 6) % 7]] = o.todaySlot;
+  await Storage.setPref('weeklyPlan', plan);
   const iso = d => U.todayISO(d);
   const mon = new Date(); mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
   const now = new Date();
@@ -79,11 +86,13 @@ const seed = async (o) => {
   // =============== 1. the first fold is spent on the subject ================
   console.log('=== 1. the landing screen leads with today, not with chrome ===');
   {
-    await open({ plan: TRAIN, weekWork: 2 });
+    await open({ plan: TRAIN, todaySlot: 'preset-pull', weekWork: 2 });
     const m = await page.evaluate(() => {
       const hdr = document.getElementById('header');
       const hero = document.querySelector('[data-testid="today-hero"]');
-      const cta = document.querySelector('.today-hero-start');
+      // By testid, not by class: the CTA's class changed when it became the
+      // ignition cap and this check silently reported -1 instead of failing loudly.
+      const cta = document.querySelector('[data-testid="hero-start-workout"], [data-testid="hero-start-focus"]');
       const px = el => el ? parseFloat(getComputedStyle(el).fontSize) : 0;
       // Every bit of text painted above the fold, by size.
       let biggest = { size: 0, text: '' };
@@ -118,7 +127,7 @@ const seed = async (o) => {
   // =============== 2. the rest day shows what the rest is for ==============
   console.log('\n=== 2. a rest day is not a void ===');
   {
-    await open({ plan: REST, weekWork: 4, lastWeek: true });
+    await open({ plan: REST, todaySlot: 'rest', weekWork: 4, lastWeek: true });
     const got = await page.evaluate(() => {
       const bk = document.querySelector('[data-testid="rest-banked"]');
       if (!bk) return null;
@@ -162,7 +171,7 @@ const seed = async (o) => {
 
   console.log('\n=== 3. nothing banked yet shows nothing, not a row of zeroes ===');
   {
-    await open({ plan: REST, weekWork: 0 });
+    await open({ plan: REST, todaySlot: 'rest', weekWork: 0 });
     const shown = await page.evaluate(() => !!document.querySelector('[data-testid="rest-banked"]'));
     check('no banked block when the week is empty', !shown);
     check('the rest hero still renders',
@@ -173,7 +182,7 @@ const seed = async (o) => {
   console.log('\n=== 4. day and night tint the hero, in both themes ===');
   {
     for (const theme of ['dark', 'light']) {
-      await open({ plan: TRAIN, weekWork: 2, theme });
+      await open({ plan: TRAIN, todaySlot: 'preset-pull', weekWork: 2, theme });
       const r = await page.evaluate(() => {
         const read = () => getComputedStyle(document.documentElement).getPropertyValue('--hero-wash-a').trim();
         const auto = document.documentElement.getAttribute('data-daypart');
@@ -202,6 +211,102 @@ const seed = async (o) => {
     check('the hero carries a grain layer', !!grain && /url\(/.test(grain.img), JSON.stringify(grain));
     check('it is a whisper, not a texture', !!grain && parseFloat(grain.opacity) <= 0.09, grain && grain.opacity);
     check('and it takes no pointer events', !!grain && grain.pe === 'none', grain && grain.pe);
+  }
+
+  // =============== 5. the ignition cluster =================================
+  //
+  // Starting a workout is the biggest commitment the app asks for and it was a
+  // rounded rectangle identical to every other primary button. It is a round
+  // cap in a bezel now, with a ready ring and a labelled satellite.
+  //
+  // The checks are about what makes it work rather than what makes it look
+  // good: it is round and large, it still scrolls the page, the ring is
+  // decoration that switches off, the satellite has a name, and holding it
+  // offers the same three ways in on every day of the week.
+  console.log('\n=== 5. the ignition cluster ===');
+  {
+    await open({ plan: TRAIN, todaySlot: 'preset-pull', weekWork: 2 });
+    const cap = await page.evaluate(() => {
+      const n = document.querySelector('[data-testid="hero-start-workout"]');
+      if (!n) return null;
+      const r = n.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      const swap = document.querySelector('[data-testid="hero-swap"]');
+      return {
+        w: Math.round(r.width), h: Math.round(r.height), left: Math.round(r.left),
+        radiusPct: /50%|9999/.test(getComputedStyle(n).borderTopLeftRadius) ||
+                   parseFloat(getComputedStyle(n).borderTopLeftRadius) >= r.width / 2 - 1,
+        reachable: !!(hit && (hit === n || n.contains(hit))),
+        // 116px of the page scroller: a drag starting here has to still scroll.
+        touchAction: getComputedStyle(n).touchAction,
+        ringOn: !!n.querySelector('.ignition-ring'),
+        // The satellite was an unlabelled glyph; it needs a readable name.
+        swapText: swap ? swap.textContent.trim() : null
+      };
+    });
+    console.log('   ', JSON.stringify(cap));
+    check('there is a start cap', !!cap);
+    check('it is round', !!cap && cap.w === cap.h && cap.radiusPct, cap && `${cap.w}x${cap.h}`);
+    check('and big — bigger than any other control on the screen',
+      !!cap && cap.w >= 100, cap && String(cap.w));
+    check('it is hit-testable at its own centre', !!cap && cap.reachable);
+    check('its ring clears the screen edge', !!cap && cap.left >= 12, cap && String(cap.left));
+    check('it does not swallow scrolls', !!cap && cap.touchAction !== 'none', cap && cap.touchAction);
+    check('the swap control has a name, not just a glyph',
+      !!cap && !!cap.swapText && cap.swapText.length > 3, cap && cap.swapText);
+
+    // Hold: three ways in, the same three whatever the day holds.
+    const at = await page.evaluate(() => {
+      const r = document.querySelector('[data-testid="hero-start-workout"]').getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    await page.waitForTimeout(600);
+    const rad = await page.evaluate(() => {
+      const o = document.querySelector('[data-testid="radial-overlay"]');
+      if (!o) return { open: false };
+      const s = [...o.querySelectorAll('.radial-slice')];
+      return {
+        open: true,
+        ids: s.map(x => x.getAttribute('data-testid')),
+        unreachable: s.filter(x => {
+          const b = x.getBoundingClientRect();
+          const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+          return !(hit && (hit === x || x.contains(hit)));
+        }).map(x => x.getAttribute('data-testid'))
+      };
+    });
+    console.log('   hold ->', JSON.stringify(rad));
+    check('holding it offers the other ways to start',
+      rad.open && JSON.stringify(rad.ids) === JSON.stringify(['radial-empty', 'radial-sessions', 'radial-repeat']),
+      JSON.stringify(rad.ids));
+    check('all of them reachable', rad.open && rad.unreachable.length === 0, JSON.stringify(rad.unreachable));
+    await page.screenshot({ path: `${SS}/landing_ignition_hold.png` });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    await page.evaluate(() => document.querySelectorAll('[data-testid="radial-overlay"]').forEach(n => n.remove()));
+
+    // A plain tap still starts today's session.
+    await open({ plan: TRAIN, todaySlot: 'preset-pull', weekWork: 2 });
+    const at2 = await page.evaluate(() => {
+      const r = document.querySelector('[data-testid="hero-start-workout"]').getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await page.mouse.click(at2.x, at2.y);
+    await page.waitForTimeout(1400);
+    check('a tap starts the workout',
+      await page.evaluate(() => Storage.getPref('activeWorkoutId').then(v => !!v)));
+
+    // The ready ring is decoration and has to switch off.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await open({ plan: TRAIN, todaySlot: 'preset-pull', weekWork: 2 });
+    const still = await page.evaluate(() => {
+      const r = document.querySelector('.ignition-ring');
+      return r ? getComputedStyle(r).animationName : 'missing';
+    });
+    check('with motion off the ready ring holds still', still === 'none', still);
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
   }
 
   console.log('\nERRORS:', errs.length ? errs : 'none');

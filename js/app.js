@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=205").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=208").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -3694,6 +3694,66 @@
     }
   ];
 
+  // ============ The ignition cluster ============
+  //
+  // Starting a workout is the biggest commitment the app asks for, and it was
+  // a rounded rectangle identical to every other primary button. This is the
+  // one control on the landing screen that should not look like a button.
+  //
+  // Borrowed from an engine-start button: a round cap sunk in a bezel, an
+  // engraved label, a ring that says ready, and a satellite control beside it.
+  // Deliberately NOT borrowed: the red (red means over-budget here, and the
+  // accent already means "you can touch this"), the flip cover (deliberate
+  // friction is right for 1,000hp and wrong for something you do four times a
+  // week — never add a step), and photoreal carbon and chrome, which read as
+  // 2010 on a flat interface. The language transfers; the materials do not.
+  function ignitionCluster({ testId, onStart, onSwap, swapLabel }) {
+    const btn = el("button", {
+      class: "ignition-btn", type: "button", "data-testid": testId,
+      "aria-label": "Start workout",
+      on: { click: onStart }
+    },
+      el("span", { class: "ignition-ring", "aria-hidden": "true" }),
+      el("span", { class: "ignition-face" },
+        el("span", { class: "ignition-label" }, "START"),
+        el("span", { class: "ignition-sub" }, "WORKOUT")
+      )
+    );
+
+    // Hold for the other ways in. None of these duplicates the swap beside it,
+    // and the set is the same three whatever the day holds — "Repeat" stays
+    // put on a fresh install and says so rather than going missing.
+    attachRadial(btn, {
+      label: "Other ways to start",
+      // 116px of the page scroller: without this a drag that starts on the cap
+      // refuses to move the page, which is a lot of dead zone for a control
+      // sitting in the middle of the landing screen.
+      scrollable: true,
+      items: [
+        { key: "empty", label: "Empty", icon: icons.plus, onPick: () => startNewWorkout(null) },
+        { key: "sessions", label: "Sessions", icon: QA_ART.sessions, onPick: () => openSessionsSheet() },
+        { key: "repeat", label: "Repeat", icon: icons.repeat,
+          onPick: async () => startFromLastWorkout(await getLastCompletedWorkout()) }
+      ]
+    });
+
+    return el("div", { class: "ignition" },
+      btn,
+      el("div", { class: "ignition-side" },
+        el("div", { class: "ignition-status" },
+          el("i", { class: "ignition-dot", "aria-hidden": "true" }), "Ready"),
+        el("button", {
+          class: "ignition-swap", type: "button", "data-testid": "hero-swap",
+          title: "Start a different workout", on: { click: onSwap }
+        },
+          el("span", { class: "ignition-swap-ic", "aria-hidden": "true", html: '<svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 7h11M4 7l3-3M4 7l3 3M20 17H9m11 0l-3-3m3 3l-3 3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>' }),
+          swapLabel || "Swap session"
+        ),
+        el("div", { class: "ignition-hint" }, "Hold Start for more")
+      )
+    );
+  }
+
   function buildTodayWorkoutHero(opts) {
     const { plan, tplById, exById } = opts;
     const hasPlan = planHasAny(plan);
@@ -3846,17 +3906,12 @@
             el("div", { class: "today-hero-focus" }, "Focus")
           ),
           el("div", { class: "today-hero-sub" }, focusDay.desc),
-          el("div", { class: "today-hero-actions" },
-            el("button", {
-              class: "btn btn-primary today-hero-start", "data-testid": "hero-start-focus",
-              on: { click: () => { pendingPickerCat = focusDay.cat; goTab("workout"); } }
-            }, "Start workout", el("span", { class: "today-hero-arrow", html: arrow })),
-            el("button", {
-              class: "today-hero-swap", title: "Start a different workout",
-              "data-testid": "hero-swap", on: { click: () => { pendingPickerCat = null; goTab("workout"); } },
-              html: '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h11M4 7l3-3M4 7l3 3M20 17H9m11 0l-3-3m3 3l-3 3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-            })
-          )
+          ignitionCluster({
+            testId: "hero-start-focus",
+            onStart: () => { pendingPickerCat = focusDay.cat; goTab("workout"); },
+            onSwap: () => { pendingPickerCat = null; goTab("workout"); },
+            swapLabel: "Something else"
+          })
         )
       );
     }
@@ -3891,17 +3946,11 @@
             el("span", {}, meta)
           ),
           chipRow,
-          el("div", { class: "today-hero-actions" },
-            el("button", {
-              class: "btn btn-primary today-hero-start", "data-testid": "hero-start-workout",
-              on: { click: () => startNewWorkout(tpl) }
-            }, "Start workout", el("span", { class: "today-hero-arrow", html: arrow })),
-            el("button", {
-              class: "today-hero-swap", title: "Start a different workout",
-              "data-testid": "hero-swap", on: { click: () => goTab("workout") },
-              html: '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h11M4 7l3-3M4 7l3 3M20 17H9m11 0l-3-3m3 3l-3 3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-            })
-          )
+          ignitionCluster({
+            testId: "hero-start-workout",
+            onStart: () => startNewWorkout(tpl),
+            onSwap: () => goTab("workout")
+          })
         )
       );
     }

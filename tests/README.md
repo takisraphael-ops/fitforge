@@ -106,6 +106,22 @@ calendar week to a rolling seven days fails three checks with the exact numbers
 absent when nothing has been banked yet: a row of zeroes is a worse void than
 the empty one it replaced.
 
+Section five covers the ignition cluster — the round start cap that replaced a
+rounded rectangle identical to every other primary button. Its checks are about
+what makes it work rather than what makes it look good: round and ≥100px, its
+ring clear of the screen edge, hit-testable at its own centre, a `touch-action`
+it does not steal, a satellite control with a readable name, and the same three
+ways in whenever you hold it. Four mutations are caught — rectangle (1), the
+scroll opt-out removed (1), the reduced-motion rule dropped (1), the swap label
+removed (1).
+
+Two things this file got wrong and now does not. Every fixture states what
+**today** is, because which hero renders depends on the weekday and the
+training sections were quietly getting the rest hero on a Wednesday and looking
+for controls that were never drawn. And the CTA is found by testid rather than
+by class: when it became the ignition cap its class changed, and the old
+selector reported `-1` instead of failing loudly.
+
 The wash is two states, day and night, and the check reads the hour rule back
 rather than trusting the attribute. The grain is asserted to be a whisper
 (≤0.09 opacity) and to take no pointer events, because decoration that
