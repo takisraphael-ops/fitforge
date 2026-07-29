@@ -82,6 +82,36 @@ years of seeded data renders indistinguishably from a fresh install.
 Section 1 is the control: left alone, the loader must still be up at 60% of its
 hold. Without it, "the tap removed it" and "it was never up long" look the same.
 
+## `robustness.js`
+
+    node tests/robustness.js
+
+Does the app survive data that is plausible but broken? Every fixture is a
+shape a real install could genuinely reach: an exercise deleted from the
+library, a session saved before a field existed, an older or hand-edited backup
+restored, a plan pointing at a template that is gone, a meal typed as zero.
+
+It exists because two of them took the History tab **completely blank**:
+
+    renderHistory   w.exercises.length      — workout with no exercises array
+    U.volume(sets)  sets.reduce(...)        — exercise entry with no sets array
+
+Each was one unguarded read among a dozen guarded ones in the same function,
+and neither broke only its own row: the throw happened mid-render, so the whole
+tab came out empty. `U.volume` and `U.bestSet` are guarded at the source now,
+which covers all seven call sites at once.
+
+The reason nothing else caught them is worth remembering. Every other suite
+builds its fixtures by driving the app, so it only ever reads data the app
+itself just wrote — correct by construction. This one writes to storage
+directly, which is the only way to reproduce what a restore or an old version
+leaves behind.
+
+The check is not "did it throw" alone but "is the screen empty", because that
+is the symptom a user would actually report. Confirmed on three mutations, each
+naming its own line: `renderHistory:11884`, `renderHistory:11858` (which also
+reports `blank: home`), and `renderHistory:11859`.
+
 ## `landing.js`
 
     node tests/landing.js

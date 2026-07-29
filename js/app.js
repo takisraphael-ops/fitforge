@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=208").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=210").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -11856,7 +11856,7 @@
     let firstItem = true;
     for (const w of completed) {
       const totalVol = (w.exercises || []).reduce((s, e) => s + U.volume(e.sets), 0);
-      const totalSets = (w.exercises || []).reduce((s, e) => s + e.sets.length, 0);
+      const totalSets = (w.exercises || []).reduce((s, e) => s + (e.sets || []).length, 0);
       const burned = w.kcalBurned != null ? w.kcalBurned : workoutKcalTotal(w);
       const hasStrength = (w.exercises || []).some(e => e.type !== "cardio");
       const volBit = hasStrength && totalVol > 0 ? ` · ${totalVol.toLocaleString()}kg volume` : "";
@@ -11878,7 +11878,10 @@
           el("div", { class: "history-item-date" }, U.formatDate(w.date, { year: "numeric" })),
           el("div", { class: "history-item-name" }, w.name || "Workout"),
           el("div", { class: "history-item-summary" },
-            `${w.exercises.length} ${w.exercises.length === 1 ? "exercise" : "exercises"} · ${totalSets} ${totalSets === 1 ? "set" : "sets"}${volBit}${burnBit} · ${U.formatDuration(w.durationSec)}`)
+            // Guarded like every other read of this list in the function: one
+            // stored workout without an exercises array used to blank the whole
+            // History tab, not just its own row.
+            `${(w.exercises || []).length} ${(w.exercises || []).length === 1 ? "exercise" : "exercises"} · ${totalSets} ${totalSets === 1 ? "set" : "sets"}${volBit}${burnBit} · ${U.formatDuration(w.durationSec)}`)
         ),
         el("button", {
           class: "icon-btn history-repeat", type: "button",

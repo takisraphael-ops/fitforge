@@ -140,12 +140,16 @@ window.U = {
     if (reps === 1) return weight;
     return weight * (1 + reps / 30);
   },
+  // Both tolerate a missing list. They are called on whatever is in storage,
+  // and an exercise entry saved without a `sets` array — an older format, a
+  // hand-edited backup — took the History tab blank rather than skipping one
+  // row. Guarding here covers every call site at once.
   volume(sets) {
-    return sets.reduce((sum, s) => sum + ((s.weight || 0) * (s.reps || 0)), 0);
+    return (sets || []).reduce((sum, s) => sum + ((s.weight || 0) * (s.reps || 0)), 0);
   },
   bestSet(sets) {
     let best = null;
-    for (const s of sets) {
+    for (const s of (sets || [])) {
       if (!s.done || !s.weight || !s.reps) continue;
       const e = U.epley(s.weight, s.reps);
       if (!best || e > best.e1rm) best = { weight: s.weight, reps: s.reps, e1rm: e };
