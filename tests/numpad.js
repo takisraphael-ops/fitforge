@@ -45,7 +45,10 @@ const check = (label, ok, detail = '') => { if (!ok) fails++; console.log(`   ${
   await page.waitForFunction(() => window.Storage && window.U);
   await page.evaluate(async () => {
     await Storage.clearAll();
-    for (const [k, v] of Object.entries({ onboarded: true, sex: 'male', dob: '1995-04-12', heightCm: 180, activityLevel: 'moderate', kcalGoal: 2200, warmupPrompt: false })) await Storage.setPref(k, v);
+    for (const [k, v] of Object.entries({ onboarded: true, sex: 'male', dob: '1995-04-12', heightCm: 180, activityLevel: 'moderate', kcalGoal: 2200, warmupPrompt: false,
+      // This suite drives the classic set row, so it has to ask for it: guided
+      // logging is the default and covers the workout screen with its own view.
+      guidedSets: false })) await Storage.setPref(k, v);
     await Storage.saveBodyweight({ date: U.todayISO(), kg: 82 });
     const d = new Date(); d.setDate(d.getDate() - 3);
     // A previous session, so the pad has a "Last 80" chip to offer.

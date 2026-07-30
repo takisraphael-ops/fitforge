@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=214").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=217").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -516,6 +516,10 @@
       fatGoal: await Storage.getPref("fatGoal", 0),
       weeklyWorkoutGoal: await Storage.getPref("weeklyWorkoutGoal", 4),
       defaultRestSec: await Storage.getPref("defaultRestSec", 90),
+      // Log strength sets through the big one-tap runner rather than the row
+      // of small inputs. Default on; the classic list is always one tap away
+      // and stays the way to edit anything already logged.
+      guidedSets: (await Storage.getPref("guidedSets", true)) !== false,
       // Equipment the user actually has. Empty = not set, so nothing is hidden.
       myKit: (await Storage.getPref("myKit", null)) || [],
       // Offline-first data safety: remind to export a backup every N logged workouts
@@ -2028,7 +2032,11 @@
       commit(); updateDisplay();
     };
 
-    const nextInput = (() => {
+    // A pad opened for a field that is not part of a row of fields (the guided
+    // runner's single number) must not offer "Next →". Without this the scope
+    // falls back to the whole document and it lands on some unrelated input
+    // behind the overlay.
+    const nextInput = opts.noNext ? null : (() => {
       const scope = input.closest(".exercise-block-body") || input.closest(".modal") || document;
       const all = [...scope.querySelectorAll("input.num-tap")].filter(x => x.offsetParent !== null || x === input);
       const i = all.indexOf(input);
@@ -4896,6 +4904,14 @@
           el("div", { class: "workout-timer", id: "workout-elapsed" }, U.formatTime(timeElapsed)),
           dayChip)
       ),
+      // Back into the runner after stepping out of it. Only offered while it
+      // still has something to do — a button that opens an empty flow is worse
+      // than no button.
+      guidedHasWork(w) ? el("button", {
+        class: "btn btn-sm wtopbar-guided", type: "button", "data-testid": "open-guided",
+        title: "Log sets one at a time, full screen",
+        on: { click: () => openSetRunner() }
+      }, "Guided") : null,
       el("button", { class: "btn btn-primary btn-sm", on: { click: onFinishWorkout } }, "Finish")
     ));
 
@@ -5086,6 +5102,14 @@
     };
     restoreScroll();
     requestAnimationFrame(restoreScroll);
+
+    // Guided is the default. Unless it has been switched off in settings or
+    // stepped out of during this session, the workout screen opens straight
+    // into the one-tap runner; this list is what it falls back to, and what
+    // edits anything already logged.
+    if (state.prefs.guidedSets && !guidedDismissed && !runnerState && guidedHasWork(w)) {
+      openSetRunner();
+    }
   }
 
   function suggestedName() {
@@ -5240,6 +5264,9 @@
   async function beginWorkoutSession({ name, exercises, templateId = null, source = "empty", sourceWorkoutId = null }) {
     workoutScrollIdx = 0;
     workoutScrollTop = 0;
+    // A new session earns a fresh answer to "guided or classic?" — leaving the
+    // runner during last Tuesday's workout should not opt you out for good.
+    guidedDismissed = false;
     const workout = {
       id: U.uid(),
       name: (name || suggestedName()).trim() || suggestedName(),
@@ -7174,6 +7201,51 @@
     return row;
   }
 
+  /** Commit one weight×reps set: validate, PR-check, save, start the rest clock.
+      The single point at which a strength set becomes "done". The classic row
+      reads its two numbers out of two inputs and the guided runner holds them
+      in a variable — but PR detection, the kcal estimate and the rest timer
+      must not be able to drift apart between the two, so neither owns them.
+      Both hand their numbers here and get back true/false. */
+  async function commitStrengthSet(ex, s, { weight, reps, exType = "weighted", def = null, bwKg = U.DEFAULT_BW_KG }) {
+    const num = (v) => {
+      if (v == null || v === "") return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const isBodyweight = exType === "bodyweight";
+    const r = num(reps);
+    s.weight = isBodyweight ? 0 : num(weight);
+    s.reps = r == null ? null : Math.trunc(r);
+    if (!s.reps || (!isBodyweight && !s.weight && exType !== "weighted_bodyweight")) {
+      toast("Enter weight and reps first");
+      return false;
+    }
+    if (!isBodyweight && !s.weight) s.weight = 0;
+    s.done = true;
+    // Set here rather than by whoever collected the numbers: a committed set
+    // has by definition been touched, and leaving it to the caller is how the
+    // two presentations end up storing subtly different records.
+    s.touched = true;
+    s.kcal = U.estimateKcal(
+      U.getMET({ ...(def || {}), met: ex.met ?? def?.met, category: def?.category }),
+      bwKg, U.STRENGTH_MIN_PER_SET);
+    const beforePRs = await getPRsFor(ex.exerciseId);
+    const e = U.epley(s.weight, s.reps);
+    const isWeightPR = s.weight > beforePRs.maxWeight;
+    const isE1RMPR = e > beforePRs.maxE1RM;
+    const isRepsPR = s.reps > beforePRs.maxReps;
+    s.isPR = isWeightPR || isE1RMPR;
+    s.prTypes = [];
+    if (isWeightPR) s.prTypes.push("weight");
+    if (isE1RMPR) s.prTypes.push("e1rm");
+    if (isRepsPR) s.prTypes.push("reps");
+    await Storage.saveWorkout(state.activeWorkout);
+    if (s.isPR) toast(`🏆 New PR on ${ex.name}`);
+    startRestTimer(ex.exerciseId);
+    return true;
+  }
+
   async function renderSetRow(ex, si, s, prs, prev, exType = "weighted", def = null, bwKg = U.DEFAULT_BW_KG) {
     const prevSet = prev?.sets[si];
     const isBodyweight = exType === "bodyweight";
@@ -7275,30 +7347,14 @@
       ? (isBodyweight ? `Last: ${prevSet.reps ?? "\u2014"} reps` : `Last: ${prevSet.weight ?? 0} kg \u00d7 ${prevSet.reps ?? "\u2014"}`)
       : "";
 
-    // Mark this set complete (validate, PR check, save, start rest). Shared by
-    // the row's Done button and the numpad's "Log set" action.
+    // Mark this set complete. The row owns only where the numbers come from \u2014
+    // everything after that is commitStrengthSet, shared with the guided runner.
     async function markSetDone() {
-      if (isBodyweight) s.weight = 0;
-      else s.weight = weightInput.value === "" ? null : parseFloat(weightInput.value);
-      s.reps = repsInput.value === "" ? null : parseInt(repsInput.value, 10);
-      if (!s.reps || (!isBodyweight && !s.weight && exType !== "weighted_bodyweight")) { toast("Enter weight and reps first"); return false; }
-      if (!isBodyweight && !s.weight) s.weight = 0;
-      s.done = true;
-      s.kcal = calcStrengthKcal();
-      const beforePRs = await getPRsFor(ex.exerciseId);
-      const e = U.epley(s.weight, s.reps);
-      const isWeightPR = s.weight > beforePRs.maxWeight;
-      const isE1RMPR = e > beforePRs.maxE1RM;
-      const isRepsPR = s.reps > beforePRs.maxReps;
-      s.isPR = isWeightPR || isE1RMPR;
-      s.prTypes = [];
-      if (isWeightPR) s.prTypes.push("weight");
-      if (isE1RMPR) s.prTypes.push("e1rm");
-      if (isRepsPR) s.prTypes.push("reps");
-      await Storage.saveWorkout(state.activeWorkout);
-      if (s.isPR) toast(`\ud83c\udfc6 New PR on ${ex.name}`);
-      startRestTimer(ex.exerciseId);
-      return true;
+      return commitStrengthSet(ex, s, {
+        weight: isBodyweight ? 0 : weightInput.value,
+        reps: repsInput.value,
+        exType, def, bwKg
+      });
     }
 
     attachNumPad(weightInput, {
@@ -7593,6 +7649,10 @@
   const REST_RING_C = 2 * Math.PI * 100;
 
   function renderRestTimer() {
+    // The guided runner draws rest itself, in place, using these same ids —
+    // one screen holding the countdown and the set it leads to. Stacking a
+    // second full-screen overlay on top would hide the one being used.
+    if (runnerState) { runnerState.paint(); return; }
     let el_ = document.getElementById("rest-timer");
     if (!state.restTimer) {
       if (el_) el_.remove();
@@ -7666,6 +7726,433 @@
     if (state.restTimer) {
       document.title = `${U.formatTime(remaining)} rest · FitForge`;
     }
+  }
+
+  // ============ Guided set runner ============
+  //
+  // The default way to log a strength set, and the answer to "inputting a set
+  // is clunky". The clunk was never the number of controls — it was that the
+  // app showed you last week's 100 × 5 in grey placeholder text and then
+  // refused to log it until you typed it back in. Here those numbers are real,
+  // already-committed values and the button is one tap. Changing them is the
+  // exception, so changing them is what costs a gesture.
+  //
+  // Deliberately NOT a wizard. A screen per decision optimises the first set
+  // and is paid for on the twentieth; this is one screen that morphs, so the
+  // numbers never leave your sight and there is nothing to navigate back
+  // through. Rest is drawn in place for the same reason.
+  //
+  // Everything is a presentation of the same set objects, and logging goes
+  // through the same commitStrengthSet the classic rows use.
+
+  let runnerState = null;
+  // Set when the user leaves the runner, so re-rendering the workout screen
+  // does not drag them straight back into it. Cleared when a session begins.
+  let guidedDismissed = false;
+
+  const GUIDED_TYPES = new Set(["weighted", "bodyweight", "weighted_bodyweight"]);
+
+  /** Every strength set in the session, flat, in the order you do them.
+      Cardio, holds, intervals and custom metrics are absent on purpose: each
+      already has a purpose-built runner, and a flow that only understands
+      kg × reps would have to guess at them. */
+  function guidedSteps(w) {
+    const out = [];
+    (w?.exercises || []).forEach((ex, ei) => {
+      if (!GUIDED_TYPES.has(ex.type || "weighted")) return;
+      (ex.sets || []).forEach((s, si) => out.push({ ei, si, ex, s, exType: ex.type || "weighted" }));
+    });
+    return out;
+  }
+
+  /** Is there anything left for the guided runner to do in this session? */
+  function guidedHasWork(w) {
+    return guidedSteps(w).some(st => !st.s.done);
+  }
+
+  function closeSetRunner({ dismiss = true } = {}) {
+    if (!runnerState) return;
+    const o = runnerState;
+    runnerState = null;
+    document.removeEventListener("keydown", o.onKey, true);
+    o.overlay.remove();
+    if (dismiss) guidedDismissed = true;
+    // A rest window that was running inside the runner needs its standalone
+    // overlay back, or the countdown keeps ticking with nothing on screen.
+    renderRestTimer();
+  }
+
+  // Opening is asynchronous (exercise defs, bodyweight, per-exercise history),
+  // and renderActiveWorkout can fire twice in quick succession. Without an
+  // in-flight flag the second call clears the `runnerState` guard before the
+  // first has set it, and two runners stack.
+  let guidedOpening = false;
+
+  async function openSetRunner(opts = {}) {
+    const w = state.activeWorkout;
+    if (!w || guidedOpening) return;
+    let steps = guidedSteps(w);
+    if (!steps.length) { toast("Nothing in this session logs in sets and reps"); return; }
+    if (runnerState) closeSetRunner({ dismiss: false });
+    guidedOpening = true;
+    try {
+      await buildSetRunner(w, opts);
+    } finally { guidedOpening = false; }
+  }
+
+  async function buildSetRunner(w, opts) {
+    let steps = guidedSteps(w);
+    const defs = await getAllExercises();
+    const bwKg = await getBodyweightKg();
+    // Last session's sets for every exercise in the plan, fetched once.
+    // getHistoryFor walks the whole workout store, and the prefill reads it on
+    // every render — doing it per set would re-read the database ~20 times.
+    const prevByEx = new Map();
+    for (const id of new Set(steps.map(st => st.ex.exerciseId))) {
+      const h = await getHistoryFor(id);
+      prevByEx.set(id, h.find(x => x.workoutId !== w.id) || null);
+    }
+
+    /** The number this set opens on. Anything already entered wins, then the
+        set you just did in this session, then the same set index last time,
+        then that session's final set. Null only when the movement has never
+        been logged at all — which is the one case that needs typing. */
+    function prefill(step, field) {
+      const { ex, si, s } = step;
+      if (s[field] != null && s[field] !== "") return s[field];
+      for (let k = si - 1; k >= 0; k--) {
+        const p = ex.sets[k];
+        if (p && p[field] != null && p[field] !== "") return p[field];
+      }
+      const psets = prevByEx.get(ex.exerciseId)?.sets || [];
+      const at = psets[si] || psets[psets.length - 1];
+      return at && at[field] != null && at[field] !== "" ? at[field] : null;
+    }
+
+    let cursor = steps.findIndex(st => !st.s.done);
+    if (cursor < 0) cursor = 0;
+    if (opts.exIdx != null) {
+      const i = steps.findIndex(st => st.ei === opts.exIdx && !st.s.done);
+      if (i >= 0) cursor = i;
+    }
+
+    /** Next unlogged set after `from`, wrapping once so a set skipped earlier
+        is still offered rather than stranded. -1 when the plan is complete. */
+    function nextCursor(from) {
+      for (let i = from + 1; i < steps.length; i++) if (!steps[i].s.done) return i;
+      for (let i = 0; i <= from && i < steps.length; i++) if (!steps[i].s.done) return i;
+      return -1;
+    }
+
+    const overlay = el("div", {
+      class: "srun", "data-testid": "set-runner",
+      role: "dialog", "aria-modal": "true", "aria-label": "Guided set logging"
+    });
+    const body = el("div", { class: "srun-body" });
+    overlay.appendChild(body);
+
+    // True only while commitStrengthSet is in flight. Committing starts the
+    // rest timer, which calls renderRestTimer, which asks us to repaint — with
+    // the cursor still on the set we have only just logged. Advance first,
+    // paint once.
+    let committing = false;
+
+    const fmtKg = (v) => (v == null ? "—" : String(Math.round(v * 100) / 100));
+
+    function lastLine(step) {
+      const prev = prevByEx.get(step.ex.exerciseId);
+      if (!prev) return "First time logging this";
+      const psets = prev.sets || [];
+      const at = psets[step.si] || psets[psets.length - 1];
+      if (!at) return "First time logging this";
+      const when = U.formatDate ? U.formatDate(prev.date) : prev.date;
+      return step.exType === "bodyweight"
+        ? `${when} · ${at.reps ?? "—"} reps`
+        : `${when} · ${fmtKg(at.weight)} kg × ${at.reps ?? "—"}`;
+    }
+
+    function render() {
+      clear(body);
+      // The way out belongs to both views. Drawing it only on the set view
+      // meant a rest window you could not leave without skipping it first.
+      body.appendChild(topBar());
+      if (state.restTimer) { renderResting(); return; }
+      renderSet();
+    }
+
+    function leave() { closeSetRunner(); renderMainKeepScroll(); }
+
+    function topBar() {
+      const doneCount = steps.filter(x => x.s.done).length;
+      return el("div", { class: "srun-top" },
+        el("button", {
+          class: "srun-exit", type: "button", "data-testid": "srun-exit",
+          "aria-label": "Switch to the classic set list",
+          on: { click: leave }
+        }, el("span", { html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>' }), "Classic"),
+        el("div", { class: "srun-count", "data-testid": "srun-count" },
+          `${doneCount} of ${steps.length} sets`),
+        el("button", {
+          class: "srun-finish", type: "button", "data-testid": "srun-finish",
+          on: { click: leave }
+        }, "Finish")
+      );
+    }
+
+    // ---- the set view -----------------------------------------------------
+    function renderSet() {
+      const step = steps[cursor];
+      if (!step) { renderAllDone(); return; }
+      const { ex, si, exType } = step;
+      const def = defs.find(d => d.id === ex.exerciseId) || null;
+      const isBw = exType === "bodyweight";
+      const setCount = (ex.sets || []).length;
+      const exOrder = [...new Set(steps.map(x => x.ei))];
+
+      let curW = prefill(step, "weight");
+      let curR = prefill(step, "reps");
+
+      body.appendChild(el("div", { class: "srun-eyebrow" },
+        `EXERCISE ${exOrder.indexOf(step.ei) + 1} OF ${exOrder.length}`));
+      body.appendChild(el("h2", { class: "srun-name", "data-testid": "srun-name" }, ex.name));
+      body.appendChild(el("div", { class: "srun-setline", "data-testid": "srun-setline" },
+        `SET ${si + 1} OF ${setCount}`));
+
+      // ---- the two numbers ------------------------------------------------
+      // Tap for the exact value, hold for a nudge. Same bargain the set row's
+      // "···" makes: the precise path is the obvious one, the fast path is a
+      // gesture for whoever wants it.
+      const figures = el("div", { class: "srun-figures" });
+
+      const mkFigure = ({ key, unit, get, set, pad, deltas }) => {
+        const valSpan = el("span", { class: "srun-fig-val" }, get() == null ? "—" : String(get()));
+        const btn = el("button", {
+          type: "button", class: "srun-fig", "data-testid": `srun-${key}`,
+          "aria-label": `${key}: ${get() == null ? "not set" : get()} ${unit}. Tap to change.`
+        }, valSpan, el("span", { class: "srun-fig-unit" }, unit));
+
+        const paint = () => {
+          const v = get();
+          const txt = v == null ? "—" : String(v);
+          valSpan.textContent = txt;
+          // 82.5 has to fit beside a rep count on a 390px screen. Step the size
+          // down by digit count rather than letting the row wrap or clip —
+          // "1" and "112.5" both have to stay readable at arm's length.
+          valSpan.style.fontSize = txt.length >= 5 ? "clamp(34px, 12vw, 54px)"
+            : txt.length === 4 ? "clamp(42px, 15vw, 68px)" : "";
+          btn.classList.toggle("is-empty", v == null);
+          btn.setAttribute("aria-label", `${key}: ${v == null ? "not set" : v} ${unit}. Tap to change.`);
+        };
+        paint();
+
+        // The pad writes into a real input so openNumPad — wheels, quick-fill
+        // chips, the lot — is reused rather than reimplemented.
+        const input = el("input", { type: "number", class: "srun-hidden-input", tabindex: "-1", "aria-hidden": "true" });
+        input.value = get() == null ? "" : String(get());
+        attachNumPad(input, { ...pad, noNext: true });
+        input.addEventListener("input", () => {
+          set(input.value === "" ? null : Number(input.value));
+          paint();
+        });
+        btn.addEventListener("click", () => { if (!btn.classList.contains("radial-suppressed")) input.click(); });
+        body.appendChild(input);
+
+        attachRadial(btn, {
+          label: `Adjust ${key}`,
+          // The big glyph is where you land, the small label is the step. You
+          // aim a radial by direction, so what wants confirming is the result
+          // — "+2.5" tells you nothing you did not already intend.
+          items: deltas.map(d => ({
+            key: `${key}${d > 0 ? "p" : "m"}${String(Math.abs(d)).replace(".", "_")}`,
+            icon: `<span class="radial-num">${get() == null ? (d > 0 ? "+" : "−") + Math.abs(d) : fmtKg(Math.max(0, get() + d))}</span>`,
+            label: `${d > 0 ? "+" : "−"}${Math.abs(d)}`,
+            onPick: () => {
+              const base = get() == null ? 0 : get();
+              const nv = Math.max(0, Math.round((base + d) * 100) / 100);
+              set(nv);
+              input.value = String(nv);
+              paint();
+              try { navigator.vibrate && navigator.vibrate(10); } catch (_) {}
+            }
+          }))
+        });
+        return btn;
+      };
+
+      if (!isBw) {
+        figures.appendChild(mkFigure({
+          key: "weight", unit: "kg",
+          get: () => curW, set: (v) => { curW = v; },
+          deltas: [-5, -2.5, 2.5, 5],
+          pad: {
+            label: `${ex.name} · set ${si + 1} · ${exType === "weighted_bodyweight" ? "added weight" : "weight"}`,
+            unit: "kg", step: 2.5, decimals: exType !== "weighted_bodyweight",
+            allowMinus: exType === "weighted_bodyweight",
+            wheel: { min: exType === "weighted_bodyweight" ? -100 : 0, max: 400, frac: "quarter", tens: exType !== "weighted_bodyweight" },
+            hint: lastLine(step)
+          }
+        }));
+        figures.appendChild(el("span", { class: "srun-x", "aria-hidden": "true" }, "×"));
+      }
+      figures.appendChild(mkFigure({
+        key: "reps", unit: "reps",
+        get: () => curR, set: (v) => { curR = v; },
+        deltas: [-2, -1, 1, 2],
+        pad: {
+          label: `${ex.name} · set ${si + 1} · reps`,
+          unit: "reps", step: 1, wheel: { min: 1, max: 60 }, hint: lastLine(step)
+        }
+      }));
+      // The numbers and what they came from are one object, centred together —
+      // otherwise the reference line drifts to the bottom of the screen and
+      // reads as a footnote about something else.
+      body.appendChild(el("div", { class: "srun-center" }, figures,
+        el("div", { class: "srun-last", "data-testid": "srun-last" }, lastLine(step))));
+
+      // ---- the one tap ------------------------------------------------------
+      const logBtn = el("button", {
+        class: "srun-log", type: "button", "data-testid": "srun-log",
+        on: { click: async () => {
+          committing = true;
+          let ok = false;
+          try {
+            ok = await commitStrengthSet(ex, step.s, { weight: isBw ? 0 : curW, reps: curR, exType, def, bwKg });
+          } finally { committing = false; }
+          if (!ok) { render(); return; }
+          markExerciseFinished(ex);
+          steps = guidedSteps(w);
+          const nxt = nextCursor(cursor);
+          if (nxt < 0) { cursor = Math.max(0, steps.length - 1); renderAllDone(); return; }
+          cursor = nxt;
+          render();
+        } }
+      }, "LOG SET");
+      const foot = el("div", { class: "srun-foot" }, logBtn,
+        el("div", { class: "srun-minor" },
+          el("button", {
+            class: "srun-minor-btn", type: "button", "data-testid": "srun-skip",
+            on: { click: () => { const n = nextCursor(cursor); if (n < 0) { renderAllDone(); return; } cursor = n; render(); } }
+          }, "Skip set"),
+          el("button", {
+            class: "srun-minor-btn", type: "button", "data-testid": "srun-addset",
+            on: { click: async () => {
+              ex.sets.push(emptySetForType(exType));
+              await Storage.saveWorkout(w);
+              steps = guidedSteps(w);
+              const i = steps.findIndex(x => x.ei === step.ei && x.si === ex.sets.length - 1);
+              if (i >= 0) cursor = i;
+              render();
+            } }
+          }, "+ Add set")
+        )
+      );
+      body.appendChild(foot);
+
+      const nxt = steps[nextCursor(cursor)];
+      body.appendChild(el("div", { class: "srun-next" },
+        nxt && nxt !== step
+          ? `Up next · ${nxt.ex.name} · set ${nxt.si + 1}`
+          : "Last one"));
+    }
+
+    /** Once every set of an exercise is logged, the classic pager should agree
+        that it is done — otherwise leaving the runner shows a card that looks
+        untouched. */
+    function markExerciseFinished(ex) {
+      if (!ex.finished && (ex.sets || []).length && ex.sets.every(x => x.done)) {
+        ex.finished = true;
+        Storage.saveWorkout(w);
+      }
+    }
+
+    // ---- the rest view ----------------------------------------------------
+    // Same screen, same countdown driver. The ids are the ones
+    // updateRestTimerUI writes to every 250ms, so nothing about the clock is
+    // duplicated here — only how it looks.
+    function renderResting() {
+      const nxt = steps[nextCursor(cursor - 1)] || steps[cursor];
+      const wrap = el("div", { class: "srun-rest", id: "rest-timer", "data-testid": "srun-rest" });
+      wrap.appendChild(el("div", { class: "srun-eyebrow" }, "REST"));
+
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("class", "rest-ring");
+      svg.setAttribute("viewBox", "0 0 220 220");
+      for (const [cls, id] of [["rest-ring-track", null], ["rest-ring-fill", "rest-ring-fill"]]) {
+        const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        c.setAttribute("class", cls);
+        c.setAttribute("cx", "110"); c.setAttribute("cy", "110"); c.setAttribute("r", "100");
+        if (id) {
+          c.setAttribute("id", id);
+          c.setAttribute("stroke-dasharray", String(REST_RING_C));
+          c.setAttribute("stroke-dashoffset", "0");
+        }
+        svg.appendChild(c);
+      }
+      wrap.appendChild(el("div", { class: "rest-ring-wrap" }, svg,
+        el("div", { class: "rest-ring-center" },
+          el("div", { class: "rest-value", id: "rest-value" }, "—"))));
+
+      wrap.appendChild(el("div", { class: "srun-rest-next", "data-testid": "srun-rest-next" },
+        nxt
+          ? `Up next · ${nxt.ex.name} · set ${nxt.si + 1} of ${(nxt.ex.sets || []).length}`
+          : "That was the last set"));
+
+      wrap.appendChild(el("div", { class: "srun-rest-actions" },
+        el("button", {
+          class: "srun-minor-btn", type: "button", "data-testid": "srun-rest-add15",
+          on: { click: () => {
+            if (!state.restTimer) return;
+            state.restTimer.endsAt += 15000;
+            state.restTimer.totalSec = (state.restTimer.totalSec || 90) + 15;
+            if (state.restCancelChime) state.restCancelChime();
+            try { state.restCancelChime = IntervalRunner.scheduleChime((state.restTimer.endsAt - Date.now()) / 1000); } catch (_) {}
+            updateRestTimerUI(Math.max(0, Math.round((state.restTimer.endsAt - Date.now()) / 1000)));
+          } }
+        }, "+15s"),
+        el("button", {
+          class: "srun-log srun-log-sm", type: "button", "data-testid": "srun-rest-skip",
+          on: { click: () => stopRestTimer() }
+        }, "Start next set")
+      ));
+      body.appendChild(wrap);
+      updateRestTimerUI(Math.max(0, Math.round((state.restTimer.endsAt - Date.now()) / 1000)));
+    }
+
+    // ---- the end ----------------------------------------------------------
+    // The only celebration in the runner. A cheer after every set stops being a
+    // reward by the fourth one and becomes something to dismiss; a PR still
+    // toasts from commitStrengthSet, which is the thing actually worth saying.
+    function renderAllDone() {
+      clear(body);
+      const done = steps.filter(x => x.s.done);
+      const vol = Math.round(done.reduce((a, x) => a + ((x.s.weight || 0) * (x.s.reps || 0)), 0));
+      body.appendChild(el("div", { class: "srun-done", "data-testid": "srun-done" },
+        el("div", { class: "srun-done-emoji" }, "💪"),
+        el("h2", { class: "srun-name" }, "Every set logged"),
+        el("div", { class: "srun-done-stats" },
+          el("div", { class: "srun-done-stat" },
+            el("div", { class: "srun-done-val" }, String(done.length)),
+            el("div", { class: "srun-done-lbl" }, "sets")),
+          el("div", { class: "srun-done-stat" },
+            el("div", { class: "srun-done-val" }, vol > 0 ? vol.toLocaleString("en-GB") : "—"),
+            el("div", { class: "srun-done-lbl" }, "kg volume"))
+        ),
+        el("button", {
+          class: "srun-log", type: "button", "data-testid": "srun-done-cta",
+          on: { click: () => { closeSetRunner(); renderMainKeepScroll(); } }
+        }, "Review & finish")
+      ));
+    }
+
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeSetRunner(); renderMainKeepScroll(); }
+    };
+    document.addEventListener("keydown", onKey, true);
+    document.body.appendChild(overlay);
+    // paint() is what renderRestTimer calls; it is a no-op mid-commit so the
+    // screen never shows the set that is in the middle of being logged.
+    runnerState = { overlay, onKey, paint: () => { if (!committing) render(); } };
+    render();
   }
 
   // ---- circuits ---------------------------------------------------------
@@ -12905,6 +13392,13 @@
       "Before a session, suggest dynamic movement prep for the muscles you're about to train, plus ramp sets into your first lift. Always skippable in one tap."
     );
 
+    const guidedSetsCb = el("input", { type: "checkbox", id: "guided-sets-toggle" });
+    guidedSetsCb.checked = state.prefs.guidedSets !== false;
+    const guidedSetsHint = el("div", { class: "text-xs text-faint mt-8" },
+      "On by default. Strength sets open one at a time, full screen, with last session's numbers already filled in — one tap to log. " +
+      "Tap a number to change it, or hold it to nudge. The set list is always one tap away and stays the way to edit anything already logged."
+    );
+
     const backupReminderCb = el("input", {
       type: "checkbox",
       id: "backup-reminder-toggle"
@@ -13380,6 +13874,13 @@
         ),
         warmupHint
       ),
+      el("div", { class: "settings-check-row mt-8" },
+        el("label", { class: "settings-check-label", for: "guided-sets-toggle" },
+          guidedSetsCb,
+          el("span", {}, "Guided set logging")
+        ),
+        guidedSetsHint
+      ),
       el("div", { class: "form-row mt-8" },
         el("div", { style: "flex:1" }, el("label", { class: "label" }, "Default rest timer"),
           wheelWrap(restI, { title: "Default rest", items: wheelRange(15, 300, 15, s => U.formatTime(s)), testid: "wheel-rest" })),
@@ -13449,6 +13950,7 @@
             weeklyWorkoutGoal: 4,
             defaultRestSec: 90,
             myKit: [],
+            guidedSets: true,
             backupReminder: true,
             lastBackupWorkoutCount: 0,
             lastBackupAt: null,
@@ -13583,6 +14085,8 @@
         await Storage.setPref("myKit", state.prefs.myKit);
         state.prefs.warmupPrompt = warmupCb.checked;
         await Storage.setPref("warmupPrompt", warmupCb.checked);
+        state.prefs.guidedSets = !!guidedSetsCb.checked;
+        await Storage.setPref("guidedSets", state.prefs.guidedSets);
         await Storage.setPref("weeklyWorkoutGoal", weeklyWorkoutGoal);
         await Storage.setPref("backupReminder", backupReminder);
 

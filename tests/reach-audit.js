@@ -166,7 +166,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     for (const [k, v] of Object.entries({
       onboarded: true, sex: 'male', dob: '1995-04-12', heightCm: 180,
       activityLevel: 'moderate', goalIntent: 'cut', kcalGoal: 2200, kcalGoalMode: 'manual',
-      warmupPrompt: false, weeklyPlan: { mon: 'focus:push', wed: 'focus:pull', fri: 'focus:legs' }
+      warmupPrompt: false, weeklyPlan: { mon: 'focus:push', wed: 'focus:pull', fri: 'focus:legs' },
+      // The sweep walks the classic workout screen. Guided logging is the
+      // default and covers it with a view of its own, whose reachability is
+      // asserted directly in tests/guided.js section 9.
+      guidedSets: false
     })) await Storage.setPref(k, v);
     await Storage.saveBodyweight({ date: U.todayISO(), kg: 82 });
     await Storage.saveSupplement({ id: 's1', name: 'Creatine', defaultDose: 5, unit: 'g', reminderTime: '09:00' });

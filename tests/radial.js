@@ -557,7 +557,11 @@ const check = (label, ok, detail = '') => {
     await page.evaluate(async () => {
       await Storage.clearAll();
       for (const [k, v] of Object.entries({ onboarded: true, sex: 'male', dob: '1995-04-12',
-        heightCm: 180, activityLevel: 'moderate', kcalGoal: 2600, radialDiscovered: true })) await Storage.setPref(k, v);
+        heightCm: 180, activityLevel: 'moderate', kcalGoal: 2600, radialDiscovered: true,
+        // Section 13 is about the set row's own hold menu, so it needs the set
+        // rows on screen. Guided logging is the default and draws over them;
+        // its number-nudge radial is covered in tests/guided.js.
+        guidedSets: false })) await Storage.setPref(k, v);
       await Storage.saveBodyweight({ date: U.todayISO(), kg: 82 });
       // Eight sets so the workout screen is taller than the viewport — the
       // downward flip cannot be reached on a page that does not scroll.

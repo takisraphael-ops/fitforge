@@ -195,6 +195,53 @@ rather than trusting the attribute. The grain is asserted to be a whisper
 (≤0.09 opacity) and to take no pointer events, because decoration that
 intercepts a tap is not decoration.
 
+## `guided.js`
+
+    node tests/guided.js
+
+The guided set runner — the default way a strength set gets logged.
+
+It exists because of one specific complaint: inputting a set was clunky. The
+diagnosis mattered more than the fix. It was never the number of controls; it
+was that the app knew what you did last week, showed it to you as grey
+placeholder text on the row, and then refused to log it until you typed the
+same two numbers back in. `Done` on a prefilled-looking row answered *"Enter
+weight and reps first"*. So the property under test is not "does the screen
+render" but **a set identical to last session costs exactly one tap** —
+section 1 drives that literally: open, read the two figures, press once, and
+assert the stored record.
+
+The second half matters as much. There are now two presentations over one set
+model, and the failure mode of that arrangement is drift: one gets a
+PR-detection fix and the other keeps the bug for a year. Section 3 pins them
+together by logging the identical set both ways — once through the runner, once
+by driving the classic row's numpad — and diffing the stored record field by
+field. It found a real divergence on its first run (`touched: undefined vs
+true`), which is now set inside `commitStrengthSet` where it belongs rather
+than by whichever UI happened to collect the numbers.
+
+Section 9 is the one that would be easy to skip and is the whole brief. The ask
+was explicitly *size, not ceremony*, so the numbers must be ≥56px, the log
+button ≥60px tall, and every figure a real 44px touch target — a guided flow
+whose controls are the same size as the row it replaced has not solved
+anything. It also plants `182.5` and checks it still fits beside the reps on a
+390px screen, because the digit-count size step is the sort of thing that gets
+refactored out.
+
+The rest of it covers the ways a full-screen flow becomes a trap or a liar:
+rest is drawn in place with no second overlay stacked on it and the exit
+present on *both* views; the runner refuses to open for a session with nothing
+that logs in sets and reps, and takes only the strength sets out of a mixed
+one; leaving it does not drag you back on the next render; and there is only
+ever one of it, which is what the in-flight open flag is for.
+
+Nine mutations, each caught by the check that should catch it — prefill made
+blind (8 failures), the rest-overlay suppression removed (1), the top bar drawn
+only on the set view (1), the numpad's `Next` suppression removed (1), cardio
+allowed into the plan (4), leaving the runner no longer opting out (2),
+exercises never marked finished (1), the digits shrunk to row size (1), and the
+one-field divergence above (1).
+
 ## `radial.js`
 
     node tests/radial.js

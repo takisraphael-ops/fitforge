@@ -49,7 +49,10 @@ const check = (label, ok, detail = '') => { if (!ok) fails++; console.log(`   ${
   await page.waitForFunction(() => window.Storage && window.U);
   await page.evaluate(async () => {
     await Storage.clearAll();
-    for (const [k, v] of Object.entries({ onboarded: true, sex: 'male', dob: '1995-04-12', heightCm: 180, activityLevel: 'moderate', kcalGoal: 2200, warmupPrompt: false })) await Storage.setPref(k, v);
+    for (const [k, v] of Object.entries({ onboarded: true, sex: 'male', dob: '1995-04-12', heightCm: 180, activityLevel: 'moderate', kcalGoal: 2200, warmupPrompt: false,
+      // The classic row is what this suite is about; guided logging is the
+      // default and would sit on top of it. tests/guided.js covers that.
+      guidedSets: false })) await Storage.setPref(k, v);
     await Storage.saveBodyweight({ date: U.todayISO(), kg: 82 });
     await Storage.saveWorkout({
       id: 'aw', name: 'Push A', date: U.todayISO(), startedAt: Date.now(),
