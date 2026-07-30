@@ -31,6 +31,7 @@ const SUITES = [
   { name: 'radial', file: 'radial.js', needsServer: true },
   { name: 'landing', file: 'landing.js', needsServer: true },
   { name: 'robustness', file: 'robustness.js', needsServer: true },
+  { name: 'import', file: 'import.js', needsServer: true },
   { name: 'finish-workout', file: 'finish-workout.js', needsServer: true }
 ];
 

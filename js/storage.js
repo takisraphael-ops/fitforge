@@ -250,27 +250,95 @@ window.Storage = (function () {
       getAll("supplements"), getAll("supplementLogs")
     ]);
     return {
-      version: 4,
+      version: BACKUP_VERSION,
       exportedAt: new Date().toISOString(),
       workouts, meals, customExercises, prefs, bodyweights,
       templates, mealTemplates, supplements, supplementLogs
     };
   }
 
-  async function importAll(data, mode = "merge") {
-    if (!data || !data.version) throw new Error("Invalid backup file");
-    if (mode === "replace") {
-      await Promise.all(STORES.map(clearStore));
+  const BACKUP_VERSION = 4;
+  const keyName = (store) => store === "prefs" ? "key" : (store === "bodyweights" ? "date" : "id");
+
+  /**
+   * Everything wrong with a payload, before a single byte is written.
+   *
+   * The old check was `!data.version`, which let anything with a version key
+   * through — including JSON that has nothing to do with this app. A
+   * package.json restored in "replace" mode cleared all nine stores, wrote the
+   * nine empty arrays it did not have, threw nothing, and reported success. A
+   * dozen sessions became zero with a cheerful toast.
+   */
+  function validateBackup(data) {
+    if (!data || typeof data !== "object" || Array.isArray(data)) return ["that file is not a backup"];
+    const problems = [];
+    const v = Number(data.version);
+    if (!Number.isFinite(v) || v < 1) {
+      problems.push(`unrecognised backup version (${JSON.stringify(data.version)})`);
+    } else if (v > BACKUP_VERSION) {
+      problems.push(`made by a newer version of FitForge (v${v}); this app reads up to v${BACKUP_VERSION}`);
     }
-    for (const w of (data.workouts || [])) await put("workouts", w);
-    for (const m of (data.meals || [])) await put("meals", m);
-    for (const c of (data.customExercises || [])) await put("customExercises", c);
-    for (const p of (data.prefs || [])) await put("prefs", p);
-    for (const b of (data.bodyweights || [])) await put("bodyweights", b);
-    for (const t of (data.templates || [])) await put("templates", t);
-    for (const mt of (data.mealTemplates || [])) await put("mealTemplates", mt);
-    for (const s of (data.supplements || [])) await put("supplements", s);
-    for (const sl of (data.supplementLogs || [])) await put("supplementLogs", sl);
+    // A backup has to actually contain some of this app's data. Without this,
+    // any JSON with a version number counts as an empty backup.
+    if (!STORES.some(s => Array.isArray(data[s]))) problems.push("no FitForge data in it");
+    for (const s of STORES) {
+      const arr = data[s];
+      if (arr === undefined || arr === null) continue;
+      if (!Array.isArray(arr)) { problems.push(`"${s}" is not a list`); continue; }
+      for (let i = 0; i < arr.length; i++) {
+        const rec = arr[i];
+        if (!rec || typeof rec !== "object" || Array.isArray(rec)) {
+          problems.push(`${s}[${i}] is not a record`); break;
+        }
+        const key = memKey(s, rec);
+        if (key == null) { problems.push(`${s}[${i}] has no "${keyName(s)}"`); break; }
+        // The keyPath has to resolve to something IndexedDB accepts as a key.
+        // An object or an array there passes a null check and then throws a
+        // DataError deep inside the write, which is exactly the shape of
+        // failure this validation exists to move earlier.
+        if (typeof key !== "string" && typeof key !== "number") {
+          problems.push(`${s}[${i}] has an unusable "${keyName(s)}"`); break;
+        }
+      }
+    }
+    return problems;
+  }
+
+  // bestEffort is for the rollback path only. Restoring after a failure is the
+  // worst possible moment to give up on store three of nine because store two
+  // is still unhappy — salvage everything that can be salvaged.
+  async function writeAll(data, bestEffort = false) {
+    for (const s of STORES) {
+      for (const rec of (data[s] || [])) {
+        if (!bestEffort) { await put(s, rec); continue; }
+        try { await put(s, rec); } catch (_) { /* keep going */ }
+      }
+    }
+  }
+
+  async function importAll(data, mode = "merge") {
+    const problems = validateBackup(data);
+    if (problems.length) {
+      throw new Error(problems.slice(0, 3).join("; ") + (problems.length > 3 ? `; and ${problems.length - 3} more` : ""));
+    }
+    // "Replace" clears first and then writes record by record, with no
+    // transaction across the nine stores — so anything that threw part-way
+    // through left the user with whatever had been written so far and no way
+    // back. Validation above should now catch that before we start, but a
+    // restore is the one operation where "should" is not good enough.
+    const rollback = mode === "replace" ? await exportAll() : null;
+    try {
+      if (mode === "replace") await Promise.all(STORES.map(clearStore));
+      await writeAll(data);
+    } catch (err) {
+      if (rollback) {
+        try {
+          await Promise.all(STORES.map(clearStore));
+          await writeAll(rollback, true);
+        } catch (_) { /* nothing further we can do; the original error is the one to report */ }
+      }
+      throw err;
+    }
   }
 
   async function clearAll() {
@@ -302,6 +370,6 @@ window.Storage = (function () {
     saveSupplement, getSupplements, deleteSupplement,
     saveSupplementLog, getSupplementLogs, deleteSupplementLog,
     setPref, getPref,
-    exportAll, importAll, clearAll
+    exportAll, importAll, validateBackup, clearAll
   };
 })();

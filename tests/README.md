@@ -82,6 +82,44 @@ years of seeded data renders indistinguishably from a fresh install.
 Section 1 is the control: left alone, the loader must still be up at 60% of its
 hold. Without it, "the tap removed it" and "it was never up long" look the same.
 
+## `import.js`
+
+    node tests/import.js
+
+Restore is the one operation that can destroy everything you have, and it was
+guarded by a single truthy check on `version`.
+
+Two consequences, both found by feeding it files a real person could plausibly
+pick. Any JSON with a version key counted as a backup — a **package.json**
+cleared all nine stores in "replace" mode, wrote the nine empty arrays it did
+not have, threw nothing, and reported success. Twelve sessions became zero with
+a cheerful toast. And because replace clears first and then writes record by
+record with no transaction, anything that threw part-way through left whatever
+had been written so far: four of sixteen hostile files ended with an **empty
+database**, having started with real data.
+
+So the property under test is not "are bad files rejected" but **"does my
+existing data survive being shown a bad file"**. Every rejection case asserts
+that the workouts, meals, bodyweights and prefs that were already there are
+still exactly there — and separately that the file was not accepted *silently*,
+because being told it worked is the worst outcome of the three.
+
+Validation now runs before a byte is written, and names what is wrong:
+`"workouts" is not a list`, `bodyweights[0] has no "date"`, `made by a newer
+version of FitForge (v99)`. A snapshot is taken before a replace and restored
+best-effort if any write fails — best-effort because giving up on store three
+of nine while store two is still unhappy is the worst possible moment to stop
+trying.
+
+Section 3 injects a write failure at the platform boundary rather than through
+app code, and section 4 round-trips a real export through JSON text to prove the
+app can still read what it writes.
+
+Four mutations, each losing a different guarantee: the original one-line check
+(5 failures), the rollback removed (2), the rollback no longer best-effort (1),
+and just the "no FitForge data in it" test removed — the silent wipe on its own
+(3).
+
 ## `robustness.js`
 
     node tests/robustness.js
