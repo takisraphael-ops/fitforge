@@ -289,9 +289,48 @@ horizontal swipe and search all still have to work, and the dial has to step
 aside during a search since it has nothing to say about results that span every
 category.
 
-Five mutations — press reverted to hold (4 failures), the wide sweep and
-compact slices removed (2), all nine categories on one wheel (2), the second
-level never resetting (2), and the kit filter matching everything (3).
+Section 7 protects the picker's vertical budget, which is a separate story with
+the same shape as the landing screen's first fold: it deflated one innocuous
+row at a time and nobody measured until it was unusable. The report was "once I
+choose one, the room for adding more is very small". Measured at 390×844 it was
+**245px of an 844px screen — three exercises out of eleven** — and three
+independent things were eating it, none of them a design tradeoff:
+
+* The confirm bar padded itself by a whole `--dock-clear` (92px) on top of the
+  dock allowance `.xpick-screen` already makes — a 53px button inside a 161px
+  block, appearing at exactly the moment you want *more* list, not less. The
+  screen's height was `100dvh - 120px`, which assumes it starts at the top of
+  the page; it starts below the mode row, so the guess overshot the dock and
+  the padding was covering for it. It is measured now.
+* `padding: 34%` on the wheel list. Percentage padding resolves against
+  **width**, so at 360px wide that is 122px top and bottom however short the
+  list is — 245px of a 398px viewport, and on an iPhone SE more padding than
+  there was list. Capped at 64px.
+* The card header printed `Chest 11` directly beneath the dial's
+  `Chest · 11 exercises · press to change`. 58px to say it twice.
+
+Plus scroll-tucking: search, dial and kit row collapse on a downward scroll and
+return on an upward one. The settling window after each toggle is load-bearing
+and easy to mistake for defensive noise — collapsing changes the list's height,
+which fires another scroll event with the opposite sign, and without the window
+the row flaps under your thumb rather than staying put. Removing it fails three
+checks, none of them the obvious one.
+
+Net at 390×844: **3 exercises visible → 6 at rest, 9 while browsing.**
+
+Section 5 covers the consequence of dropping the chip row below 560px. The chip
+row carried "create your own", so that had to survive the cut — it now sits
+beside the dial, where it costs no height — and the three remaining ways across
+(dial, swipe, dots) are each checked, as is the row coming back on a wide
+screen.
+
+Seven mutations. Five for the dial: press reverted to hold (4 failures), the
+wide sweep and compact slices removed (2), all nine categories on one wheel
+(2), the second level never resetting (2), the kit filter matching everything
+(3). And for the space work: the confirm bar clearing the dock twice (3), the
+wheel padding back to 34% (1), the header printed twice (2), tucking removed
+(3), the settling window removed (3), the chip row kept on phones (2), the
+custom affordance duplicated (1).
 
 ## `radial.js`
 

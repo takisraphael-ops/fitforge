@@ -237,18 +237,43 @@ const check = (label, ok, detail = '') => {
     await page.waitForTimeout(500);
   }
 
-  // =============== 5. the flat way across is still there ====================
+  // =============== 5. the ways across, without the chip row =================
   //
   // "The ability to navigate to other body parts and categories is essential."
-  // The dial is one way; it must not have eaten the others.
-  console.log('\n=== 5. the dial did not replace the other ways across ===');
+  // The chip row is dropped below 560px because it and the dial do the same
+  // job and it cost 57px of a screen with none to spare — so the ways that
+  // remain have to actually work, and the row has to come back where there is
+  // room for it.
+  console.log('\n=== 5. dropping the chips on phones left three ways across ===');
   {
-    check('the category chips are still there', (await page.$$('.xpick-chip')).length > 3,
-      String((await page.$$('.xpick-chip')).length));
-    await page.click('[data-testid="xchip-back"]');
-    await page.waitForTimeout(700);
-    check('and still work', (await page.textContent('[data-testid="xdial-label"]')) === 'Back',
+    check('the chip row is gone on a phone',
+      await page.$eval('[data-testid="xpick-chips"]', e => getComputedStyle(e).display === 'none'));
+    // It carried "create your own", which must not have gone with it.
+    check('and "create your own" survived the cut', !!(await page.$('.xdial-custom')));
+    check('without being duplicated', (await page.$$('[data-testid="xchip-custom"]')).length === 1,
+      String((await page.$$('[data-testid="xchip-custom"]')).length));
+
+    // Way two: swipe the pager.
+    await page.evaluate(() => {
+      const p = document.querySelector('.xpick-pager');
+      const panel = p.querySelector('.xpick-panel[data-cat="shoulders"]');
+      if (panel) p.scrollLeft = panel.offsetLeft;
+    });
+    await page.waitForTimeout(600);
+    check('swiping still moves you, and the dial follows',
+      (await page.textContent('[data-testid="xdial-label"]')) === 'Shoulders',
       await page.textContent('[data-testid="xdial-label"]'));
+    // Way three: the dots still say where you are.
+    check('the position dots are still there', (await page.$$('.xpick-dot')).length > 3,
+      String((await page.$$('.xpick-dot')).length));
+
+    // And on a screen with room, the fastest way across comes back.
+    await page.setViewportSize({ width: 820, height: 900 });
+    await page.waitForTimeout(500);
+    check('a wide screen keeps the chip row',
+      await page.$eval('[data-testid="xpick-chips"]', e => getComputedStyle(e).display !== 'none'));
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(500);
 
     await page.fill('.xpick input.input', 'squat');
     await page.waitForTimeout(500);
@@ -279,6 +304,90 @@ const check = (label, ok, detail = '') => {
       return bad;
     });
     check('nothing in the picker overflows the screen', wide.length === 0, wide.join(' | '));
+  }
+
+  // =============== 7. the list gets the screen ==============================
+  //
+  // The complaint that started this: "once I choose one the screen real estate
+  // for adding more exercises is very small". Measured, it was 245px of an
+  // 844px screen — three exercises out of eleven — and three separate things
+  // were eating it. Each is pinned here with the number it was worth, because
+  // a stray margin re-inflates this the same way it deflated in the first
+  // place: one innocuous row at a time.
+  console.log('\n=== 7. how much of the screen the list actually gets ===');
+  {
+    await page.click('.xpick-panel[data-cat="chest"] .xrow');
+    await page.waitForTimeout(500);
+
+    const m = () => page.evaluate(() => {
+      const list = document.querySelector('.xpick-panel[data-cat="chest"] .xpick-panel-list');
+      const cs = getComputedStyle(list);
+      const row = list.querySelector('.xrow').getBoundingClientRect().height + 6;
+      const cta = document.querySelector('.xpick-cta');
+      const cr = cta.getBoundingClientRect();
+      const dock = document.querySelector('.dock').getBoundingClientRect();
+      const head = document.querySelector('.xpick-panel-head');
+      return {
+        listH: Math.round(list.clientHeight),
+        rows: +(list.clientHeight / row).toFixed(1),
+        pad: Math.round(parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom)),
+        ctaH: Math.round(cr.height),
+        belowCta: Math.round(dock.top - cr.bottom),
+        headShown: head ? getComputedStyle(head).display !== 'none' : false,
+        tucked: document.querySelector('[data-testid="xpick-tuck"]').classList.contains('is-tucked')
+      };
+    });
+
+    const at = await m();
+    console.log('   ', JSON.stringify(at));
+
+    // The confirm bar padded itself by a whole --dock-clear on top of the
+    // allowance the screen already makes: a 53px button in a 161px block.
+    check('the confirm bar does not clear the dock twice', at.ctaH < 90, `${at.ctaH}px`);
+    check('and leaves no dead band above the dock', at.belowCta < 44, `${at.belowCta}px`);
+    // padding: 34% resolves against WIDTH — 122px top and bottom regardless of
+    // how short the list was.
+    check('the wheel centring is capped, not 34% of the width', at.pad <= 130, `${at.pad}px`);
+    check('the category is not printed twice', !at.headShown);
+    check('five exercises visible with one already picked', at.rows >= 5, `${at.rows} rows in ${at.listH}px`);
+
+    // Scrolling hands the navigation's space to the list and gives it back.
+    const box = await page.$eval('.xpick-panel[data-cat="chest"] .xpick-panel-list',
+      e => { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+    await page.mouse.move(box.x, box.y);
+    await page.mouse.wheel(0, 220);
+    await page.waitForTimeout(700);
+    const browsing = await m();
+    console.log('   ', JSON.stringify(browsing));
+    check('scrolling tucks the navigation away', browsing.tucked);
+    check('and hands the list eight exercises', browsing.rows >= 8, `${browsing.rows} rows in ${browsing.listH}px`);
+
+    await page.mouse.wheel(0, -60);
+    await page.waitForTimeout(700);
+    const back = await m();
+    check('scrolling up brings it straight back', !back.tucked && back.rows < browsing.rows,
+      `${back.rows} rows, tucked=${back.tucked}`);
+
+    // Collapsing changes the list height, which fires another scroll event with
+    // the opposite sign. Without a settling window the row flaps under a thumb.
+    const flips = await page.evaluate(() => new Promise(res => {
+      const t = document.querySelector('[data-testid="xpick-tuck"]');
+      let n = 0;
+      const mo = new MutationObserver(() => n++);
+      mo.observe(t, { attributes: true, attributeFilter: ['class'] });
+      setTimeout(() => { mo.disconnect(); res(n); }, 1200);
+    }));
+    check('and it does not flap once left alone', flips === 0, `${flips} class changes`);
+
+    // Reaching for search must not leave you typing into something hidden.
+    await page.mouse.wheel(0, 300);
+    await page.waitForTimeout(600);
+    await page.fill('.xpick input.input', 'row');
+    await page.waitForTimeout(500);
+    check('searching un-tucks, so the field you typed in is on screen',
+      await page.$eval('[data-testid="xpick-tuck"]', e => !e.classList.contains('is-tucked')));
+    await page.fill('.xpick input.input', '');
+    await page.waitForTimeout(400);
   }
 
   console.log('\nERRORS:', errs.length ? errs : 'none');

@@ -1893,6 +1893,39 @@ input:disabled.input,
 .xdial-sub { font-size: 12px; font-weight: 600; color: var(--text-faint); }
 .xdial-caret { font-size: 14px; color: var(--text-faint); flex: 0 0 auto; }
 
+.xdial-row { display: flex; gap: 8px; align-items: stretch; }
+.xdial-row .xdial { margin-bottom: 0; }
+/* Creating your own exercise used to live in the category chip row, which is
+   gone on phones — so it moves next to the dial, where it costs no height. */
+.xdial-custom {
+  flex: 0 0 auto; width: 56px; border-radius: 16px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--bg-elev); border: 1px dashed var(--border-strong); color: var(--text-muted);
+  -webkit-tap-highlight-color: transparent;
+}
+.xdial-custom:active { transform: scale(0.97); }
+.xdial-custom svg { width: 20px; height: 20px; }
+
+/* Search, the dial and the kit row are navigation: wanted while you are
+   deciding where to look, in the way while you are reading a list. They tuck
+   away on a downward scroll and come back the instant you scroll up, which is
+   worth ~170px — three more exercises — for the whole time you are browsing. */
+.xpick-tuck {
+  display: flex; flex-direction: column; overflow: hidden;
+  max-height: 260px;
+  transition: max-height 220ms cubic-bezier(0.2, 0.9, 0.3, 1), opacity 150ms ease;
+}
+.xpick-tuck.is-tucked { max-height: 0; opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .xpick-tuck { transition: none; } }
+
+/* On a phone the chip row and the dial do the same job, and the chips cost
+   57px of a screen that has none to spare. The dial reaches every category in
+   one press, the pager still swipes, and the dots still say where you are.
+   Wider screens keep both. */
+@media (max-width: 560px) {
+  .xpick.has-dial .xpick-chips { display: none; }
+}
+
 /* Kit filter. Derived from the whole library so the row does not reshuffle
    under your thumb each time you swipe to the next category. */
 .xpick-gear {
@@ -3828,6 +3861,9 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   box-shadow: var(--shadow-md);
   overflow: hidden;
 }
+/* With a dial above it, this row printed "Chest 11" directly under
+   "Chest · 11 exercises · press to change". 58px to say it twice. */
+.xpick.has-dial .xpick-panel-head { display: none; }
 .xpick-panel-head {
   position: sticky; top: 0; z-index: 2;
   display: flex; align-items: center; justify-content: flex-start; gap: 10px;
@@ -3886,9 +3922,15 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
    Full-screen, it has to clear the fixed dock: the button used to run 25px
    underneath it, so taps on its lower half hit the FAB and reopened the
    add-fork instead of starting the workout. */
+/* The confirm bar. Its bottom padding used to be a whole --dock-clear (92px)
+   on top of the dock allowance .xpick-screen already makes, so selecting your
+   first exercise cost 108px of list — a 53px button inside a 161px block, at
+   exactly the moment you want to see more of the list, not less. The screen is
+   now measured to end at the dock instead of guessed at, so this clears only
+   the home indicator. */
 .xpick-cta {
   flex: none;
-  padding: 10px 2px calc(6px + var(--dock-clear));
+  padding: 10px 2px calc(6px + env(safe-area-inset-bottom, 0px));
   background: var(--bg);
 }
 /* Inside a modal there is no dock to clear. */
@@ -5588,7 +5630,12 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
 /* Exercise picker · magnify-wheel list (start-workout only) */
 .xpick-panel-list.is-wheel {
   scroll-snap-type: y mandatory; scroll-padding: 0;
-  padding-top: 34%; padding-bottom: 34%;
+  /* Percentage padding resolves against WIDTH, not height. At 360px wide that
+     is 122px top and bottom no matter how short the list is — on a 398px
+     viewport it left 153px for rows, and on an iPhone SE the padding was
+     taller than the whole list. Capped, so the centring costs one row rather
+     than two thirds of the screen. */
+  padding-top: min(34%, 64px); padding-bottom: min(34%, 64px);
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18%, #000 82%, transparent);
   mask-image: linear-gradient(to bottom, transparent, #000 18%, #000 82%, transparent);
 }

@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=219").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=221").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -4688,6 +4688,26 @@
     return card;
   }
 
+  // Size the exercise picker to the gap between where it actually starts and
+  // the top of the dock. One listener at a time: renderWorkout runs on every
+  // re-render, and adding a fresh resize handler each time would pile them up
+  // against nodes that are no longer on the page.
+  let pickerFitHandler = null;
+  function fitPickerScreen(host) {
+    const fit = () => {
+      if (!host.isConnected) return;
+      const top = host.getBoundingClientRect().top;
+      const dock = document.querySelector(".dock");
+      const floor = dock ? dock.getBoundingClientRect().top : window.innerHeight;
+      const h = Math.round(floor - top - 8);
+      if (h > 240) host.style.height = h + "px";
+    };
+    if (pickerFitHandler) window.removeEventListener("resize", pickerFitHandler);
+    pickerFitHandler = fit;
+    window.addEventListener("resize", fit);
+    requestAnimationFrame(() => requestAnimationFrame(fit));
+  }
+
   // ============ WORKOUT ============
   async function renderWorkout(view) {
     if (!state.activeWorkout) {
@@ -4741,6 +4761,14 @@
       view.appendChild(sessionsHost);
       view.appendChild(extras);
       picker.refresh();
+
+      // The picker's height was `100dvh - 120px`, which assumes it starts at
+      // the top of the page. It starts below the Exercises/Sessions row, so
+      // the guess ran ~13px past the dock — and the confirm bar then padded
+      // itself by a whole dock height to compensate, costing 108px of list the
+      // moment you selected anything. Measure where it actually starts and end
+      // it at the dock; the guess stays in CSS as the pre-paint fallback.
+      fitPickerScreen(pickerHost);
 
       // Edge handles: Weekly plan (left) and Templates (right). They surface two
       // buried flows and — being pinned to the screen edge — don't clash with
@@ -9593,6 +9621,7 @@
     let activeCat = cats[0] || null;
     let pager = null; // the horizontal scroll-snap container (null while searching)
     let gearFilter = null; // null = show everything
+    let tuckEl = null;     // the collapsible navigation block (dial pickers only)
 
     // ---- the body-part dial ----------------------------------------------
     // Choosing what to train is a two-level tree — body part, then movement —
@@ -9646,6 +9675,44 @@
       items: () => dialItems()
     }) : null;
 
+    // "Create your own" lived in the chip row, which phones no longer show.
+    // Beside the dial it costs no height at all.
+    const customBtn = (useDial && allowCustom) ? el("button", {
+      class: "xdial-custom", type: "button", "data-testid": "xchip-custom",
+      title: "Create a custom exercise", "aria-label": "Create a custom exercise",
+      html: icons.plus,
+      on: { click: () => openCustomExerciseForm(onCustomCreated) }
+    }) : null;
+    const dialRow = dialBtn ? el("div", { class: "xdial-row" }, dialBtn, customBtn) : null;
+
+    // ---- tucking ----------------------------------------------------------
+    // Scrolling the list collapses the navigation above it; scrolling back up
+    // brings it straight back.
+    let tucked = false, tuckLock = 0;
+    function setTuck(on) {
+      if (!tuckEl || on === tucked || Date.now() < tuckLock) return;
+      tucked = on;
+      tuckEl.classList.toggle("is-tucked", on);
+      // Collapsing changes the list's height, which fires another scroll event
+      // — with the opposite sign, because the browser clamps scrollTop. Without
+      // a settling window the row oscillates under your thumb.
+      tuckLock = Date.now() + 320;
+    }
+    function watchTuck(list) {
+      if (!useDial) return;
+      let lastTop = 0;
+      list.addEventListener("scroll", () => {
+        const t = list.scrollTop;
+        // Back at the top there is nothing to make room for.
+        if (t <= 4) { lastTop = t; setTuck(false); return; }
+        const d = t - lastTop;
+        if (Math.abs(d) < 8) return;   // jitter, not a decision
+        lastTop = t;
+        if (d > 0 && t > 56) setTuck(true);
+        else if (d < 0) setTuck(false);
+      }, { passive: true });
+    }
+
     // ---- kit filter -------------------------------------------------------
     // Derived from the whole library rather than the open category, so the row
     // does not reshuffle under your thumb every time you swipe a card.
@@ -9685,7 +9752,7 @@
 
     function renderChips() {
       clear(chipRow);
-      if (allowCustom) {
+      if (allowCustom && !useDial) {
         chipRow.appendChild(el("button", {
           class: "xpick-chip xpick-chip-custom",
           type: "button",
@@ -9878,6 +9945,7 @@
           let lraf = null;
           list.addEventListener("scroll", () => { if (lraf) return; lraf = requestAnimationFrame(() => { lraf = null; magnifyList(list); }); }, { passive: true });
         }
+        watchTuck(list);
         const panel = el("div", { class: "xpick-panel", "data-cat": c },
           el("div", { class: "xpick-card" },
             el("div", { class: "xpick-panel-head" },
@@ -9913,6 +9981,9 @@
         chipRow.style.display = "none";
         catFigure.style.display = "none";
         dotsRow.style.display = "none";
+        // Searching means you are reaching for the field that is inside the
+        // tuck; keeping it collapsed would hide what you are typing into.
+        setTuck(false);
         // Search spans every category, so the dial has nothing to say about
         // what you are looking at.
         if (dialBtn) dialBtn.style.display = "none";
@@ -9967,12 +10038,15 @@
       header.subtitle ? el("div", { class: "xpick-subtitle" }, header.subtitle) : null
     ) : null;
 
+    // The dial is the front door. The chip row stays in the markup — it is
+    // still the fastest way across on a screen with room for it — and CSS
+    // drops it below 560px, where the dial and the pager already cover it.
+    // The figure is redundant once the dial carries one.
+    tuckEl = useDial ? el("div", { class: "xpick-tuck", "data-testid": "xpick-tuck" },
+      searchI, dialRow, gearRow) : null;
     const body = el("div", { class: "xpick xpick-multi" + (useDial ? " has-dial" : "") },
-      headerEl, searchI,
-      // The dial is the front door; the chip row stays because "go somewhere
-      // else without going back through the dial" was a requirement, not a
-      // fallback. The figure is redundant once the dial carries one.
-      dialBtn, gearRow, useDial ? null : catFigure, chipRow, content, dotsRow, footer
+      headerEl, tuckEl || searchI,
+      useDial ? null : catFigure, chipRow, content, dotsRow, footer
     );
 
     let didInitialScroll = false;
