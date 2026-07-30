@@ -129,6 +129,12 @@ const check = (label, ok, detail = '') => { if (!ok) fails++; console.log(`   ${
   });
   console.log('   both sets ->', JSON.stringify(both));
   check('each set tracks independently', both[0] === true && both[1] === true, JSON.stringify(both));
+  // That was the last set in the session. Rest buys time for the set that
+  // comes next, and there isn't one — starting it here parks a full-screen
+  // countdown behind the completion celebration, which then uncovers it the
+  // instant you tap "Review & finish".
+  check('the last set of the session starts no rest',
+    !(await page.evaluate(() => !!document.getElementById('rest-timer'))));
   check('the screen still was not re-mounted', await page.evaluate(() =>
     document.querySelector('[data-testid="wpager"]').__id === 'PAGER' &&
     document.querySelector('[data-testid="dock"]').__id === 'DOCK'));

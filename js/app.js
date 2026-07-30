@@ -7285,6 +7285,16 @@
     return row;
   }
 
+  /** Is there another set still waiting to be logged anywhere in the session?
+      Sets under an exercise you have already marked finished don't count: you
+      said you were done with it, so its leftover rows are not work you are
+      resting for. Deliberately spans every exercise type — a strength set
+      followed by a cardio finisher still has something to come. */
+  function hasUnloggedSetsLeft(w) {
+    return (w?.exercises || []).some(ex =>
+      !ex.finished && (ex.sets || []).some(s => !s.done));
+  }
+
   /** Commit one weight×reps set: validate, PR-check, save, start the rest clock.
       The single point at which a strength set becomes "done". The classic row
       reads its two numbers out of two inputs and the guided runner holds them
@@ -7326,7 +7336,14 @@
     if (isRepsPR) s.prTypes.push("reps");
     await Storage.saveWorkout(state.activeWorkout);
     if (s.isPR) toast(`🏆 New PR on ${ex.name}`);
-    startRestTimer(ex.exerciseId);
+    // Rest is time bought for the set that comes next. After the last set of
+    // the session there is no next set, and the countdown only stands between
+    // you and the wrap-up screen — worse, it starts underneath the completion
+    // celebration (z 3000 over the overlay's 250) and is revealed the instant
+    // you tap "Review & finish", so it reads as the timer *appearing* at the
+    // one moment it has nothing left to time. Same in the guided runner, where
+    // closeSetRunner hands the standalone overlay back on the way out.
+    if (hasUnloggedSetsLeft(state.activeWorkout)) startRestTimer(ex.exerciseId);
     return true;
   }
 

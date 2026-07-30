@@ -263,6 +263,12 @@ const HISTORY = {
       }
     }
     check('it ends on the all-done screen', !!(await page.$('[data-testid="srun-done"]')));
+    // The last set has no next set to rest for. This used to start the clock
+    // anyway: the all-done screen hid it, and closeSetRunner then handed the
+    // standalone overlay back, so the countdown appeared to spring up the
+    // moment you tapped "Review & finish".
+    check('the final set does not start a rest clock',
+      await page.evaluate(() => !document.getElementById('rest-value')));
     const exs = await stored();
     check('every set is logged', exs.every(e => e.sets.every(s => s.done)),
       JSON.stringify(exs.map(e => e.sets.map(s => s.done))));
@@ -273,6 +279,8 @@ const HISTORY = {
     await page.click('[data-testid="srun-done-cta"]');
     await page.waitForTimeout(600);
     check('the review screen is the classic list', !(await open()) && !!(await page.$('.exercise-block')));
+    check('and no rest overlay is sitting on top of it',
+      !(await page.$('.rest-overlay')));
     check('with nothing left for it to do, it does not offer to reopen',
       !(await page.$('[data-testid="open-guided"]')));
   }
