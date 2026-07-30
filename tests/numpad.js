@@ -58,8 +58,15 @@ const check = (label, ok, detail = '') => { if (!ok) fails++; console.log(`   ${
     });
     await Storage.saveWorkout({
       id: 'aw', name: 'Push A', date: U.todayISO(), startedAt: Date.now(),
+      // Two sets, not one. §3 asserts the pad's log path starts rest like
+      // every other log path — and rest deliberately does not start after the
+      // last set of a session, because there is nothing left to rest for. A
+      // single-set fixture makes the set being logged the final one, and the
+      // assertion would then be checking the opposite of what it means.
+      // Everything below addresses set 0; the second set is only there so a
+      // set remains outstanding.
       exercises: [{ exerciseId: 'bench-press-barbell', name: 'Barbell Bench Press', type: 'weighted',
-        sets: [{ weight: null, reps: null, done: false }] }], notes: ''
+        sets: [{ weight: null, reps: null, done: false }, { weight: null, reps: null, done: false }] }], notes: ''
     });
     await Storage.setPref('activeWorkoutId', 'aw');
   });
