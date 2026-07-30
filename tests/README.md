@@ -242,6 +242,57 @@ allowed into the plan (4), leaving the runner no longer opting out (2),
 exercises never marked finished (1), the digits shrunk to row size (1), and the
 one-field divergence above (1).
 
+## `dial.js`
+
+    node tests/dial.js
+
+The body-part dial on the start-a-workout screen — the front door to choosing
+an exercise.
+
+Two decisions are load-bearing and both are easy to undo by accident. It opens
+on **press**, not on a hold: hold is the right price for a shortcut nobody has
+to find, and charging it for the primary path makes the app feel slow and the
+menu invisible to anyone who was not told it exists. And **only the first level
+is a radial** — `legs` alone has 19 exercises, so the second level stays the
+wheel it already was. Section 1 pins the first by opening the menu at 120ms,
+well inside `RADIAL_HOLD_MS`.
+
+Section 3 is the reason this file earns its place. Building the dial found a
+real bug in the shared radial layout that had been invisible since the feature
+shipped: `legible()` compared label-to-label and label-to-icon but never
+icon-to-icon. With four slices or fewer the labels — wider than the circles —
+always collided first, so the gap never showed. At seven spokes the circles
+overlap while the labels still clear, and Playwright refused to click `legs`
+because `core` was sitting on top of it.
+
+Fixing it turned up two more things, both now load-bearing:
+
+* Seven 64px slices do not fit inside the dock's ±52° arc on a 390px screen at
+  *any* radius — the widest achievable gap between adjacent centres is about
+  62px against the 66px they need. That cap is a fact about the dock, not about
+  radials, so it is now per-menu, and a wheel that still cannot fit asks for
+  compact 48px slices instead of degrading into a row of overlapping circles.
+* Icons are compared as circles, not boxes. Slices on an arc sit diagonally
+  from each other, so two comfortably separated circles still have bounding
+  boxes that clip corners; rejecting on that pushes the radius past anything
+  that fits and lands straight back in the degraded branch.
+
+The downward flip is also back. It was written for triggers too near the top of
+the screen for a fan above them, removed when no such trigger turned out to
+exist, and is reachable again now that a dial lives at the top of the picker.
+Down is only tried after up has failed, so every existing menu opens exactly
+where it did.
+
+Section 5 exists because "the ability to navigate to other body parts and
+categories is essential" was a requirement, not a nicety: the chip row, the
+horizontal swipe and search all still have to work, and the dial has to step
+aside during a search since it has nothing to say about results that span every
+category.
+
+Five mutations — press reverted to hold (4 failures), the wide sweep and
+compact slices removed (2), all nine categories on one wheel (2), the second
+level never resetting (2), and the kit filter matching everything (3).
+
 ## `radial.js`
 
     node tests/radial.js

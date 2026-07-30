@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=217").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=219").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -2316,8 +2316,10 @@
   const RADIAL_DEAD = 42;       // px around the centre that selects nothing
 
   function attachRadial(trigger, opts) {
-    const items = (opts.items || []).filter(Boolean);
-    if (!items.length || !trigger) return;
+    // Items may be a function when the menu has more than one level — the
+    // spokes are then resolved at open time rather than frozen at attach time.
+    const itemsOf = () => (typeof opts.items === "function" ? opts.items() : (opts.items || [])).filter(Boolean);
+    if (!trigger || !itemsOf().length) return null;
     trigger.classList.add("has-radial");
     // A trigger inside a scroller must keep its touch-action, or a drag that
     // happens to start on it silently refuses to scroll the page. The 10px
@@ -2390,7 +2392,7 @@
         `radialHintFill ${RADIAL_HOLD_MS - RADIAL_HINT_MS}ms linear forwards`;
       wrap.appendChild(svg);
 
-      for (const [i, p] of layout(cx, cy).entries()) {
+      for (const [i, p] of layout(cx, cy, itemsOf()).entries()) {
         const g = el("div", {
           class: "radial-hint-ghost",
           style: `left:${p.x}px; top:${p.y}px; animation-delay:${(RADIAL_HOLD_MS - RADIAL_HINT_MS) * 0.35 + i * 26}ms`
@@ -2417,8 +2419,13 @@
     // left-hand tab you get a quarter turn opening up and to the right.
     const SLICE_HALF = 46;   // widest a slice box gets, including its label
     const EDGE = 6;
-    const MAX_PHI = 52;      // past this a slice stops clearing the dock
-    function layout(cx, cy) {
+    // Past ±52° a slice stops clearing the dock — which is a fact about the
+    // dock, not about radials. A trigger with room all round can open into a
+    // much wider sweep, and needs to: seven 64px slices do not fit inside 104°
+    // on a 390px screen at any radius, so the fan silently degraded into a row
+    // of overlapping circles.
+    const MAX_PHI = Number.isFinite(opts.sweep) ? opts.sweep : 52;
+    function layout(cx, cy, items) {
       const n = items.length;
       const natural = n === 1 ? 0 : Math.min(150, 44 * (n - 1));
       const vw = window.innerWidth || 390;
@@ -2450,7 +2457,11 @@
       // it goes under the *next slice's circle* long before the circles
       // themselves touch. Boxes are modelled here in the same terms the layout
       // renders them, and the first radius where nothing covers a label wins.
-      const ICON = 64, LGAP = 6, LH = 16;                 // as laid out in CSS
+      // As laid out in CSS. A seven-spoke wheel does not fit on a 390px screen
+      // at full size — the widest achievable gap between adjacent centres is
+      // about 62px against the 66px two 64px circles need — so a menu that big
+      // asks for compact slices and gets 48px ones.
+      const ICON = opts.compact ? 48 : 64, LGAP = 6, LH = 16;
       const boxes = (p) => {
         const w = Math.max(40, String(p.item.label || "").length * 7);
         return {
@@ -2466,6 +2477,19 @@
             if (i === j) continue;
             if (overlaps(bs[i].label, bs[j].icon)) return false;
             if (j > i && overlaps(bs[i].label, bs[j].label)) return false;
+            // Icon on icon. This was missing, and stayed invisible for as
+            // long as every menu had four slices or fewer: with a short arc
+            // the labels — which are wider than the circles — always collided
+            // first, so the check appeared to be doing the work. At seven
+            // spokes the circles overlap while the labels still clear, and one
+            // slice ends up sitting on top of its neighbour, unclickable.
+            //
+            // Compared as circles, not boxes. Slices on an arc are offset
+            // diagonally, so two circles a comfortable 50px apart still have
+            // bounding boxes that clip corners — rejecting on that pushes the
+            // radius out past anything that fits and lands back in the
+            // degraded branch this was written to avoid.
+            if (j > i && Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) < ICON + 2) return false;
           }
         }
         return true;
@@ -2473,23 +2497,30 @@
       const vh = window.innerHeight || 844;
       const onScreen = (pts) => pts.every(p => p.y - 48 >= EDGE && p.y + 48 <= vh - EDGE);
 
-      // Upward only. A downward flip was written for triggers sitting too
-      // close to the top of the screen for a fan above them, and then no such
-      // trigger turned out to exist: the dock is pinned to the bottom, and the
-      // workout screen scrolls inside itself, so the set row's "···" never
-      // rises past ~250px. An unreachable branch is an untested one, so it is
-      // gone. The bounds check below still refuses an arc that would not fit,
-      // which is what would surface the need for it.
+      // Up first, always: a menu that covers the control you just pressed is
+      // worse than one above it, and every trigger that existed when this was
+      // written sat low enough for a fan above it to fit.
+      //
+      // The downward flip is back, and this time there is something that needs
+      // it. The body-part dial lives at the TOP of the picker screen with
+      // seven spokes; no upward arc both clears the status bar and keeps the
+      // circles off each other, so it used to fall through to the degraded
+      // branch and hand back an arc with two slices stacked. Trying down only
+      // after up has failed keeps every existing menu exactly where it was.
       const base = opts.radius || 114;
-      for (let k = 1; k <= 2.4; k += 0.08) {
-        const pts = build(base * k, -1);
-        if (pts && onScreen(pts) && legible(pts)) return pts;
+      for (const vs of [-1, 1]) {
+        for (let k = 1; k <= 2.4; k += 0.08) {
+          const pts = build(base * k, vs);
+          if (pts && onScreen(pts) && legible(pts)) return pts;
+        }
       }
-      // Nothing fully legible fits; take the widest arc that is still on
-      // screen rather than refusing to open.
-      for (let k = 2.4; k >= 0.8; k -= 0.1) {
-        const pts = build(base * k, -1);
-        if (pts && onScreen(pts)) return pts;
+      // Nothing fully legible fits either way; take the widest arc that is
+      // still on screen rather than refusing to open.
+      for (const vs of [-1, 1]) {
+        for (let k = 2.4; k >= 0.8; k -= 0.1) {
+          const pts = build(base * k, vs);
+          if (pts && onScreen(pts)) return pts;
+        }
       }
       return build(base, -1) || [];
     }
@@ -2498,14 +2529,16 @@
       if (open) return;
       hideHint();
       const overlay = el("div", {
-        class: "radial-overlay", "data-testid": "radial-overlay",
+        class: "radial-overlay" + (opts.compact ? " radial-compact" : ""), "data-testid": "radial-overlay",
         role: "menu", "aria-label": opts.label || "Quick actions"
       });
       const scrim = el("div", { class: "radial-scrim" });
       overlay.appendChild(scrim);
 
       const slices = [];
-      layout(cx, cy).forEach(({ item: it, x, y }) => {
+      const items = itemsOf();
+      if (!items.length) return;
+      layout(cx, cy, items).forEach(({ item: it, x, y }) => {
         const btn = el("button", {
           class: "radial-slice", type: "button", role: "menuitem",
           "data-testid": `radial-${it.key}`,
@@ -2577,6 +2610,17 @@
       moved = false;
       startX = e.clientX; startY = e.clientY;
       clearTimer();
+      // A radial that IS the primary way to choose must not cost a 420ms hold.
+      // Hold is the right price for a shortcut nobody has to find; charging it
+      // for the main path makes the app feel slow and makes the menu invisible
+      // to anyone who was not told. Opened synchronously rather than on a 0ms
+      // timer, so a quick tap cannot cancel it before it fires.
+      if (opts.press) {
+        const r0 = trigger.getBoundingClientRect();
+        openMenu(r0.left + r0.width / 2, r0.top + r0.height / 2);
+        try { trigger.setPointerCapture(e.pointerId); } catch (_) {}
+        return;
+      }
       hintTimer = setTimeout(showHint, RADIAL_HINT_MS);
       timer = setTimeout(() => {
         timer = null;
@@ -2626,6 +2670,17 @@
     }, true);
     // Desktop and Android raise their own menu on a long press.
     trigger.addEventListener("contextmenu", (e) => e.preventDefault());
+
+    // A handle, so a menu with a second level can reopen itself on the same
+    // trigger instead of needing a second hidden one to hang off.
+    return {
+      open: () => {
+        const r = trigger.getBoundingClientRect();
+        if (open) close();
+        openMenu(r.left + r.width / 2, r.top + r.height / 2);
+      },
+      close
+    };
   }
 
   // ============ Stats shell (Trends | History) ============
@@ -4646,6 +4701,7 @@
         allowCustom: true,
         customImmediate: false,
         wheel: true,
+        dial: true,
         initialCat,
         onConfirm: async (items) => {
           const exercises = [];
@@ -9453,6 +9509,10 @@
   // with the worked region highlighted in accent. Lightweight (inline SVG) so
   // it scales to long lists.
   function exerciseFigureIcon(category) {
+    return el("span", { class: "xrow-fig", html: exerciseFigureSvg(category) });
+  }
+
+  function exerciseFigureSvg(category) {
     const accent = ({
       chest: ["torsoU"],
       back: ["torsoU"],
@@ -9477,8 +9537,14 @@
       '<rect class="xfig-base' + on("legL") + '" x="16" y="30" width="4" height="10" rx="2"/>' +
       '<rect class="xfig-base' + on("legR") + '" x="24" y="30" width="4" height="10" rx="2"/>' +
       '</svg>';
-    return el("span", { class: "xrow-fig", html: svg });
+    return svg;
   }
+
+  // The dial's spokes. Six body parts people actually think in, and a spoke
+  // for everything that is not one. Mobility, cardio and boxing are not body
+  // parts, and putting all nine on one wheel is past the number a radial can
+  // label without the words fighting each other.
+  const DIAL_PRIMARY = ["chest", "back", "shoulders", "arms", "legs", "core"];
 
   // Multi-select exercise picker: chip filters + a grouped, scrollable list of
   // exercise cards. Tap cards to add/remove; a sticky CTA confirms the batch.
@@ -9498,7 +9564,8 @@
       header = null,
       allowCustom = true,
       customImmediate = false,
-      wheel: isWheel = false
+      wheel: isWheel = false,
+      dial: useDial = false
     } = opts;
     const existing = opts.existingIds instanceof Set ? opts.existingIds : new Set(opts.existingIds || []);
     const selected = new Map(); // id -> { id, name }
@@ -9525,6 +9592,83 @@
     const cats = [...known, ...extra];
     let activeCat = cats[0] || null;
     let pager = null; // the horizontal scroll-snap container (null while searching)
+    let gearFilter = null; // null = show everything
+
+    // ---- the body-part dial ----------------------------------------------
+    // Choosing what to train is a two-level tree — body part, then movement —
+    // and the first level is the one people already hold in their heads
+    // spatially. A dial makes it a direction instead of a target in a list.
+    //
+    // Only the first level. `legs` alone has 19 exercises and a radial tops
+    // out around eight before the labels start covering each other, so the
+    // second level stays the wheel it already was.
+    const dialBtn = useDial ? el("button", {
+      class: "xdial", type: "button", "data-testid": "xpick-dial",
+      "aria-label": "Choose a body part"
+    }) : null;
+
+    let dialLevel = 0; // 0 = body parts, 1 = everything that is not one
+    function dialItems() {
+      const spoke = (c) => ({
+        key: `cat-${c}`, label: catLabel(c), icon: exerciseFigureSvg(c),
+        onPick: () => { dialLevel = 0; scrollToCat(c); }
+      });
+      const primary = DIAL_PRIMARY.filter(c => cats.includes(c));
+      const rest = cats.filter(c => !DIAL_PRIMARY.includes(c));
+      if (dialLevel === 1) {
+        return [...rest.map(spoke), {
+          key: "cat-back", label: "Back", icon: icons.chevronLeft || icons.close || "←",
+          onPick: () => { dialLevel = 0; setTimeout(() => dialCtl && dialCtl.open(), 0); }
+        }];
+      }
+      if (!rest.length) return primary.map(spoke);
+      return [...primary.map(spoke), {
+        key: "cat-more", label: "More", icon: icons.dots || icons.plus,
+        // A second dial rather than nine crowded spokes on the first.
+        onPick: () => { dialLevel = 1; setTimeout(() => dialCtl && dialCtl.open(), 0); }
+      }];
+    }
+
+    function renderDial() {
+      if (!dialBtn) return;
+      clear(dialBtn);
+      const c = activeCat;
+      const n = all.filter(e => e.category === c && matchesGear(e)).length;
+      dialBtn.appendChild(el("span", { class: "xdial-fig", html: exerciseFigureSvg(c) }));
+      dialBtn.appendChild(el("span", { class: "xdial-text" },
+        el("span", { class: "xdial-label", "data-testid": "xdial-label" }, catLabel(c) || "Choose"),
+        el("span", { class: "xdial-sub" }, `${n} exercise${n === 1 ? "" : "s"} · press to change`)
+      ));
+      dialBtn.appendChild(el("span", { class: "xdial-caret" }, "▾"));
+    }
+    const dialCtl = dialBtn ? attachRadial(dialBtn, {
+      press: true, label: "Choose a body part", sweep: 78, compact: true,
+      items: () => dialItems()
+    }) : null;
+
+    // ---- kit filter -------------------------------------------------------
+    // Derived from the whole library rather than the open category, so the row
+    // does not reshuffle under your thumb every time you swipe a card.
+    const gearsPresent = GEAR_ORDER.filter(g => all.some(e => (e.gear || []).includes(g)));
+    const hasBodyweight = all.some(e => !(e.gear || []).length);
+    function matchesGear(e) {
+      if (!gearFilter) return true;
+      if (gearFilter === "bodyweight") return !(e.gear || []).length;
+      return (e.gear || []).includes(gearFilter);
+    }
+    const gearRow = useDial ? el("div", { class: "xpick-gear", "data-testid": "xpick-gear" }) : null;
+    function renderGear() {
+      if (!gearRow) return;
+      clear(gearRow);
+      const chip = (val, label) => el("button", {
+        class: "xgear-chip" + (gearFilter === val ? " active" : ""),
+        type: "button", "data-testid": `xgear-${val || "all"}`,
+        on: { click: () => { gearFilter = gearFilter === val ? null : val; renderGear(); renderContent(); renderDial(); } }
+      }, label);
+      gearRow.appendChild(chip(null, "Any kit"));
+      if (hasBodyweight) gearRow.appendChild(chip("bodyweight", "Bodyweight"));
+      for (const g of gearsPresent) gearRow.appendChild(chip(g, GEAR_META[g] || g));
+    }
 
     function onCustomCreated(ex) {
       if (customImmediate) { onConfirm([{ id: ex.id, name: ex.name }]); return; }
@@ -9591,6 +9735,7 @@
         dot.classList.toggle("active", dot.getAttribute("data-cat") === activeCat);
       }
       updateFigure();
+      renderDial();
     }
 
     function panelForCat(c) {
@@ -9693,10 +9838,10 @@
     // Flat, grouped results while searching (spans every category).
     function renderSearch(q) {
       const results = el("div", { class: "xpick-results" });
-      const matches = all.filter(ex =>
+      const matches = all.filter(ex => matchesGear(ex) && (
         ex.name.toLowerCase().includes(q) ||
         (ex.muscles || []).some(m => m.toLowerCase().includes(q)) ||
-        (ex.equipment || "").toLowerCase().includes(q));
+        (ex.equipment || "").toLowerCase().includes(q)));
       if (!matches.length) {
         results.appendChild(el("div", { class: "text-sm text-faint", style: "padding: 16px 4px" }, "No exercises found."));
         return results;
@@ -9724,8 +9869,11 @@
     function buildPager() {
       const p = el("div", { class: "xpick-pager", "data-testid": "xpick-pager" });
       for (const c of cats) {
-        const items = all.filter(e => e.category === c);
-        const list = el("div", { class: "xpick-panel-list" + (isWheel ? " is-wheel" : "") }, ...items.map(rowFor));
+        const items = all.filter(e => e.category === c && matchesGear(e));
+        const list = el("div", { class: "xpick-panel-list" + (isWheel ? " is-wheel" : "") },
+          items.length ? null : el("div", { class: "text-sm text-faint", style: "padding:24px 8px;text-align:center" },
+            "Nothing here needs only that kit."),
+          ...items.map(rowFor));
         if (isWheel) {
           let lraf = null;
           list.addEventListener("scroll", () => { if (lraf) return; lraf = requestAnimationFrame(() => { lraf = null; magnifyList(list); }); }, { passive: true });
@@ -9765,12 +9913,16 @@
         chipRow.style.display = "none";
         catFigure.style.display = "none";
         dotsRow.style.display = "none";
+        // Search spans every category, so the dial has nothing to say about
+        // what you are looking at.
+        if (dialBtn) dialBtn.style.display = "none";
         pager = null;
         content.appendChild(renderSearch(q));
         return;
       }
       chipRow.style.display = "";
       catFigure.style.display = "";
+      if (dialBtn) dialBtn.style.display = "";
       if (!cats.length) {
         dotsRow.style.display = "none";
         pager = null;
@@ -9815,13 +9967,17 @@
       header.subtitle ? el("div", { class: "xpick-subtitle" }, header.subtitle) : null
     ) : null;
 
-    const body = el("div", { class: "xpick xpick-multi" },
-      headerEl, searchI, catFigure, chipRow, content, dotsRow, footer
+    const body = el("div", { class: "xpick xpick-multi" + (useDial ? " has-dial" : "") },
+      headerEl, searchI,
+      // The dial is the front door; the chip row stays because "go somewhere
+      // else without going back through the dial" was a requirement, not a
+      // fallback. The figure is redundant once the dial carries one.
+      dialBtn, gearRow, useDial ? null : catFigure, chipRow, content, dotsRow, footer
     );
 
     let didInitialScroll = false;
     function refresh() {
-      renderChips(); renderDots(); renderContent(); updateCta();
+      renderGear(); renderChips(); renderDots(); renderContent(); updateCta(); renderDial();
       // Optionally open on a specific category (e.g. a focus day's "Start").
       if (!didInitialScroll && opts.initialCat && cats.includes(opts.initialCat)) {
         didInitialScroll = true;

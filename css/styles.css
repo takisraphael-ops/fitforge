@@ -1870,6 +1870,44 @@ input:disabled.input,
   color: var(--text-muted);
 }
 
+/* ============ Body-part dial ============
+   The front door to choosing an exercise. It is a button rather than a hidden
+   gesture because it is the primary path: press opens the wheel of body parts,
+   and the chip row underneath is still there for going sideways. */
+.xdial {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  min-height: 64px; padding: 12px 16px; margin-bottom: 10px;
+  border-radius: 16px; cursor: pointer; text-align: left;
+  background: var(--bg-elev); border: 1px solid var(--border); color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 120ms ease, border-color 160ms ease;
+}
+.xdial:active { transform: scale(0.99); border-color: var(--accent); }
+.xdial-fig { display: flex; width: 34px; height: 34px; flex: 0 0 auto; }
+.xdial-fig .xfig-svg { width: 100%; height: 100%; }
+.xdial-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.xdial-label {
+  font-size: 17px; font-weight: 800; letter-spacing: -0.01em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.xdial-sub { font-size: 12px; font-weight: 600; color: var(--text-faint); }
+.xdial-caret { font-size: 14px; color: var(--text-faint); flex: 0 0 auto; }
+
+/* Kit filter. Derived from the whole library so the row does not reshuffle
+   under your thumb each time you swipe to the next category. */
+.xpick-gear {
+  display: flex; gap: 6px; overflow-x: auto; margin-bottom: 10px;
+  padding-bottom: 2px; scrollbar-width: none;
+}
+.xpick-gear::-webkit-scrollbar { display: none; }
+.xgear-chip {
+  flex: 0 0 auto; padding: 7px 12px; border-radius: 999px; cursor: pointer;
+  font-size: 12px; font-weight: 700; white-space: nowrap;
+  background: transparent; border: 1px solid var(--border); color: var(--text-muted);
+  -webkit-tap-highlight-color: transparent;
+}
+.xgear-chip.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
 /* Delta slices show the number they will produce, so the icon carries the
    nudge and the label carries the result. */
 .radial-num {
@@ -3121,6 +3159,13 @@ input:disabled.input,
    flat shape — 31x12 of a 48 viewBox — so it needs the extra size more than
    the bowl does before it stops reading as a bar. */
 .radial-slice-ic svg { width: 34px; height: 34px; overflow: visible; }
+/* A wheel with more spokes than fit at full size. Six 64px circles are the
+   most a 390px screen holds in one arc; past that the slices shrink rather
+   than the menu silently degrading into a row of overlapping circles. 48px is
+   still comfortably over the 44px touch minimum. */
+.radial-compact .radial-slice-ic { width: 48px; height: 48px; }
+.radial-compact .radial-slice-ic svg { width: 26px; height: 26px; }
+.radial-compact .radial-slice-label { font-size: 11px; }
 .radial-slice-label {
   font-size: 11.5px; font-weight: 700; letter-spacing: 0.02em;
   color: var(--text-muted); white-space: nowrap;
