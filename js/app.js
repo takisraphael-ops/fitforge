@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=235").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=236").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -5100,11 +5100,18 @@
         const steps = buildCircuitSteps(exs, spec, byId);
         const mins = Math.round(steps.reduce((a, st) => a + st.sec, 0) / 60);
         const rounds = spec.rounds || 1;
+        // A scored format has no round count to advertise — that is the thing
+        // being measured. Falling through to the generic line printed
+        // "1 rounds · 3 stations" on a twenty-minute AMRAP.
+        const scoredSub = spec.mode === "amrap"
+          ? `As many rounds as possible · ${exs.length} stations · ${mins} min cap`
+          : `For time · ${exs.length} stations · ${mins} min cap`;
         cta = {
-          title: "Run this circuit",
-          sub: spec.mode === "emom"
-            ? `${rounds} rounds · every ${spec.slotSec || 60}s on the minute · ~${mins} min`
-            : `${rounds} rounds · ${exs.length} stations · ~${mins} min`,
+          title: w.score ? "Run it again" : "Run this circuit",
+          sub: SCORED_MODES[spec.mode] ? scoredSub
+            : (spec.mode === "emom"
+              ? `${rounds} rounds · every ${spec.slotSec || 60}s on the minute · ~${mins} min`
+              : `${rounds} rounds · ${exs.length} stations · ~${mins} min`),
           testid: "start-circuit",
           go: () => openCircuitRun(w)
         };
@@ -5123,6 +5130,12 @@
           };
         }
       }
+
+      // A scored run's whole output is one number, and it does not appear in
+      // the set rows. Without this the screen looks identical before and
+      // after: you finish a twenty-minute AMRAP, a toast goes by, and nothing
+      // on the page says it was recorded.
+      if (w.score) screen.appendChild(scoreCard(w.score));
 
       if (cta) {
         screen.appendChild(el("div", { class: "flow-cta", "data-testid": "flow-cta" },
@@ -8402,7 +8415,24 @@
   // logs its seconds. It does NOT determine how many reps you managed, so a
   // rep exercise is marked done at the prescribed count and flagged — the
   // number is the prescription, not a count, and the row says so.
+  /** Scored formats have no per-station timeline: the clock runs once over the
+      whole thing and you are the one counting. So they collapse to a single
+      capped window and the score comes from the runner's tally, not from
+      where the clock happens to be. */
+  const SCORED_MODES = { amrap: true, fortime: true };
+
   function buildCircuitSteps(exercises, spec, byId) {
+    if (SCORED_MODES[spec.mode]) {
+      const cap = Math.max(60, spec.capSec || 1200);
+      // The label sits directly above the big number, so it should say what
+      // that number is. Naming the format there instead just repeats the
+      // title bar and leaves the clock unexplained — which matters here,
+      // because one of these two counts down and the other counts up.
+      return [{
+        sec: cap, work: true, intensity: "hard",
+        label: spec.mode === "amrap" ? "Time left" : "Elapsed"
+      }];
+    }
     const rounds = Math.max(1, spec.rounds || 1);
     const emom = spec.mode === "emom";
     const slot = spec.slotSec || 60;
@@ -8453,9 +8483,27 @@
     return openGuidedRun({
       title: w.name || "Circuit",
       steps,
+      scoring: SCORED_MODES[spec.mode] ? spec.mode : null,
+      rounds: w.flowRounds || 0,
+      onRounds: (n) => { w.flowRounds = n; Storage.saveWorkout(w).catch(() => {}); },
       resume: opts.resume,
       onPersist: (p) => { w.flowRun = p; Storage.saveWorkout(w).catch(() => {}); },
       onFinish: async (summary) => {
+        // A scored format's artefact is the score. Rounds are not sets, and
+        // inventing set rows from "rounds × the prescription" would record
+        // reps nobody counted — so the score is stored and the set list is
+        // left for you to fill in if you want it.
+        if (summary.score) {
+          w.score = summary.score;
+          w.flowRun = null;
+          w.flowRounds = 0;
+          await Storage.saveWorkout(w);
+          renderMain();
+          toast(summary.score.mode === "amrap"
+            ? `Logged ${summary.score.rounds} round${summary.score.rounds === 1 ? "" : "s"}`
+            : `Logged ${U.formatTime(Math.round(summary.score.elapsedSec))}`);
+          return;
+        }
         let prescribedCount = 0;
         for (const res of summary.sets) {
           const ref = res.ref;
@@ -8601,6 +8649,44 @@
     const sideTag = el("div", { class: "ivr-side", "data-testid": "ivr-side" }, "");
     const nextUp = el("div", { class: "ivr-next", "data-testid": "ivr-next" }, "");
     const totals = el("div", { class: "ivr-totals", "data-testid": "ivr-totals" }, "");
+
+    // ---- scored formats -------------------------------------------------
+    // AMRAP counts what you did inside a fixed window; For Time counts how
+    // long a fixed amount of work took. Neither is a timeline the runner can
+    // walk on your behalf, so the clock is the only thing it owns and the
+    // tally belongs to you.
+    const scoring = cfg.scoring || null;
+    // Seeded from storage, not from zero. A twenty-minute AMRAP is long enough
+    // for a phone call, and the runner's own position already survives that \u2014
+    // a tally that did not would come back reading zero after eight rounds,
+    // which is worse than not counting at all.
+    let rounds = Math.max(0, Math.round(cfg.rounds || 0));
+    const tally = el("div", { class: "ivr-tally", "data-testid": "ivr-tally" });
+    const tallyNum = el("div", { class: "ivr-tally-num", "data-testid": "ivr-tally-num" }, String(rounds));
+    const setRounds = (n) => {
+      rounds = Math.max(0, n);
+      tallyNum.textContent = String(rounds);
+      if (cfg.onRounds) cfg.onRounds(rounds);
+    };
+    const roundBtn = el("button", {
+      class: "btn btn-primary ivr-round", type: "button", "data-testid": "ivr-round",
+      on: { click: () => {
+        setRounds(rounds + 1);
+        announce(`Round ${rounds}`);
+        try { if (navigator.vibrate) navigator.vibrate(20); } catch (_) {}
+      } }
+    }, "+ Round");
+    const undoBtn = el("button", {
+      class: "btn btn-sm ivr-round-undo", type: "button", "data-testid": "ivr-round-undo",
+      title: "Remove the last round", "aria-label": "Remove the last round",
+      on: { click: () => { if (rounds > 0) { setRounds(rounds - 1); announce(`${rounds} round${rounds === 1 ? "" : "s"}`); } } }
+    }, "\u2212");
+    if (scoring === "amrap") {
+      tally.appendChild(el("div", { class: "ivr-tally-label" }, "ROUNDS"));
+      tally.appendChild(tallyNum);
+      tally.appendChild(el("div", { class: "ivr-tally-row" }, undoBtn, roundBtn));
+    }
+
     const strip = el("div", { class: "ivl-plan ivr-plan" });
     const segs = steps.map(st => {
       const s = el("div", {
@@ -8617,7 +8703,11 @@
 
     const pauseBtn = el("button", { class: "rest-btn rest-btn-primary", type: "button", "data-testid": "ivr-pause" }, "Pause");
     const skipBtn = el("button", { class: "rest-btn", type: "button", "data-testid": "ivr-skip" }, "Skip");
-    const endBtn = el("button", { class: "rest-btn ivr-end", type: "button", "data-testid": "ivr-end" }, "End");
+    // On a timed plan, ending early is quitting. On a scored one it is how you
+    // record a result — For Time ends when the work is done, not when the cap
+    // runs out — so the button that does it should not read as abandoning.
+    const endBtn = el("button", { class: "rest-btn ivr-end", type: "button", "data-testid": "ivr-end" },
+      scoring ? "Finish" : "End");
 
     function paint(st) {
       if (st.done) {
@@ -8633,16 +8723,28 @@
         label.textContent = (st.step && st.step.label) || U.INTENSITY[st.step?.intensity]?.label || "Go";
         sideTag.textContent = st.side ? `Side ${st.side}` : "";
         sideTag.style.display = st.side ? "" : "none";
-        clock.textContent = U.formatTime(Math.ceil(st.remainInStep));
-        nextUp.textContent = st.nextStep
+        // For Time counts up: the elapsed figure is the score, so showing the
+        // cap draining is showing the wrong number.
+        clock.textContent = scoring === "fortime"
+          ? U.formatTime(Math.floor(st.elapsedSec))
+          : U.formatTime(Math.ceil(st.remainInStep));
+        // A scored run is one step, so there is no "next" — only "finish",
+        // which is not news and reads as a countdown that has already ended.
+        nextUp.textContent = scoring ? "" : (st.nextStep
           ? `Next: ${st.nextStep.label || U.INTENSITY[st.nextStep.intensity]?.label || ""} · ${U.formatTime(st.nextStep.sec)}`
-          : "Next: finish";
+          : "Next: finish");
       }
-      totals.textContent = `${U.formatTime(Math.ceil(st.remainTotal))} left of ${U.formatTime(st.totalSec)}`;
+      totals.textContent = scoring === "fortime"
+        ? `cap ${U.formatTime(st.totalSec)}`
+        : `${U.formatTime(Math.ceil(st.remainTotal))} left of ${U.formatTime(st.totalSec)}`;
       overlay.className = "ivr " + runnerStepClass(st) + (st.paused ? " is-paused" : "") +
         (st.step && st.step.work ? " is-work" : " is-rest");
       // Ring drains within the current step, so the visual matches the number.
-      const frac = st.step ? Math.max(0, Math.min(1, st.remainInStep / Math.max(1, st.step.sec))) : 0;
+      // Except on For Time, where the number counts up: a ring draining while
+      // the digits climb is two readings of the same clock disagreeing, so
+      // there it fills toward the cap instead.
+      let frac = st.step ? Math.max(0, Math.min(1, st.remainInStep / Math.max(1, st.step.sec))) : 0;
+      if (scoring === "fortime") frac = 1 - frac;
       ring.style.setProperty("--frac", String(frac));
       segs.forEach((sg, i) => {
         sg.classList.toggle("is-past", i < st.stepIndex || st.done);
@@ -8654,7 +8756,14 @@
       // per frame — paint runs continuously.
       if (st.step && st.stepIndex !== spokenStep) {
         spokenStep = st.stepIndex;
-        announce(`${st.step.label || (st.step.work ? "Work" : "Rest")} — ${Math.round(st.step.sec)} seconds`);
+        announce(scoring
+          // "Time left — 1200 seconds" is the step label read aloud, and it
+          // tells a screen reader nothing about how this run is scored or
+          // what it wants from them.
+          ? (scoring === "amrap"
+              ? `As many rounds as possible in ${U.formatDuration(st.step.sec)}. Add a round each time you finish one.`
+              : `For time. The clock is running, with a ${U.formatDuration(st.step.sec)} cap.`)
+          : `${st.step.label || (st.step.work ? "Work" : "Rest")} — ${Math.round(st.step.sec)} seconds`);
       }
     }
     let spokenStep = -1;
@@ -8665,6 +8774,16 @@
       if (closed) return;
       closed = true;
       releaseIvr();
+      if (scoring) {
+        summary.score = scoring === "amrap"
+          ? { mode: "amrap", rounds, capSec: Math.round(summary.totalSec || 0),
+              elapsedSec: Math.round(summary.elapsedSec || 0) }
+          : { mode: "fortime", elapsedSec: Math.round(summary.elapsedSec || 0),
+              capSec: Math.round(summary.totalSec || 0),
+              // Hitting the cap is a real outcome and a different one from
+              // finishing: "capped" is how every scoreboard records it.
+              capped: (summary.elapsedSec || 0) >= (summary.totalSec || 0) - 1 };
+      }
       overlay.remove();
       await cfg.onFinish(summary);
       if (!announce) return;
@@ -8695,8 +8814,18 @@
     });
     endBtn.addEventListener("click", async () => {
       if (!runner) return;
-      if (!(await confirmDialog("End this run and log what you've done so far?",
-        { title: "End run?", okLabel: "End and log" }))) return;
+      // "End" reads as abandoning it. On a scored format, stopping early is
+      // the normal way to finish — For Time ends when the work is done, not
+      // when the cap runs out.
+      const msg = scoring === "fortime"
+        ? "Stop the clock and log your time?"
+        : (scoring === "amrap"
+            ? `Finish here and log ${rounds} round${rounds === 1 ? "" : "s"}?`
+            : "End this run and log what you've done so far?");
+      if (!(await confirmDialog(msg, {
+        title: scoring ? "Finish?" : "End run?",
+        okLabel: scoring ? "Finish and log" : "End and log"
+      }))) return;
       const s = runner.stop();
       await finish(s);
     });
@@ -8712,8 +8841,14 @@
     ));
     overlay.appendChild(el("div", { class: "ivr-stage" }, ring,
       el("div", { class: "ivr-readout" }, label, clock, sideTag, nextUp)));
-    overlay.appendChild(strip);
-    overlay.appendChild(el("div", { class: "rest-actions ivr-actions" }, pauseBtn, skipBtn, endBtn));
+    if (scoring === "amrap") overlay.appendChild(tally);
+    // One capped window has nothing to draw a plan strip from.
+    if (!scoring) overlay.appendChild(strip);
+    // Skip advances past the current step. On a scored run there is only one
+    // step, so Skip is a button that silently ends the whole thing and files
+    // a score — no confirm, no way back. It has no meaning here; drop it.
+    overlay.appendChild(el("div", { class: "rest-actions ivr-actions" },
+      ...(scoring ? [pauseBtn, endBtn] : [pauseBtn, skipBtn, endBtn])));
     document.body.appendChild(overlay);
     overlay.setAttribute("aria-modal", "true");
     // Escape ends the run the same way the End button does — with the same
@@ -8866,15 +9001,38 @@
       - (run.pausedAt ? Date.now() - run.pausedAt : 0)) / 1000;
     if (elapsed >= total) {
       w.flowRun = null;
+      // A scored format that runs out of clock while the app is closed still
+      // has a result: the cap was reached. Throwing that away and asking for
+      // rounds would also throw away the rounds already tallied, which are
+      // the only part of an AMRAP the app cannot reconstruct.
+      if (SCORED_MODES[spec.mode]) {
+        const capSec = Math.round(total);
+        w.score = spec.mode === "amrap"
+          ? { mode: "amrap", rounds: w.flowRounds || 0, capSec, elapsedSec: capSec }
+          : { mode: "fortime", elapsedSec: capSec, capSec, capped: true };
+        w.flowRounds = 0;
+        await Storage.saveWorkout(w);
+        renderMain();
+        toast(spec.mode === "amrap"
+          ? `Time up — ${w.score.rounds} round${w.score.rounds === 1 ? "" : "s"} logged`
+          : `Time up — logged at the ${U.formatTime(capSec)} cap`);
+        return;
+      }
       await Storage.saveWorkout(w);
       renderMain();
       toast("Circuit finished while you were away — log your rounds");
       return;
     }
+    // Say the tally out loud before asking. "Discard" is destructive here in a
+    // way it is not on a timed circuit — it throws away a count nothing else
+    // recorded — so the dialog has to show what is at stake.
+    const tallied = spec.mode === "amrap" && (w.flowRounds || 0) > 0
+      ? ` ${w.flowRounds} round${w.flowRounds === 1 ? "" : "s"} counted so far.` : "";
     if (!(await confirmDialog(
-      `${w.name || "The circuit"} is ${U.formatTime(Math.round(elapsed))} in, with ${U.formatTime(Math.round(total - elapsed))} to go.`,
+      `${w.name || "The circuit"} is ${U.formatTime(Math.round(elapsed))} in, with ${U.formatTime(Math.round(total - elapsed))} to go.${tallied}`,
       { title: "Resume the circuit?", okLabel: "Resume", cancelLabel: "Discard" }))) {
       w.flowRun = null;
+      w.flowRounds = 0;
       await Storage.saveWorkout(w);
       renderMain();
       return;
@@ -13489,7 +13647,13 @@
             // Guarded like every other read of this list in the function: one
             // stored workout without an exercises array used to blank the whole
             // History tab, not just its own row.
-            `${(w.exercises || []).length} ${(w.exercises || []).length === 1 ? "exercise" : "exercises"} · ${totalSets} ${totalSets === 1 ? "set" : "sets"}${volBit}${burnBit} · ${U.formatDuration(w.durationSec)}`)
+            // A scored session leads with its score. Counting sets and volume
+            // for an AMRAP describes the prescription, not the result — the
+            // row would read "5 exercises · 5 sets" for a twenty-minute effort
+            // whose entire point was the number of rounds.
+            (w.score
+              ? `${scoreLine(w.score)} · ${(w.exercises || []).length} ${(w.exercises || []).length === 1 ? "exercise" : "exercises"}${burnBit} · ${U.formatDuration(w.durationSec)}`
+              : `${(w.exercises || []).length} ${(w.exercises || []).length === 1 ? "exercise" : "exercises"} · ${totalSets} ${totalSets === 1 ? "set" : "sets"}${volBit}${burnBit} · ${U.formatDuration(w.durationSec)}`))
         ),
         el("button", {
           class: "icon-btn history-repeat", type: "button",
@@ -13618,6 +13782,30 @@
   // Past-session detail. Everything here is editable: a session you logged
   // last week is as correctable as one you logged five minutes ago, so this is
   // the same view whether you are reviewing or fixing.
+  /** A scored result in one phrase, for a list row. */
+  function scoreLine(score) {
+    if (score.mode === "amrap") {
+      return `${score.rounds} round${score.rounds === 1 ? "" : "s"} in ${U.formatTime(score.capSec)}`;
+    }
+    return U.formatTime(score.elapsedSec) + (score.capped ? " (capped)" : "");
+  }
+
+  /** A finished scored session, in the terms it was scored in. */
+  function scoreCard(score) {
+    const amrap = score.mode === "amrap";
+    return el("div", { class: "score-card", "data-testid": "score-card", "data-mode": score.mode },
+      el("div", { class: "score-label" }, amrap ? "ROUNDS COMPLETED" : "TIME"),
+      el("div", { class: "score-value", "data-testid": "score-value" },
+        amrap ? String(score.rounds) : U.formatTime(score.elapsedSec)),
+      el("div", { class: "score-sub" },
+        amrap
+          ? `in ${U.formatTime(score.capSec)}`
+          // Reaching the cap is not the same result as finishing, and a bare
+          // time that happens to equal the cap hides which one happened.
+          : (score.capped ? `capped at ${U.formatTime(score.capSec)}` : `under the ${U.formatTime(score.capSec)} cap`))
+    );
+  }
+
   function openWorkoutDetail(w) {
     // Work on a copy; nothing is written until a change is actually made.
     const draft = JSON.parse(JSON.stringify(w));
@@ -13748,6 +13936,12 @@
         el("span", { class: "text-sm text-muted" },
           U.formatDuration(draft.durationSec) + (burned > 0 ? ` · ≈ ${burned} kcal` : ""))
       ));
+
+      // —— the score, where the session had one ——
+      // A scored session's result is the whole point of it and does not live
+      // in the set rows, so it gets its own line rather than being inferable
+      // from a duration that happens to equal the cap.
+      if (draft.score) body.appendChild(scoreCard(draft.score));
 
       // —— name ——
       const nameI = el("input", {

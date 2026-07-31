@@ -6606,3 +6606,31 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
 /* What the library does not have. Sits with the blurb rather than under it,
    because a caveat in its own block reads as a warning. */
 .disc-missing { color: var(--text-faint); }
+
+/* ============ Scored formats (AMRAP / For Time) ============ */
+.ivr-tally { text-align: center; margin: 4px 0 10px; }
+.ivr-tally-label {
+  font-size: 11px; font-weight: 800; letter-spacing: .14em;
+  color: var(--text-faint); margin-bottom: 2px;
+}
+.ivr-tally-num {
+  font-family: var(--font-numeric); font-size: 60px; font-weight: 800; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.ivr-tally-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; }
+/* The round button is the one thing a finger reaches for mid-effort, so it is
+   sized for a tired hand rather than for the layout. */
+.ivr-round { min-width: 168px; min-height: 56px; font-size: 17px; font-weight: 800; }
+.ivr-round-undo { min-width: 48px; min-height: 48px; font-size: 20px; line-height: 1; }
+
+.score-card {
+  margin: 12px 0; padding: 14px 16px; text-align: center;
+  border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--bg-sunken);
+}
+.score-label { font-size: 11px; font-weight: 800; letter-spacing: .14em; color: var(--text-faint); }
+.score-value {
+  font-family: var(--font-numeric); font-size: 40px; font-weight: 800; line-height: 1.1;
+  font-variant-numeric: tabular-nums; margin-top: 2px;
+}
+.score-sub { font-size: 12.5px; color: var(--text-muted); margin-top: 3px; }

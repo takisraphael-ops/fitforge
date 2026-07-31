@@ -169,6 +169,41 @@ window.PRESET_SESSIONS = (function () {
     }]
   });
 
+  // ---- scored formats ----------------------------------------------------
+  // The two ways a conditioning session gets a number attached to it. AMRAP
+  // fixes the clock and counts your rounds; For Time fixes the work and
+  // counts the clock. Both need the runner's scoring mode, not a timeline —
+  // there is no per-station schedule to walk when you set the pace.
+  S.push({
+    id: "preset-amrap-20",
+    name: "20-Minute AMRAP",
+    preset: true, pillar: "conditioning", venue: ["gym", "home"],
+    circuit: { mode: "amrap", capSec: 20 * 60 },
+    desc: "20 min · as many rounds as possible",
+    detail: "Five pull-ups, ten push-ups, fifteen squats. Repeat for twenty minutes and count the rounds — tap the button each time you finish one. Pace it: the first five minutes should feel too easy.",
+    exercises: [
+      { exerciseId: "pull-up", name: "Pull-Up", targetSets: 1, targetReps: 5 },
+      { exerciseId: "push-up", name: "Push-Up", targetSets: 1, targetReps: 10 },
+      { exerciseId: "box-squat-bodyweight", name: "Box Squat (Bodyweight)", targetSets: 1, targetReps: 15 }
+    ]
+  });
+
+  S.push({
+    id: "preset-fortime-500",
+    name: "For Time · 500 Reps",
+    preset: true, pillar: "conditioning", venue: ["gym", "home"],
+    circuit: { mode: "fortime", capSec: 30 * 60 },
+    desc: "Fixed work · stop the clock",
+    detail: "One hundred of each, broken into whatever sets you like, in any order you like. The clock runs until you stop it. Thirty-minute cap — hitting it is a result too, and it is recorded as one.",
+    exercises: [
+      { exerciseId: "push-up", name: "Push-Up", targetSets: 1, targetReps: 100 },
+      { exerciseId: "box-squat-bodyweight", name: "Box Squat (Bodyweight)", targetSets: 1, targetReps: 100 },
+      { exerciseId: "burpee", name: "Burpee", targetSets: 1, targetReps: 100 },
+      { exerciseId: "hanging-leg-raise", name: "Hanging Leg Raise", targetSets: 1, targetReps: 100 },
+      { exerciseId: "lunge-walking", name: "Walking Lunge", targetSets: 1, targetReps: 100 }
+    ]
+  });
+
   S.push({
     id: "preset-sled-carry",
     name: "Sled & Carry Circuit",
