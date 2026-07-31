@@ -38,6 +38,7 @@ const SUITES = [
   { name: 'a11y', file: 'a11y.js', needsServer: true },
   { name: 'progression', file: 'progression.js', needsServer: true },
   { name: 'exercise-links', file: 'exercise-links.js', needsServer: true },
+  { name: 'disciplines', file: 'disciplines.js', needsServer: true },
   { name: 'dial', file: 'dial.js', needsServer: true },
   { name: 'robustness', file: 'robustness.js', needsServer: true },
   { name: 'import', file: 'import.js', needsServer: true },

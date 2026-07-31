@@ -1,6 +1,6 @@
 // Service Worker — network-first for app code so bug fixes propagate, cache-first for icons/fonts
 // IMPORTANT: bump CACHE version whenever app JS/CSS/HTML changes materially so old clients recover.
-const CACHE = "fitforge-v234";
+const CACHE = "fitforge-v235";
 // Derived from CACHE, not hand-listed. This was pinned at ?v=156 while the app
 // shipped ?v=165 — and cache keys include the query string, so not one
 // precached script could ever serve a real request. The list and the version
@@ -11,7 +11,7 @@ const VERSIONED = [
   "./js/body-map.js", "./js/interval-runner.js", "./js/meal-search.js",
   "./js/diet-plan.js", "./js/progression.js", "./js/exercise-links.js",
   "./data/exercises.js", "./data/meals.js", "./data/sessions.js", "./data/learn.js",
-  "./data/diet-plans.js", "./data/progressions.js"
+  "./data/diet-plans.js", "./data/progressions.js", "./data/disciplines.js"
 ];
 // Never versioned: the font binaries are content-addressed by name and change
 // only if the typeface itself is replaced. styles.css references them without

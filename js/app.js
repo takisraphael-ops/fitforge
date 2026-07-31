@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=234").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=235").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -9770,6 +9770,49 @@
     }
     view.appendChild(filterRow);
 
+    // Discipline filter — a second axis, not a replacement. Muscle group is a
+    // body part and this is a way of training, so the two compose: "back" and
+    // "calisthenics" together is pull-ups and rows, which is a question the
+    // muscle chips alone cannot ask. Off by default; it narrows nothing until
+    // you pick one.
+    let activeDiscipline = null;
+    const discRow = el("div", { class: "filter-row disc-row", "data-testid": "discipline-row" });
+    const discNote = el("div", { class: "disc-note text-xs text-faint", "data-testid": "discipline-note" });
+    discNote.style.display = "none";
+    for (const d of (window.DISCIPLINES || [])) {
+      discRow.appendChild(el("button", {
+        class: "filter-chip disc-chip", type: "button",
+        "data-disc": d.id, "data-testid": "disc-" + d.id,
+        title: d.blurb, "aria-pressed": "false",
+        on: { click: (e) => {
+          activeDiscipline = activeDiscipline === d.id ? null : d.id;
+          for (const b of discRow.children) {
+            const on = b.getAttribute("data-disc") === activeDiscipline;
+            b.classList.toggle("active", on);
+            b.setAttribute("aria-pressed", on ? "true" : "false");
+          }
+          const sel = (window.DISCIPLINES || []).find((x) => x.id === activeDiscipline);
+          // The honest bit: say what the library does not cover, rather than
+          // letting nine Hyrox exercises imply Hyrox is nine exercises.
+          clear(discNote);
+          if (sel) {
+            discNote.appendChild(el("span", {}, sel.blurb));
+            if (sel.missing) discNote.appendChild(el("span", { class: "disc-missing" }, " " + sel.missing));
+          }
+          discNote.style.display = sel ? "" : "none";
+          refresh(true);
+        } }
+      }, d.label));
+    }
+    if ((window.DISCIPLINES || []).length) {
+      view.appendChild(discRow);
+      view.appendChild(discNote);
+    }
+    const disciplineIds = (id) => {
+      const d = (window.DISCIPLINES || []).find((x) => x.id === id);
+      return d ? new Set(d.exercises) : null;
+    };
+
     // Sort control — order the library by your training relationship.
     const SORTS = [
       { id: "az", label: "A–Z" },
@@ -9844,8 +9887,10 @@
     function refresh(stagger = false) {
       const q = searchInput.value.trim().toLowerCase();
       clear(grid);
+      const discSet = activeDiscipline ? disciplineIds(activeDiscipline) : null;
       const filtered = all.filter(ex => {
         if (!matchesActiveZone(ex)) return false;
+        if (discSet && !discSet.has(ex.id)) return false;
         if (!q) return true;
         return ex.name.toLowerCase().includes(q) ||
                (ex.muscles || []).some(m => m.toLowerCase().includes(q)) ||
