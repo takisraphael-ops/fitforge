@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=232").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=234").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -9937,6 +9937,37 @@
     refresh(true);
   }
 
+  /**
+   * One line of Variations or Alternatives — a link when the text names an
+   * exercise we actually hold, plain text otherwise.
+   *
+   * The plain ones are the majority and stay plain on purpose. "Landmine
+   * press" and "Ring dip" are real movements this library does not stock, and
+   * a link is a promise of somewhere to go; sending you to the nearest
+   * spelling would be a lie told six times over on the push-up page alone.
+   *
+   * A string that resolves to the exercise you are already reading is dropped
+   * back to plain text too — a list entry that reloads the current page reads
+   * as a broken link, which is exactly what it is.
+   */
+  function relatedItem(text, currentEx) {
+    const id = window.ExerciseLinks ? ExerciseLinks.resolve(text) : null;
+    const target = id && id !== currentEx.id
+      ? (window.EXERCISE_DB || []).find((e) => e.id === id)
+      : null;
+    if (!target) return el("li", {}, text);
+    return el("li", { class: "related-li" },
+      el("button", {
+        class: "related-link", type: "button",
+        "data-testid": "related-link", "data-target": target.id,
+        title: `Open ${target.name}`,
+        // openExerciseDetail takes an id, not the record. Passing the object
+        // finds nothing and silently opens no sheet at all.
+        on: { click: () => { closeModal(); openExerciseDetail(target.id); } }
+      }, text, el("span", { class: "related-chev", "aria-hidden": "true" }, "\u203a"))
+    );
+  }
+
   // ============ Movement ladders ============
   //
   // The Learning Centre has defined "Ladder" since it shipped and nothing
@@ -9973,7 +10004,7 @@
           "data-testid": "ladder-rung",
           "aria-current": isThis ? "step" : null,
           title: isThis ? "You are looking at this one" : `Open ${def ? def.name : row.exerciseId}`,
-          on: { click: () => { if (!isThis && def) { closeModal(); openExerciseDetail(def); } } }
+          on: { click: () => { if (!isThis && def) { closeModal(); openExerciseDetail(def.id); } } }
         },
           el("span", { class: "ladder-num" }, String(i + 1)),
           el("span", { class: "ladder-main" },
@@ -10210,12 +10241,12 @@
       // Variations
       ex.variations?.length ? el("div", { class: "detail-section" },
         el("h3", {}, "Variations"),
-        el("ul", { class: "detail-list bullet" }, ex.variations.map(v => el("li", {}, v)))
+        el("ul", { class: "detail-list bullet" }, ex.variations.map(v => relatedItem(v, ex)))
       ) : null,
       // Alternatives
       ex.alternatives?.length ? el("div", { class: "detail-section" },
         el("h3", {}, "Alternatives"),
-        el("ul", { class: "detail-list bullet" }, ex.alternatives.map(a => el("li", {}, a)))
+        el("ul", { class: "detail-list bullet" }, ex.alternatives.map(a => relatedItem(a, ex)))
       ) : null,
       // Recent history
       history.length ? el("div", { class: "detail-section" },

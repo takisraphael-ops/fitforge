@@ -6578,3 +6578,17 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
 .ladder-rung.is-blocked { border-style: dashed; }
 .ladder-rung.is-here { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent); }
 .ladder-foot { margin-top: 10px; line-height: 1.5; }
+
+/* ============ Linked variations & alternatives ============
+   Only the entries that go somewhere get the affordance. The rest stay as
+   plain bullets, because most of them name movements this library does not
+   have and a link would be a promise it cannot keep. */
+.related-li { list-style: none; margin-left: -1.1em; }
+.related-link {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  padding: 2px 0; cursor: pointer; background: none; border: 0;
+  font: inherit; color: var(--accent); text-align: left;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.related-link:hover { border-bottom-color: var(--accent); }
+.related-chev { font-size: 1.05em; line-height: 1; opacity: .75; }

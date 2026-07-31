@@ -277,6 +277,24 @@ try { fs.mkdirSync(SS, { recursive: true }); } catch (_) {}
   await page.waitForTimeout(1400);
   check('an uncharted exercise shows no ladder', !(await page.$('[data-testid="ladder-section"]')));
 
+  // Tapping a rung has to actually go there. openExerciseDetail takes an id,
+  // not the record, and passing the object opens nothing at all — silently.
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(600);
+  await page.evaluate(() => {
+    const s = [...document.querySelectorAll('input')].find((i) => /search/i.test(i.placeholder || ''));
+    s.value = 'pull-up'; s.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.waitForTimeout(900);
+  await page.evaluate(() => document.querySelector('[data-ex-id="pull-up"]')?.click());
+  await page.waitForTimeout(1400);
+  const titleBefore = await page.$eval('.modal-title', (e) => e.textContent.trim()).catch(() => '');
+  await page.evaluate(() => document.querySelector('[data-rung="dead-hang"]')?.click());
+  await page.waitForTimeout(1500);
+  const titleAfter = await page.$eval('.modal-title', (e) => e.textContent.trim()).catch(() => '');
+  check('tapping a rung opens that exercise',
+    titleBefore === 'Pull-Up' && titleAfter === 'Dead Hang', `${titleBefore} -> ${titleAfter || '(nothing)'}`);
+
   console.log('\nERRORS:', errs.length ? errs : 'none');
   console.log(`\n${fails} failing check${fails === 1 ? '' : 's'}`);
   await b.close();
