@@ -68,10 +68,20 @@ console.log('=== 0. the presets ===');
     check(`${s.id}: has a cap`, s.circuit.capSec >= 60, String(s.circuit.capSec));
     const dangling = s.exercises.filter((e) => !ids.has(e.exerciseId)).map((e) => e.exerciseId);
     check(`${s.id}: every exercise exists`, dangling.length === 0, dangling.join(', '));
-    // The prescription is the round. If it is not stated, "+ Round" counts
-    // an undefined unit and the stored number means nothing later.
-    check(`${s.id}: every exercise states its reps`,
-      s.exercises.every((e) => e.targetReps > 0));
+    // The prescription is what the score counts against. If a station does not
+    // state one, "+ Round" is counting an undefined unit and the stored number
+    // means nothing later.
+    //
+    // This asked for `targetReps > 0` while Cindy was the only scored session
+    // and every scored session was therefore rep-based. Fran is a rep ladder,
+    // Murph opens with a distance and the Hyrox stations are distances and
+    // timed grinds — all of them prescribed, none of them targetReps. The
+    // property was never "reps"; it was "nothing here is unprescribed".
+    const PRESCRIBED = (e) => e.targetReps > 0 ||
+      (Array.isArray(e.repScheme) && e.repScheme.length > 0 && e.repScheme.every((r) => r > 0)) ||
+      e.targetDistanceKm > 0 || e.targetSeconds > 0 || e.targetDurationMin > 0;
+    const vague = s.exercises.filter((e) => !PRESCRIBED(e)).map((e) => e.exerciseId);
+    check(`${s.id}: every exercise states a prescription`, vague.length === 0, vague.join(', '));
     check(`${s.id}: the detail explains how it is scored`,
       /round|clock|time/i.test(s.detail || ''), (s.detail || '').slice(0, 50));
   }

@@ -174,13 +174,18 @@ window.PRESET_SESSIONS = (function () {
   // fixes the clock and counts your rounds; For Time fixes the work and
   // counts the clock. Both need the runner's scoring mode, not a timeline —
   // there is no per-station schedule to walk when you set the pace.
+  // This is Cindy. It was shipped as a generic "20-Minute AMRAP" one commit
+  // ago, before the benchmarks went in — and then adding Cindy alongside it
+  // would have meant two identical sessions under two names. Renamed rather
+  // than duplicated. The id stays put so a session already in flight against
+  // it keeps resolving its circuit spec.
   S.push({
     id: "preset-amrap-20",
-    name: "20-Minute AMRAP",
+    name: "Cindy · 20-Minute AMRAP",
     preset: true, pillar: "conditioning", venue: ["gym", "home"],
     circuit: { mode: "amrap", capSec: 20 * 60 },
     desc: "20 min · as many rounds as possible",
-    detail: "Five pull-ups, ten push-ups, fifteen squats. Repeat for twenty minutes and count the rounds — tap the button each time you finish one. Pace it: the first five minutes should feel too easy.",
+    detail: "A CrossFit benchmark. Five pull-ups, ten push-ups, fifteen squats. Repeat for twenty minutes and count the rounds — tap the button each time you finish one. Pace it: the first five minutes should feel too easy. Twenty rounds is a strong score; ten is a real workout.",
     exercises: [
       { exerciseId: "pull-up", name: "Pull-Up", targetSets: 1, targetReps: 5 },
       { exerciseId: "push-up", name: "Push-Up", targetSets: 1, targetReps: 10 },
@@ -204,9 +209,87 @@ window.PRESET_SESSIONS = (function () {
     ]
   });
 
+  // ---- benchmark workouts -------------------------------------------------
+  // The named CrossFit workouts exist so a score means something across time
+  // and across people: "Fran in 6:12" is a sentence, "some thrusters" is not.
+  // That only works if the prescription is not quietly altered, so the reps
+  // and the order here are the standard ones.
+  //
+  // The Rx loads are named in the detail rather than pre-filled as targets.
+  // Fran is 43 kg for men and 30 kg for women as written, and pre-filling that
+  // for someone whose thruster is 30 kg turns a benchmark into a bad idea. The
+  // number belongs in the description, where it reads as the standard; the
+  // weight box stays yours.
   S.push({
+    id: "preset-fran",
+    name: "Fran",
+    preset: true, pillar: "conditioning", venue: ["gym"],
+    circuit: { mode: "fortime", capSec: 12 * 60 },
+    desc: "21-15-9 · thrusters and pull-ups",
+    detail: "The benchmark. Twenty-one thrusters, twenty-one pull-ups, then fifteen and fifteen, then nine and nine. Rx is 43 kg for men, 30 kg for women — scale it, and write down what you used, because the load is half of what the time means. Under five minutes is fast. It is meant to hurt in a way that is over quickly.",
+    exercises: [
+      { exerciseId: "thruster", name: "Thruster", repScheme: [21, 15, 9] },
+      { exerciseId: "pull-up", name: "Pull-Up", repScheme: [21, 15, 9] }
+    ]
+  });
+
+  S.push({
+    id: "preset-murph",
+    name: "Murph",
+    preset: true, pillar: "conditioning", venue: ["gym", "outdoors"],
+    circuit: { mode: "fortime", capSec: 75 * 60 },
+    desc: "2 × 1 mile · 100 / 200 / 300",
+    detail: "A mile, then a hundred pull-ups, two hundred push-ups, three hundred squats, then another mile. Almost everyone partitions the middle into twenty rounds of five, ten and fifteen — that is standard, not scaling. Rx adds a 20 lb vest; the app has no vest field, so note it in the session notes if you wore one. Expect 45 to 60 minutes without a vest.",
+    exercises: [
+      // Two sets of one mile, not one row of two: the runs bookend the session
+      // and are logged as the two separate efforts they are.
+      { exerciseId: "run", name: "Run", targetSets: 2, targetDistanceKm: 1.61, targetIntensity: "hard" },
+      { exerciseId: "pull-up", name: "Pull-Up", targetSets: 1, targetReps: 100 },
+      { exerciseId: "push-up", name: "Push-Up", targetSets: 1, targetReps: 200 },
+      { exerciseId: "box-squat-bodyweight", name: "Air Squat", targetSets: 1, targetReps: 300 }
+    ]
+  });
+
+  // ---- the Hyrox race -----------------------------------------------------
+  // Eight kilometres of running and eight stations, run alternately: 1 km,
+  // station, 1 km, station, and so on. The list below cannot interleave them —
+  // an exercise appears once — so the running is one entry of eight kilometre
+  // repeats and the order lives in the detail. For Time does not schedule
+  // anything anyway; it times what you do.
+  S.push({
+    id: "preset-hyrox-sim",
+    name: "Hyrox Simulation",
+    preset: true, pillar: "conditioning", venue: ["gym"],
+    circuit: { mode: "fortime", capSec: 120 * 60 },
+    desc: "8 km · 8 stations · one clock",
+    // Six of the eight stations are prescribed as a distance, and the app logs
+    // reps or seconds. The targets below are therefore estimates of what those
+    // distances cost — they are not the standard, and presenting them as if
+    // they were would quietly redefine the race. The real prescription is
+    // written out here, in the units the race uses.
+    detail: "The full race. Run 1 km, then a station, and repeat until all eight are done. In order: ski erg 1000 m, sled push 50 m, sled pull 50 m, burpee broad jumps 80 m, row 1000 m, farmer's carry 200 m, sandbag lunges 100 m, wall balls 100 reps. The station targets on the rows are rough estimates of what those distances take — the distances above are the actual standard, so log what you really did. The runs appear as eight one-kilometre efforts because a session lists each exercise once; do them where they belong. Ninety minutes is a respectable first attempt and the clock does not stop between stations.",
+    exercises: [
+      { exerciseId: "run", name: "Run", targetSets: 8, targetDistanceKm: 1, targetIntensity: "hard" },
+      { exerciseId: "ski-erg", name: "Ski Erg", targetSets: 1, targetDistanceKm: 1 },
+      { exerciseId: "sled-push", name: "Sled Push", targetSets: 1, targetSeconds: 90 },
+      { exerciseId: "sled-pull", name: "Sled Pull", targetSets: 1, targetSeconds: 120 },
+      { exerciseId: "burpee-broad-jump", name: "Burpee Broad Jump", targetSets: 1, targetReps: 40 },
+      { exerciseId: "rowing", name: "Rowing (Erg)", targetSets: 1, targetDistanceKm: 1 },
+      { exerciseId: "farmers-carry", name: "Farmer's Carry", targetSets: 1, targetSeconds: 120 },
+      { exerciseId: "sandbag-lunge", name: "Sandbag Lunge", targetSets: 1, targetReps: 100 },
+      { exerciseId: "wall-ball", name: "Wall Ball", targetSets: 1, targetReps: 100 }
+    ]
+  });
+
+  S.push({
+    // Named "Sled & Carry Circuit" until now, and there was never a sled in
+    // it — farmer's carry, swings and burpees. Harmless while the library had
+    // no sled at all; actively misleading now that it does, since the name
+    // promises a station this session does not contain. Renamed rather than
+    // rebuilt: adding a sled would make it need one, and hide a session that
+    // home users can currently do.
     id: "preset-sled-carry",
-    name: "Sled & Carry Circuit",
+    name: "Carry & Swing Circuit",
     preset: true, pillar: "conditioning", venue: ["gym", "home"],
     circuit: { rounds: 5, workSec: 45, transitionSec: 20, restSec: 60 },
     desc: "5 rounds · carries and swings",
@@ -905,7 +988,7 @@ window.PRESET_SESSIONS = (function () {
   // than failing, which is exactly the kind of quiet drift worth avoiding.
   const GEAR_ORDER = ["none", "band", "dumbbell", "kettlebell", "barbell", "pullup-bar",
     "dip-bars", "jump-rope", "ab-wheel", "machine", "cable", "cardio-machine",
-    "heavy-bag", "focus-pads"];
+    "sled", "sandbag", "med-ball", "heavy-bag", "focus-pads"];
 
   for (const s of S) {
     const needs = [];

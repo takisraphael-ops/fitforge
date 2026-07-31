@@ -3516,7 +3516,12 @@ input:disabled.input,
 /* ============ Round builder ============ */
 /* Sits above the minutes row on a boxing card: an offer, not a gate. Dashed,
    like the other "there is another way to do this" entry points. */
-.rb-cta {
+/* .btn.rb-cta, not .rb-cta: this is always rendered as `btn btn-block rb-cta`,
+   and `.btn-block { display: block }` sits ~950 lines further down the file.
+   Same specificity, later wins — so the column never applied and the label ran
+   straight into its own sub-label: "Set up intervals8 x 0:30 with a timer".
+   Two classes beats one, and it stays fixed wherever btn-block moves to. */
+.btn.rb-cta {
   display: flex; flex-direction: column; gap: 2px; align-items: center;
   margin: 0 0 10px; padding: 10px 12px;
   border: 1px dashed var(--border); background: transparent; cursor: pointer;

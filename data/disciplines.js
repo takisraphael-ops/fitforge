@@ -68,25 +68,31 @@ window.DISCIPLINES = [
     id: "crossfit",
     label: "CrossFit",
     blurb: "Olympic lifts, gymnastics and the conditioning movements benchmark workouts are built from.",
-    missing: "Benchmark workouts themselves (Fran, Cindy, Murph) need AMRAP and For Time scoring, which the circuit runner does not have yet.",
+    missing: "Fran, Cindy and Murph are in Sessions now. The Olympic lifts are here as single movements, but the complexes and the barbell cycling that benchmark workouts are really built on are not.",
     exercises: [
       "clean-power", "snatch", "clean-and-press", "thruster", "kettlebell-swing",
-      "burpee", "pull-up", "chin-up", "chest-to-bar-pull-up", "muscle-up",
-      "push-up",
+      "burpee", "burpee-broad-jump", "pull-up", "chin-up", "chest-to-bar-pull-up", "muscle-up",
+      "push-up", "wall-ball",
       "dips-chest", "box-squat-bodyweight", "squat-front", "squat-back",
       "deadlift-conventional", "ohp-barbell", "wall-handstand", "hanging-leg-raise",
-      "rowing", "run", "jump-rope", "farmers-carry", "kb-snatch"
+      "rowing", "ski-erg", "run", "jump-rope", "farmers-carry", "kb-snatch"
     ]
   },
 
   {
     id: "hyrox",
     label: "Hyrox",
-    blurb: "The running and the eight stations, as far as the library covers them.",
-    missing: "Five of the eight stations have no exercise yet — ski erg, sled push, sled pull, sandbag lunges and wall balls.",
+    blurb: "The running and all eight stations, plus the work that feeds them.",
+    // The previous note said five stations were missing. It was six — the
+    // burpee broad jump is its own movement and the plain burpee was standing
+    // in for it. All eight are in the library now; what is still absent is the
+    // competition detail, not the movements.
+    missing: "All eight stations are here, but not the race rules — the roxzone, the sled weights by division, or the penalty box.",
     exercises: [
-      "run", "rowing", "farmers-carry", "kb-front-rack-carry", "burpee",
-      "lunge-walking", "kettlebell-swing", "thruster", "step-up"
+      "run", "rowing", "ski-erg", "sled-push", "sled-pull", "burpee-broad-jump",
+      "farmers-carry", "sandbag-lunge", "wall-ball",
+      "kb-front-rack-carry", "burpee", "lunge-walking", "kettlebell-swing",
+      "thruster", "step-up"
     ]
   }
 ];

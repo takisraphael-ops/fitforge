@@ -40,6 +40,7 @@ const SUITES = [
   { name: 'exercise-links', file: 'exercise-links.js', needsServer: true },
   { name: 'disciplines', file: 'disciplines.js', needsServer: true },
   { name: 'scored-formats', file: 'scored-formats.js', needsServer: true },
+  { name: 'benchmarks', file: 'benchmarks.js', needsServer: true },
   { name: 'dial', file: 'dial.js', needsServer: true },
   { name: 'robustness', file: 'robustness.js', needsServer: true },
   { name: 'import', file: 'import.js', needsServer: true },

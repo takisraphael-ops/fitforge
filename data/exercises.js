@@ -1591,6 +1591,89 @@ window.EXERCISE_DB = [
     "Learn a bail — turn out to one side — before you need it."
   ], mistakes: ["Kicking up too hard and going over", "Balancing with the shoulders instead of the fingers", "No practised exit"],
     variations: ["Handstand push-up", "One-arm progressions"], alternatives: ["Wall handstand", "Pike hold"] },
+
+  // ---- Hyrox stations ------------------------------------------------------
+  // The five the library was missing. Hyrox is eight stations and eight
+  // kilometres of running; three of the stations (rowing, farmer's carry,
+  // burpee broad jumps) were already here under their general names, so only
+  // these five were absent — and the discipline chip said so rather than
+  // letting nine exercises imply a complete roster.
+  //
+  // The sleds are `type: "hold"`, which is the app's shape for a loaded effort
+  // logged in seconds. That is how farmer's carry is already modelled and it
+  // is what a 50 m push actually is: a timed grind, not a set of reps. The
+  // cost is that a hold set records seconds and not the load on the sled —
+  // a limitation the carries already have, not a new one introduced here.
+
+  // Not the same movement as a burpee, which is why it is here rather than
+  // being covered by one. The chest-to-floor is a burpee; the jump is for
+  // distance, from two feet, and it is the part that decides your time.
+  // The earlier discipline note claimed five stations were missing. It was six.
+  { id: "burpee-broad-jump", name: "Burpee Broad Jump", category: "full_body", met: 9.0, muscles: ["Legs", "Glutes", "Chest", "Core"], equipment: "Bodyweight", gear: ["none"], technique: [
+    "Drop to the floor, chest and thighs down, then push back up.",
+    "Bring the feet in and stand, but do not waste the stand — go straight into the jump.",
+    "Swing the arms back, hinge, and jump forward off two feet.",
+    "Land on two feet with soft knees, and drop straight into the next burpee where you land.",
+    "Distance per rep beats speed per rep: fewer, longer jumps cover the course with less breathing.",
+    "Keep the jumps submaximal — going all out for ten metres leaves nothing for the other seventy."
+  ], mistakes: ["Standing up fully before jumping", "Jumping off one foot", "Maximal jumps early that cannot be sustained", "Landing stiff-legged"],
+    variations: ["Step-back burpee broad jump", "Broad jump only", "Burpee only"],
+    alternatives: ["Burpee", "Box Jump", "Jump Squat"] },
+
+  { id: "ski-erg", name: "Ski Erg", category: "cardio", met: 7.0, muscles: ["Lats", "Core", "Triceps", "Legs"], equipment: "Ski erg machine", gear: ["cardio-machine"], technique: [
+    "Stand tall, arms overhead, hands on the handles with a light grip.",
+    "Hinge at the hips and drive the handles down past the hips, letting the knees bend.",
+    "The power is hips and lats, not arms — think of it as a standing pull-down.",
+    "Finish with hands past the hips, torso hinged forward, then stand and return under control.",
+    "Recover in the reverse order: stand, then let the arms rise.",
+    "Damper 4–6 for most people; a higher setting is not a harder workout, just a slower stroke."
+  ], mistakes: ["Pulling with the arms only", "Squatting instead of hinging", "Standing bolt upright at the finish", "Rushing the recovery"],
+    variations: ["1000m time trial", "500m repeats", "Steady-state"],
+    alternatives: ["Rowing", "Lat pulldown", "Running"] },
+
+  { id: "sled-push", name: "Sled Push", category: "legs", met: 8.0, type: "hold", muscles: ["Quadriceps", "Glutes", "Calves", "Core"], equipment: "Weight sled", gear: ["sled"], technique: [
+    "Hands on the uprights, arms straight and locked — you are a strut, not a spring.",
+    "Lean into it so a straight line runs from your heels through your hips to your hands.",
+    "Drive through the ball of the foot with short, fast steps; do not reach for long strides.",
+    "Keep the hips low and the back flat — standing up kills the angle and the drive.",
+    "Breathe. It is a thirty-second effort, not a one-rep max.",
+    "Low handles are harder than high handles at the same weight."
+  ], mistakes: ["Standing too upright", "Bent arms absorbing the drive", "Overstriding", "Holding your breath the whole length"],
+    variations: ["Heavy short pushes", "Light sprint pushes", "High-handle push"],
+    alternatives: ["Leg press", "Bulgarian split squat", "Farmer's Carry"] },
+
+  { id: "sled-pull", name: "Sled Pull", category: "back", met: 7.5, type: "hold", muscles: ["Lats", "Rear Deltoids", "Biceps", "Grip", "Legs"], equipment: "Weight sled + rope", gear: ["sled"], technique: [
+    "Set your feet wide and sit back into the rope so your weight, not your arms, holds the tension.",
+    "Pull hand over hand, elbow driving past the ribs each time.",
+    "Keep the rope roughly at hip height — pulling high turns it into an arm exercise.",
+    "Gather the slack behind you rather than letting it pile at your feet.",
+    "Reset your stance if you get pulled forward; a bad base is what makes this slow.",
+    "Grip usually fails before the back does — that is normal, and it is the thing to train."
+  ], mistakes: ["Standing upright and pulling with the arms", "Feet too close together", "Letting slack rope tangle underfoot", "Death-gripping the rope from the first metre"],
+    variations: ["Seated rope pull", "Standing hand-over-hand", "Backward walking drag"],
+    alternatives: ["Barbell Row", "Seated Cable Row", "Inverted Row"] },
+
+  { id: "sandbag-lunge", name: "Sandbag Lunge", category: "legs", met: 6.5, muscles: ["Quadriceps", "Glutes", "Hamstrings", "Core", "Upper Back"], equipment: "Sandbag", gear: ["sandbag"], technique: [
+    "Get the bag on your upper back, above the shoulder blades, and hold it there.",
+    "Step forward and drop the back knee to just off the floor.",
+    "Drive through the front heel to stand, then step through into the next lunge.",
+    "Keep the torso upright — the bag will try to fold you forward and you have to resist it.",
+    "Short steps are more efficient over distance than long ones.",
+    "Set the bag down and reset rather than grinding out reps with a rounded back."
+  ], mistakes: ["Bag riding up the neck", "Torso collapsing forward", "Back knee slamming the floor", "Steps too long to stand up out of"],
+    variations: ["Front-rack carry position", "Reverse lunge", "Bodyweight walking lunge"],
+    alternatives: ["Walking Lunge", "Bulgarian Split Squat", "Goblet Squat"] },
+
+  { id: "wall-ball", name: "Wall Ball", category: "full_body", met: 8.0, muscles: ["Quadriceps", "Glutes", "Shoulders", "Core"], equipment: "Medicine ball + wall target", gear: ["med-ball"], technique: [
+    "Hold the ball at your chest, elbows in, and stand about an arm's length from the wall.",
+    "Squat to full depth — hips below the knee crease — with the ball still at the chest.",
+    "Drive up hard and let the legs throw the ball; the arms only guide it.",
+    "Aim at the target and catch the ball on the way down, absorbing it into the next squat.",
+    "One continuous cycle: catch, squat, throw. Stopping at the top wastes the rebound.",
+    "If the throw is falling short, it is nearly always the squat, not the arms."
+  ], mistakes: ["Pressing the ball with the arms", "Cutting the squat short", "Catching with straight arms", "Standing too far from the wall"],
+    variations: ["Lighter ball, higher target", "Squat clean thruster", "Wall ball to a partner"],
+    alternatives: ["Thruster", "Front Squat", "Push Press"] },
 ];
 
 // Group by category for quick access

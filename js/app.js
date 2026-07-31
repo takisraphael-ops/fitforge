@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=236").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=237").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -4622,11 +4622,15 @@
   // every exercise in it.
   const GEAR_ORDER = ["band", "dumbbell", "kettlebell", "barbell", "pullup-bar",
     "dip-bars", "jump-rope", "ab-wheel", "machine", "cable", "cardio-machine",
-    "heavy-bag", "focus-pads"];
+    "sled", "sandbag", "med-ball", "heavy-bag", "focus-pads"];
   const GEAR_META = {
     band: "Bands", dumbbell: "Dumbbells", kettlebell: "Kettlebells", barbell: "Barbell",
     "pullup-bar": "Pull-up bar", "dip-bars": "Dip bars", "jump-rope": "Jump rope",
     "ab-wheel": "Ab wheel", machine: "Machines", cable: "Cables", "cardio-machine": "Cardio machine",
+    // The Hyrox kit. Each of these is genuinely the thing that decides whether
+    // a session is on today — no amount of improvising gets you a sled — so
+    // they are separate entries rather than being folded into "Machines".
+    sled: "Sled", sandbag: "Sandbag", "med-ball": "Medicine ball",
     // Pad work needs someone to hold them, so the kit entry says so — it is
     // the thing that decides whether a session is on today.
     "heavy-bag": "Heavy bag", "focus-pads": "Pads + partner"
@@ -5353,12 +5357,16 @@
               sets: prev.sets.map(() => emptySetForType("cardio"))
             };
           }
-          const sets = [{
+          // Cardio built exactly one row and dropped targetSets on the floor,
+          // so a template asking for two one-mile runs — or four 400s — got a
+          // single line and you had to add the rest yourself. No shipped
+          // template set it, so honouring it changes nothing that existed.
+          const sets = Array.from({ length: Math.max(1, te.targetSets || 1) }, () => ({
             durationMin: te.targetDurationMin ?? null,
             intensity: te.targetIntensity || "moderate",
             distanceKm: te.targetDistanceKm ?? null,
             done: false
-          }];
+          }));
           return {
             exerciseId: te.exerciseId,
             name: te.name || def?.name || "Exercise",
@@ -5384,7 +5392,13 @@
 
         // Strength: template targets are explicit so they stay as values;
         // last-session loads are hints only (placeholders), never pre-typed.
-        const hasTplLoad = te.targetWeight != null || te.targetReps != null;
+        // A rep ladder is a template target as much as targetReps is. Without
+        // it here, Fran fell through to "shape this like last time you did
+        // thrusters" for anyone who had ever done thrusters — so the ladder
+        // worked on a fresh install and quietly stopped working once you had
+        // history, which is the worst version of this bug.
+        const hasTplLoad = te.targetWeight != null || te.targetReps != null ||
+          (Array.isArray(te.repScheme) && te.repScheme.length > 0);
         if (!hasTplLoad && prev && prev.sets && prev.sets.length) {
           return {
             exerciseId: te.exerciseId,
@@ -5394,10 +5408,16 @@
             sets: prev.sets.map(() => emptySetForType(type))
           };
         }
-        const targetSets = Math.max(1, te.targetSets || (prev?.sets?.length) || 3);
-        const sets = Array.from({ length: targetSets }, () => ({
+        // A rep ladder — 21-15-9, or 10 down to 1 — is one number per set, not
+        // one number repeated. Without this the only way to write Fran was
+        // "3 × 21", which is not Fran and is not anything else either.
+        const ladder = Array.isArray(te.repScheme) && te.repScheme.length ? te.repScheme : null;
+        const targetSets = ladder
+          ? ladder.length
+          : Math.max(1, te.targetSets || (prev?.sets?.length) || 3);
+        const sets = Array.from({ length: targetSets }, (_, i) => ({
           weight: te.targetWeight ?? null,
-          reps: te.targetReps ?? null,
+          reps: ladder ? ladder[i] : (te.targetReps ?? null),
           done: false
         }));
         return {
