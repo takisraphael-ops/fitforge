@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=231").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=232").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -9937,6 +9937,81 @@
     refresh(true);
   }
 
+  // ============ Movement ladders ============
+  //
+  // The Learning Centre has defined "Ladder" since it shipped and nothing
+  // implemented it. This is the readout: where your logs put you on a chain,
+  // and what the next rung asks for.
+  //
+  // It reports, it does not gate. Every exercise stays loggable at any time —
+  // the ladder just tells you what you have cleared and what is next.
+
+  const ladderStateClass = { cleared: "is-cleared", current: "is-current", blocked: "is-blocked", locked: "is-locked" };
+
+  async function buildLadderSection(ex) {
+    if (!window.Progression || !window.PROGRESSIONS) return null;
+    const found = Progression.chainsFor(ex.id);
+    if (!found.length) return null;
+    const workouts = (await Storage.getWorkouts()).filter((w) => w.completedAt);
+    const wrap = el("div", { class: "detail-section mt-16", "data-testid": "ladder-section" });
+
+    for (const { chain } of found) {
+      const view = Progression.evaluate(chain, workouts);
+      wrap.appendChild(el("div", { class: "ladder-head" },
+        el("h3", {}, chain.name),
+        el("div", { class: "ladder-sub" }, chain.oneLiner),
+        el("div", { class: "ladder-progress", "data-testid": "ladder-progress" }, Progression.summary(view))
+      ));
+
+      const list = el("div", { class: "ladder", "data-testid": "ladder" });
+      view.rows.forEach((row, i) => {
+        const def = (window.EXERCISE_DB || []).find((e) => e.id === row.exerciseId);
+        const isThis = row.exerciseId === ex.id;
+        const node = el("button", {
+          class: "ladder-rung " + ladderStateClass[row.state] + (isThis ? " is-here" : ""),
+          type: "button", "data-rung": row.exerciseId, "data-state": row.state,
+          "data-testid": "ladder-rung",
+          "aria-current": isThis ? "step" : null,
+          title: isThis ? "You are looking at this one" : `Open ${def ? def.name : row.exerciseId}`,
+          on: { click: () => { if (!isThis && def) { closeModal(); openExerciseDetail(def); } } }
+        },
+          el("span", { class: "ladder-num" }, String(i + 1)),
+          el("span", { class: "ladder-main" },
+            el("span", { class: "ladder-name" }, def ? def.name : row.exerciseId,
+              isThis ? el("span", { class: "ladder-here" }, "you are here") : null),
+            el("span", { class: "ladder-gate" }, row.gateText),
+            row.state === "blocked"
+              ? el("span", { class: "ladder-note" },
+                  "Needs " + row.missing.map((id) => {
+                    const d = (window.EXERCISE_DB || []).find((e) => e.id === id);
+                    return d ? d.name : id;
+                  }).join(" and ") + " first")
+              : null,
+            // Only the rung you are on gets its coaching note and its near-miss
+            // line. On every other rung it is noise.
+            (row.state === "current" && row.note) ? el("span", { class: "ladder-note" }, row.note) : null,
+            (row.state === "current" && row.best)
+              ? el("span", { class: "ladder-best" },
+                  row.gate.holdSec
+                    ? `Best so far: ${row.best.score}s · ${U.formatDate(row.best.date)}`
+                    // `count` is how many sets met the gate, which is zero on
+                    // a near miss — "0 × 6" is not a thing anyone did. Report
+                    // the session as it happened instead.
+                    : `Best so far: ${row.best.sets} set${row.best.sets === 1 ? "" : "s"}, best ${row.best.score} reps · ${U.formatDate(row.best.date)}`)
+              : null
+          ),
+          el("span", { class: "ladder-mark", "aria-hidden": "true" },
+            row.cleared ? "\u2713" : (row.state === "blocked" ? "\u2013" : ""))
+        );
+        list.appendChild(node);
+      });
+      wrap.appendChild(list);
+      wrap.appendChild(el("div", { class: "ladder-foot text-xs text-faint" },
+        "Rungs clear when a logged session meets the figure beside them. Nothing is locked — you can log any of these whenever you like."));
+    }
+    return wrap;
+  }
+
   async function openExerciseDetail(exerciseId, fallback = null) {
     const all = await getAllExercises();
     let ex = all.find(e => e.id === exerciseId);
@@ -10118,6 +10193,10 @@
             v.curated ? v.label : "Opens a YouTube search — no clip has been picked for this one yet.")
         );
       })(),
+      // Where this movement sits on its ladder, and what the next rung asks
+      // for. Above Technique because "am I ready for this" comes before "how
+      // do I do it" for anything on a chain.
+      await buildLadderSection(ex),
       // Technique
       ex.technique?.length ? el("div", { class: "detail-section mt-16" },
         el("h3", {}, "Technique"),

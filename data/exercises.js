@@ -1382,7 +1382,215 @@ window.EXERCISE_DB = [
     "Finish combinations with a step out, not by standing and admiring them."
   ], mistakes: ["Punching with a bent wrist", "Skipping hand wraps", "Standing square in front of the bag", "Leaning on the bag when tired", "Throwing single punches instead of combinations"],
     variations: ["3-minute rounds", "30-second power bursts", "Body-shot rounds", "Jab-only rounds"],
-    alternatives: ["Pad Work", "Shadow Boxing"] }
+    alternatives: ["Pad Work", "Shadow Boxing"] },
+
+  // ============ Progression rungs ============
+  // Added to make data/progressions.js work: a ladder whose rungs are not real
+  // exercises is a picture, not a plan. Each of these is loggable, searchable
+  // and has its own detail page like everything above.
+
+  // ---- vertical pull, to the muscle-up ----
+  { id: "dead-hang", name: "Dead Hang", category: "back", met: 2.5, type: "hold", muscles: ["Lats", "Forearms", "Grip"], equipment: "Pull-up bar", gear: ["pullup-bar"], technique: [
+    "Take an overhand grip a little wider than your shoulders and step off.",
+    "Hang with arms straight and shoulders relaxed up by your ears.",
+    "Keep the ribs down and the legs still — no swinging.",
+    "Breathe. Grip is the limit here, not the back."
+  ], mistakes: ["Gripping so hard the forearms fail early", "Swinging to pass the time", "Dropping off rather than stepping down"],
+    variations: ["Single-arm hang", "Towel hang", "Active hang"], alternatives: ["Farmer's carry", "Lat pulldown"] },
+
+  { id: "inverted-row", name: "Inverted Row", category: "back", met: 3.5, muscles: ["Lats", "Rhomboids", "Biceps", "Rear Deltoids"], equipment: "Bar or rings", gear: ["pullup-bar", "none"], technique: [
+    "Set a bar at hip height. Lie underneath and grip it slightly wider than your shoulders.",
+    "Hang with a straight line from heels to head, heels on the floor.",
+    "Pull the chest to the bar, driving the elbows back and down.",
+    "Touch, pause, and lower under control to straight arms.",
+    "The flatter your body, the harder it is — walk your feet forward to progress."
+  ], mistakes: ["Hips sagging", "Chin reaching instead of chest", "Half range at the bottom"],
+    variations: ["Feet elevated", "Underhand grip", "Single-arm"], alternatives: ["Seated cable row", "Barbell row"] },
+
+  { id: "negative-pull-up", name: "Negative Pull-Up", category: "back", met: 4, muscles: ["Lats", "Biceps", "Rhomboids"], equipment: "Pull-up bar", gear: ["pullup-bar"], technique: [
+    "Jump or step up so your chin starts above the bar.",
+    "Hold there for a second with the chest high.",
+    "Lower yourself as slowly as you can — aim for five seconds.",
+    "Reach a full dead hang, then step off and reset.",
+    "The slow lowering is the whole exercise. A fast drop trains nothing."
+  ], mistakes: ["Dropping instead of lowering", "Cutting the descent short", "Shoulders shrugging at the bottom"],
+    variations: ["Ten-second negative", "Paused mid-negative"], alternatives: ["Band-assisted pull-up", "Lat pulldown"] },
+
+  { id: "chest-to-bar-pull-up", name: "Chest-to-Bar Pull-Up", category: "back", met: 4.5, muscles: ["Lats", "Biceps", "Rhomboids", "Rear Deltoids"], equipment: "Pull-up bar", gear: ["pullup-bar"], technique: [
+    "Start from a full hang, hands just outside shoulder width.",
+    "Pull with the elbows driving down and back, leading with the sternum.",
+    "Keep pulling past chin height until your upper chest touches the bar.",
+    "Lower under control to straight arms."
+  ], mistakes: ["Leaning back to fake the contact", "Kipping", "Stopping at chin height"],
+    variations: ["Wide-grip chest-to-bar", "Weighted"], alternatives: ["Pull-up", "High row"] },
+
+  { id: "explosive-pull-up", name: "Explosive Pull-Up", category: "back", met: 5, muscles: ["Lats", "Biceps", "Rhomboids"], equipment: "Pull-up bar", gear: ["pullup-bar"], technique: [
+    "From a full hang, pull as fast as you can rather than as hard as you can.",
+    "Aim to bring the bar to your lower chest or stomach.",
+    "At the top the hands may briefly leave the bar — catch it and control the drop.",
+    "Reset fully between reps. This is a power exercise, not a conditioning one."
+  ], mistakes: ["Treating it as a rep-count exercise", "Kipping to gain height", "Landing stiff-armed"],
+    variations: ["Clapping pull-up", "Bar-to-waist"], alternatives: ["Chest-to-bar pull-up", "High pull"] },
+
+  { id: "muscle-up", name: "Muscle-Up", category: "back", met: 6, muscles: ["Lats", "Chest", "Triceps", "Shoulders", "Core"], equipment: "Pull-up bar or rings", gear: ["pullup-bar"], technique: [
+    "Take a false grip if you are on rings; a normal grip works on a bar.",
+    "Pull explosively, aiming the bar at your lower chest rather than your chin.",
+    "At the peak, lean the chest forward over the bar and whip the elbows round.",
+    "Catch in the bottom of a dip and press to straight arms.",
+    "Reverse it under control — do not just let go."
+  ], mistakes: ["Trying it before the dip and the explosive pull are solid", "Excessive kipping to paper over the transition", "Dropping off the top instead of lowering"],
+    variations: ["Ring muscle-up", "Slow muscle-up", "Weighted"], alternatives: ["Explosive pull-up", "Straight-bar dip"] },
+
+  // ---- the dip branch the muscle-up depends on ----
+  { id: "bench-dip", name: "Bench Dip", category: "arms", met: 3.2, muscles: ["Triceps", "Anterior Deltoids", "Chest"], equipment: "Bench", gear: ["none"], technique: [
+    "Sit on a bench, hands beside your hips, and slide your weight forward off the edge.",
+    "Legs out in front, heels on the floor.",
+    "Bend the elbows straight back and lower until the upper arms are level with the floor.",
+    "Press back to straight arms. Keep the shoulders down away from the ears."
+  ], mistakes: ["Shoulders rolling forward at the bottom", "Going deeper than the shoulders like", "Bouncing off the bottom"],
+    variations: ["Feet elevated", "Weighted on the lap"], alternatives: ["Triceps pushdown", "Close-grip press"] },
+
+  { id: "band-assisted-dip", name: "Band-Assisted Dip", category: "arms", met: 3.8, muscles: ["Triceps", "Chest", "Anterior Deltoids"], equipment: "Dip bars + band", gear: ["dip-bars", "band"], technique: [
+    "Loop a band over the dip bars and kneel or stand in it.",
+    "Support yourself at the top with straight arms and shoulders down.",
+    "Lower until the upper arms are roughly level with the floor.",
+    "Press back up. Move to a lighter band as it gets easier."
+  ], mistakes: ["A band so heavy it does the work", "Shrugging at the top", "Half range"],
+    variations: ["Lighter band", "Slow negatives"], alternatives: ["Bench dip", "Assisted dip machine"] },
+
+  { id: "straight-bar-dip", name: "Straight-Bar Dip", category: "arms", met: 4.2, muscles: ["Triceps", "Chest", "Anterior Deltoids", "Core"], equipment: "Straight bar", gear: ["pullup-bar"], technique: [
+    "Start above a bar at hip height, arms straight, leaning slightly forward.",
+    "Lower until the bar is at your lower chest, keeping it close.",
+    "The forward lean is what stops you falling backwards — keep it throughout.",
+    "Press back to straight arms and squeeze."
+  ], mistakes: ["Staying upright and losing balance", "Letting the bar drift away from the body", "Short range"],
+    variations: ["Weighted", "Slow tempo"], alternatives: ["Chest dip", "Bench dip"] },
+
+  // ---- horizontal push, to the one-arm push-up ----
+  { id: "incline-push-up", name: "Incline Push-Up", category: "chest", met: 3, muscles: ["Pectorals", "Triceps", "Anterior Deltoids", "Core"], equipment: "Bodyweight + bench or wall", gear: ["none"], technique: [
+    "Put your hands on a bench, step or wall — the higher the surface, the easier it is.",
+    "Walk your feet back so the body is one straight line.",
+    "Lower the chest to the surface with the elbows at about 45°.",
+    "Press back up without letting the hips sag."
+  ], mistakes: ["Hips leading the way down", "Elbows flaring straight out", "Surface too low to control"],
+    variations: ["Lower the surface as you progress", "Slow negatives"], alternatives: ["Knee push-up", "Machine chest press"] },
+
+  { id: "knee-push-up", name: "Knee Push-Up", category: "chest", met: 3.2, muscles: ["Pectorals", "Triceps", "Anterior Deltoids", "Core"], equipment: "Bodyweight", gear: ["none"], technique: [
+    "Kneel with hands slightly wider than the shoulders, ankles crossed behind.",
+    "Keep a straight line from knees to head — do not pike at the hips.",
+    "Lower the chest to just above the floor.",
+    "Press back to straight arms."
+  ], mistakes: ["Hips high, turning it into a kneeling plank press", "Half range", "Head dropping first"],
+    variations: ["Knees further back", "Slow tempo"], alternatives: ["Incline push-up", "Band chest press"] },
+
+  { id: "diamond-push-up", name: "Diamond Push-Up", category: "chest", met: 3.8, muscles: ["Triceps", "Pectorals", "Anterior Deltoids"], equipment: "Bodyweight", gear: ["none"], technique: [
+    "Hands together under the chest, index fingers and thumbs forming a triangle.",
+    "Body in one line, elbows tracking back rather than out.",
+    "Lower until the chest touches your hands.",
+    "Press up. The triceps do most of this one."
+  ], mistakes: ["Elbows flaring wide", "Hips sagging", "Hands too far forward, straining the wrists"],
+    variations: ["Feet elevated", "Slow tempo"], alternatives: ["Close-grip bench press", "Triceps pushdown"] },
+
+  { id: "archer-push-up", name: "Archer Push-Up", category: "chest", met: 4.2, perSide: true, muscles: ["Pectorals", "Triceps", "Anterior Deltoids", "Core"], equipment: "Bodyweight", gear: ["none"], technique: [
+    "Take a wide hand position, wider than a normal push-up.",
+    "Lower toward one hand, bending that elbow while the other arm stays straight.",
+    "The straight arm assists — it is a lever, not a passenger.",
+    "Press back to the middle and alternate sides.",
+    "Count reps per side."
+  ], mistakes: ["Twisting the hips to reach", "The straight arm bending and turning it into a wide push-up", "Rushing"],
+    variations: ["Hands closer together", "Feet elevated"], alternatives: ["Diamond push-up", "Single-arm machine press"] },
+
+  { id: "one-arm-push-up", name: "One-Arm Push-Up", category: "chest", met: 5, perSide: true, muscles: ["Pectorals", "Triceps", "Anterior Deltoids", "Obliques", "Core"], equipment: "Bodyweight", gear: ["none"], technique: [
+    "Feet wide for a stable base, working hand under the shoulder, other arm behind the back.",
+    "Brace hard — most of this is resisting the rotation.",
+    "Lower under control, keeping the shoulders as square to the floor as you can.",
+    "Press back up. Count reps per side."
+  ], mistakes: ["Rotating so far the shoulder points at the ceiling", "Feet too narrow to balance", "Attempting it before archers are solid"],
+    variations: ["Feet narrower", "Elevated surface first"], alternatives: ["Archer push-up", "Single-arm cable press"] },
+
+  // ---- squat, to the pistol ----
+  { id: "box-squat-bodyweight", name: "Box Squat (Bodyweight)", category: "legs", met: 3.5, muscles: ["Quadriceps", "Glutes", "Hamstrings"], equipment: "Bodyweight + box or chair", gear: ["none"], technique: [
+    "Stand in front of a box or chair, feet about shoulder width.",
+    "Sit back and down until you touch the box lightly — do not flop onto it.",
+    "Stand back up, driving through mid-foot.",
+    "Lower the box over time to increase the range."
+  ], mistakes: ["Dropping onto the box", "Knees caving inward", "Heels lifting"],
+    variations: ["Lower box", "Tempo squat", "Paused on the box"], alternatives: ["Goblet squat", "Leg press"] },
+
+  { id: "assisted-pistol-squat", name: "Assisted Pistol Squat", category: "legs", met: 4.5, perSide: true, muscles: ["Quadriceps", "Glutes", "Hamstrings", "Core"], equipment: "Bodyweight + support", gear: ["none"], technique: [
+    "Hold a doorframe, TRX or upright with one or both hands.",
+    "Stand on one leg with the other extended in front.",
+    "Lower under control as deep as you can, using the hands only as much as you need.",
+    "Drive back up through the heel. Count reps per side.",
+    "Use less hand assistance over time — that is the progression."
+  ], mistakes: ["Pulling up with the arms instead of the leg", "Heel lifting", "Free leg touching down"],
+    variations: ["Box pistol", "Counterweight pistol", "Fewer fingers on the support"], alternatives: ["Bulgarian split squat", "Step-up"] },
+
+  { id: "pistol-squat", name: "Pistol Squat", category: "legs", met: 5.5, perSide: true, muscles: ["Quadriceps", "Glutes", "Hamstrings", "Core"], equipment: "Bodyweight", gear: ["none"], technique: [
+    "Stand on one leg, other leg extended straight in front, arms forward for balance.",
+    "Sit back and down under control until the hamstring meets the calf.",
+    "Keep the heel planted and the extended leg off the floor throughout.",
+    "Stand back up without dropping the free leg. Count reps per side."
+  ], mistakes: ["Falling into the bottom", "Heel lifting", "Free foot touching down to save the rep"],
+    variations: ["Weighted pistol", "Deficit pistol", "Slow tempo"], alternatives: ["Assisted pistol squat", "Bulgarian split squat"] },
+
+  // ---- the front lever ----
+  { id: "tuck-front-lever", name: "Tuck Front Lever", category: "core", met: 4, type: "hold", muscles: ["Lats", "Core", "Rhomboids", "Rear Deltoids"], equipment: "Pull-up bar", gear: ["pullup-bar"], technique: [
+    "Hang from the bar and pull the shoulders down and back.",
+    "Tuck the knees to the chest and lean back until the back is parallel to the floor.",
+    "Keep the arms straight — bent arms make it a different exercise.",
+    "Hold. Everything here is lat tension, not abs."
+  ], mistakes: ["Bending the arms", "Hips below the shoulders", "Holding the breath"],
+    variations: ["Advanced tuck", "One-leg tuck"], alternatives: ["Hollow hold", "Straight-arm pulldown"] },
+
+  { id: "advanced-tuck-front-lever", name: "Advanced Tuck Front Lever", category: "core", met: 4.5, type: "hold", muscles: ["Lats", "Core", "Rhomboids", "Rear Deltoids"], equipment: "Pull-up bar", gear: ["pullup-bar"], technique: [
+    "From a tuck front lever, open the hips until the back and thighs form one line.",
+    "Knees stay bent, but the thighs come in line with the torso.",
+    "Round the upper back slightly and keep the arms locked.",
+    "Hold with the whole body parallel to the floor."
+  ], mistakes: ["Hips dropping below parallel", "Arms bending", "Opening the knees rather than the hips"],
+    variations: ["One-leg extended", "Straddle"], alternatives: ["Tuck front lever", "Hanging leg raise"] },
+
+  { id: "straddle-front-lever", name: "Straddle Front Lever", category: "core", met: 5, type: "hold", muscles: ["Lats", "Core", "Rhomboids", "Glutes"], equipment: "Pull-up bar", gear: ["pullup-bar"], technique: [
+    "From an advanced tuck, extend both legs out wide into a straddle.",
+    "The wider the straddle, the shorter the lever and the easier the hold.",
+    "Body flat and parallel to the floor, arms straight, shoulders depressed.",
+    "Narrow the straddle over time to progress."
+  ], mistakes: ["Piking at the hips", "Legs drifting below the line", "Arms bending under fatigue"],
+    variations: ["Narrower straddle", "One leg extended"], alternatives: ["Advanced tuck front lever"] },
+
+  { id: "front-lever", name: "Front Lever", category: "core", met: 6, type: "hold", muscles: ["Lats", "Core", "Rhomboids", "Glutes", "Hamstrings"], equipment: "Pull-up bar", gear: ["pullup-bar"], technique: [
+    "Hang with straight arms and shoulders pulled down hard.",
+    "Lift into a flat horizontal line, legs together and toes pointed.",
+    "Squeeze the glutes and quads — a lever with soft legs sags.",
+    "Hold. Lower under control rather than dropping."
+  ], mistakes: ["Hips sagging below the line", "Arms bending", "Attempting it before the straddle is solid"],
+    variations: ["Weighted", "Front lever pull-up", "Ice cream maker"], alternatives: ["Straddle front lever"] },
+
+  // ---- the handstand ----
+  { id: "pike-hold", name: "Pike Hold", category: "shoulders", met: 3.5, type: "hold", muscles: ["Anterior Deltoids", "Triceps", "Core", "Upper Back"], equipment: "Bodyweight", gear: ["none"], technique: [
+    "From a push-up position, walk the feet in and lift the hips high.",
+    "Straighten the arms and push the floor away, ears between the biceps.",
+    "Stack the shoulders over the hands as much as your flexibility allows.",
+    "Hold. This is the shoulder position a handstand needs."
+  ], mistakes: ["Bent arms", "Head hanging below the arms", "Hips not high enough to load the shoulders"],
+    variations: ["Feet elevated", "Pike push-up"], alternatives: ["Overhead press", "Wall plank"] },
+
+  { id: "wall-handstand", name: "Wall Handstand (Chest to Wall)", category: "shoulders", met: 4, type: "hold", muscles: ["Anterior Deltoids", "Triceps", "Core", "Upper Back"], equipment: "Bodyweight + wall", gear: ["none"], technique: [
+    "Start in a push-up position with your feet at the wall, hands close to it.",
+    "Walk the feet up the wall and the hands in until you are vertical, chest facing the wall.",
+    "Squeeze the glutes and ribs down — a banana back is the usual fault.",
+    "Hold. Come down by walking the hands out, not by falling."
+  ], mistakes: ["Back arching into a banana", "Hands too far from the wall", "Holding the breath"],
+    variations: ["Toe pulls off the wall", "Single-leg taps"], alternatives: ["Pike hold", "Overhead press"] },
+
+  { id: "freestanding-handstand", name: "Freestanding Handstand", category: "shoulders", met: 4.5, type: "hold", muscles: ["Anterior Deltoids", "Triceps", "Core", "Forearms"], equipment: "Bodyweight", gear: ["none"], technique: [
+    "Kick up to balance with the hands shoulder width, fingers spread.",
+    "Balance comes from the fingers pressing and releasing, not the shoulders.",
+    "Stack wrists, shoulders and hips in one line; ribs down, glutes on.",
+    "Learn a bail — turn out to one side — before you need it."
+  ], mistakes: ["Kicking up too hard and going over", "Balancing with the shoulders instead of the fingers", "No practised exit"],
+    variations: ["Handstand push-up", "One-arm progressions"], alternatives: ["Wall handstand", "Pike hold"] },
 ];
 
 // Group by category for quick access
