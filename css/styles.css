@@ -3649,12 +3649,16 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .logo-mark { display: inline-flex; }
 .logo-mark svg { width: 26px; height: 26px; display: block; }
 
-/* ============ Launch splash (orbit mark · "1A · AXIOM") ============ */
+/* ============ Launch splash (orbit mark) ============
+   Timings are a single choreography: rings, then core, then the wordmark,
+   last element landing at ~1.2s. index.html holds for 1400ms and fades.
+   Change one of those and change the other — a hold shorter than the
+   sequence cuts the wordmark off mid-animation. */
 .splash {
   position: fixed; inset: 0; z-index: 9999;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 34px; background: var(--bg);
-  transition: opacity .6s ease, visibility .6s ease;
+  transition: opacity .35s ease, visibility .35s ease;
 }
 .splash-done { opacity: 0; visibility: hidden; pointer-events: none; }
 .splash::before {
@@ -3664,29 +3668,29 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .splash-mark { position: relative; width: 132px; height: 132px; }
 .splash-mark .s-ring { position: absolute; border-radius: 50%; }
 .s-ring-1 { inset: 0; border: 2px solid color-mix(in srgb, var(--accent) 22%, transparent);
-  animation: ringDraw .9s cubic-bezier(.22,1,.36,1) both; }
+  animation: ringDraw .5s cubic-bezier(.22,1,.36,1) both; }
 .s-ring-2 { inset: 0; border: 2px solid transparent;
   border-top-color: var(--accent); border-right-color: var(--accent);
-  animation: fadeScale .9s cubic-bezier(.22,1,.36,1) .2s both, spin 9s linear infinite .9s; }
+  animation: fadeScale .5s cubic-bezier(.22,1,.36,1) .12s both, spin 9s linear infinite .5s; }
 .s-ring-3 { inset: 26px; border: 1.5px solid transparent;
   border-bottom-color: color-mix(in srgb, var(--accent) 55%, transparent);
   border-left-color: color-mix(in srgb, var(--accent) 55%, transparent);
-  animation: fadeScale .9s cubic-bezier(.22,1,.36,1) .4s both, spinRev 13s linear infinite 1s; }
+  animation: fadeScale .5s cubic-bezier(.22,1,.36,1) .22s both, spinRev 13s linear infinite .6s; }
 .s-core { position: absolute; left: 50%; top: 50%; width: 15px; height: 15px;
   margin: -7.5px 0 0 -7.5px; border-radius: 50%; background: var(--accent);
   box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 80%, transparent);
-  animation: fadeScale .6s ease .7s both, dotPulse 2.6s ease-in-out infinite 1.2s; }
+  animation: fadeScale .35s ease .38s both, dotPulse 2.6s ease-in-out infinite .7s; }
 .splash-word { font-family: var(--font-display); font-size: 32px; font-weight: 600;
   letter-spacing: .14em; padding-left: .14em; color: var(--text);
-  animation: wordIn 1s cubic-bezier(.22,1,.36,1) 1.05s both; }
+  animation: wordIn .55s cubic-bezier(.22,1,.36,1) .55s both; }
 .splash-tag { font-family: var(--font-mono); font-size: 11px; letter-spacing: .4em;
   padding-left: .4em; color: color-mix(in srgb, var(--accent) 85%, var(--text-muted));
-  animation: fadeUp .8s ease 1.4s both; }
+  animation: fadeUp .45s ease .75s both; }
 .splash-load { position: absolute; left: 50%; bottom: 64px; transform: translateX(-50%);
   width: 150px; height: 3px; border-radius: 999px; overflow: hidden;
   background: color-mix(in srgb, var(--text) 12%, transparent); }
 .splash-load > i { display: block; width: 44px; height: 100%; border-radius: 999px;
-  background: var(--accent); animation: load 1.4s ease-in-out infinite; }
+  background: var(--accent); animation: load .9s ease-in-out infinite; }
 
 @keyframes ringDraw { from { opacity: 0; transform: scale(.35) rotate(-140deg); } to { opacity: 1; transform: scale(1) rotate(0); } }
 @keyframes fadeScale { from { opacity: 0; transform: scale(.5); } to { opacity: 1; transform: scale(1); } }
