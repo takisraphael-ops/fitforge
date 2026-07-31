@@ -140,6 +140,9 @@ const SURFACES = [
     for (const [label, sel] of SURFACES) {
       if (sel) await page.evaluate(s => { const n = document.querySelector(s); if (n) n.click(); }, sel);
       await page.waitForTimeout(1000);
+      // Learn forks on the way in; take the reading side so the tab renders.
+      await page.evaluate(() => document.querySelector('[data-testid="learn-fork-centre"]')?.click());
+      await page.waitForTimeout(600);
       await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"]').forEach(n => n.remove()));
       // A screen that threw mid-render leaves an empty .view — the symptom
       // both real bugs produced, and the one a user would actually report.

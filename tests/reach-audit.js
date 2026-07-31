@@ -228,7 +228,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await check('home', async () => { await tapT('[data-testid="dock-home"]'); }, { shots: true });
   await check('nutrition', async () => { await tapT('[data-testid="dock-nutrition"]'); await sleep(1800); });
   await check('you', async () => { await tapT('[data-testid="dock-stats"]'); await sleep(1600); });
-  await check('library', async () => { await tapT('[data-testid="dock-library"]'); await sleep(1400); });
+  await check('learn-fork', async () => { await tapT('[data-testid="dock-library"]'); await sleep(700); }, { shots: true });
+  await check('library', async () => {
+    await page.evaluate(() => document.querySelector('[data-testid="learn-fork-centre"]')?.click());
+    await sleep(1400);
+  });
 
   // The History segment of "You" — its own screen, with the back-log entry
   // and a repeat button on every logged session.
@@ -348,6 +352,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await check('exercise-detail', async () => {
     await closeLayers();
     await page.evaluate(() => document.querySelector('[data-testid="dock-library"]').click());
+    await sleep(700);
+    await page.evaluate(() => document.querySelector('[data-testid="learn-fork-centre"]')?.click());
     await sleep(1600);
     await page.evaluate(() => {
       const card = document.querySelector('.exercise-card') || document.querySelector('.xrow');

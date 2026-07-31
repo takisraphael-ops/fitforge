@@ -280,6 +280,10 @@ const { chromium } = require('/opt/node22/lib/node_modules/playwright/index.js')
       the next click retries against the overlay until Playwright times out. */
   async function goTab(i) {
     await page.evaluate((n) => document.querySelectorAll('.dock button')[n].click(), i);
+    // Learn forks into the reading and the body map; the patterns live in the
+    // reading, so take that side.
+    await page.waitForTimeout(500);
+    await page.evaluate(() => document.querySelector('[data-testid="learn-fork-centre"]')?.click());
     await page.waitForSelector(T('tab-loader'), { state: 'detached', timeout: 8000 }).catch(() => {});
     await page.waitForTimeout(600);
   }

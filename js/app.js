@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=227").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=228").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -484,7 +484,13 @@
   }
 
   async function loadPrefs() {
+    // Push the unit system into U before anything reads it. Doing it here
+    // rather than at the two call sites means an import cannot leave the app
+    // rendering pounds against a restored metric profile.
+    const units = await Storage.getPref("units", U.DEFAULT_UNITS);
+    U.setUnits(units);
     return {
+      units,
       profileName: await Storage.getPref("profileName", ""),
       kcalGoal: await Storage.getPref("kcalGoal", 2200),
       // auto = Mifflin/TDEE budget; manual = user override
@@ -783,11 +789,11 @@
   function formatPrevSetsSummary(sets, exType) {
     return (sets || []).map(s => {
       if (s.durationMin != null) {
-        const dist = s.distanceKm ? ` · ${s.distanceKm}km` : "";
+        const dist = s.distanceKm ? ` · ${U.formatDistance(s.distanceKm)}` : "";
         return `${s.durationMin} min · ${U.intensityLabel(s.intensity)}${dist}`;
       }
       if (exType === "bodyweight" || ((!s.weight || s.weight === 0) && s.reps)) return `${s.reps} reps`;
-      return `${s.weight}×${s.reps}`;
+      return `${U.trimNum(U.toDisplayWeight(s.weight))}×${s.reps}`;
     }).join(" · ");
   }
 
@@ -995,11 +1001,14 @@
 
   // ============ Plate calculator ============
   // Given a target weight and bar weight, returns the smallest plate set (per side).
-  // Uses standard metric plates: 25, 20, 15, 10, 5, 2.5, 1.25 kg.
+  // Everything here is kilograms; the plate denominations themselves come from
+  // U.plateSet(), which returns the real imperial rack (45/35/25/10/5/2.5 lb
+  // expressed in kg) rather than converted metric discs. A gym does not have a
+  // 20 kg plate labelled 44.09 lb.
   function computePlates(target, barKg = 20) {
     if (target == null || isNaN(target) || target <= barKg) return { perSide: [], leftover: 0, barKg };
     const perSideKg = (target - barKg) / 2;
-    const plates = [25, 20, 15, 10, 5, 2.5, 1.25];
+    const plates = U.plateSet();
     const result = [];
     let remaining = perSideKg;
     for (const p of plates) {
@@ -1013,38 +1022,43 @@
   }
 
   function openPlateCalculator(initialWeight) {
+    // target and bar are kilograms throughout; only the input and the labels
+    // are in display units.
     let target = initialWeight || 60;
     let bar = 20;
 
     const body = el("div", {});
-    const targetI = el("input", { type: "number", step: "0.5", inputmode: "decimal", class: "input input-num", value: target });
+    const targetI = el("input", { type: "number", step: "0.5", inputmode: "decimal", class: "input input-num",
+      value: U.trimNum(U.toDisplayWeight(target)) });
     const barS = el("select", { class: "select" },
-      el("option", { value: "20" }, "20 kg (Olympic)"),
-      el("option", { value: "15" }, "15 kg (Women's Olympic)"),
-      el("option", { value: "10" }, "10 kg (Training bar)"),
-      el("option", { value: "7" }, "7 kg (EZ / short bar)"),
+      ...U.barOptions().map(o => el("option", { value: String(o.kg) }, o.label)),
       el("option", { value: "0" }, "No bar (dumbbell)")
     );
+    bar = U.barOptions()[0].kg;
     barS.value = String(bar);
 
     const output = el("div", { class: "plate-output" });
+    // Plates are drawn with their real printed number — a 45 lb disc says 45,
+    // not 20.41 — so the label is the display value, while data-kg keeps the
+    // stored figure the CSS sizes itself from.
+    const plateLabel = (kg) => U.trimNum(U.toDisplayWeight(kg));
     function refresh() {
-      target = parseFloat(targetI.value) || 0;
+      target = U.fromDisplayWeight(targetI.value) || 0;
       bar = parseFloat(barS.value);
       clear(output);
       const { perSide, leftover } = computePlates(target, bar);
       if (target <= bar) {
         output.appendChild(el("div", { class: "text-muted text-sm" },
-          target === bar ? "Just the bar." : `Target is below bar weight (${bar}kg).`));
+          target === bar ? "Just the bar." : `Target is below bar weight (${U.formatWeight(bar, { space: false })}).`));
         return;
       }
       const perSideKg = (target - bar) / 2;
       output.appendChild(el("div", { class: "text-sm text-muted", style: "margin-bottom: 8px" },
-        `Per side: ${perSideKg.toFixed(2)}kg · total plates: ${(perSideKg * 2).toFixed(2)}kg + ${bar}kg bar`));
+        `Per side: ${U.formatWeight(perSideKg, { space: false })} · total plates: ${U.formatWeight(perSideKg * 2, { space: false })} + ${U.formatWeight(bar, { space: false })} bar`));
       const plateRow = el("div", { class: "plate-row" });
       for (const { kg, count } of perSide) {
         for (let i = 0; i < count; i++) {
-          plateRow.appendChild(el("div", { class: "plate", "data-kg": String(kg) }, `${kg}`));
+          plateRow.appendChild(el("div", { class: "plate", "data-kg": String(kg) }, plateLabel(kg)));
         }
       }
       // Bar visual
@@ -1055,7 +1069,7 @@
           const r = el("div", { class: "plate-row" });
           for (const { kg, count } of [...perSide].reverse()) {
             for (let i = 0; i < count; i++) {
-              r.appendChild(el("div", { class: "plate", "data-kg": String(kg) }, `${kg}`));
+              r.appendChild(el("div", { class: "plate", "data-kg": String(kg) }, plateLabel(kg)));
             }
           }
           return r;
@@ -1065,12 +1079,12 @@
       // Breakdown text
       if (perSide.length) {
         output.appendChild(el("div", { class: "text-sm mt-8" },
-          "Per side: " + perSide.map(p => `${p.count}×${p.kg}kg`).join(" + ")
+          "Per side: " + perSide.map(p => `${p.count}×${plateLabel(p.kg)}${U.weightUnit()}`).join(" + ")
         ));
       }
       if (leftover > 0.01) {
         output.appendChild(el("div", { class: "text-sm text-muted mt-8" },
-          `Can’t make exact with these plates. Short by ${leftover.toFixed(2)}kg per side.`));
+          `Can’t make exact with these plates. Short by ${U.formatWeight(leftover, { space: false })} per side.`));
       }
     }
 
@@ -1578,7 +1592,11 @@
   const QA_ART = {
     workout: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><g class="qa2-dumbbell" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><line x1="18" y1="24" x2="30" y2="24"/><line x1="13" y1="18" x2="13" y2="30"/><line x1="8.5" y1="21" x2="8.5" y2="27"/><line x1="35" y1="18" x2="35" y2="30"/><line x1="39.5" y1="21" x2="39.5" y2="27"/></g></svg>`,
     meal: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><g class="qa2-steam" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M18 15c-2.5-2-2.5-4 0-6"/><path d="M24 15c-2.5-2-2.5-4 0-6"/><path d="M30 15c-2.5-2-2.5-4 0-6"/></g><path d="M9 25h30a15 15 0 0 1-30 0z" fill="currentColor" fill-opacity="0.16"/><path d="M9 25h30a15 15 0 0 1-30 0z" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><line x1="7" y1="25" x2="41" y2="25" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>`,
-    sessions: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><rect x="9" y="8" width="30" height="32" rx="4" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><g class="qa2-lines" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="16" y1="18" x2="32" y2="18"/><line x1="16" y1="25" x2="32" y2="25"/><line x1="16" y1="32" x2="26" y2="32"/></g></svg>`
+    sessions: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><rect x="9" y="8" width="30" height="32" rx="4" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><g class="qa2-lines" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="16" y1="18" x2="32" y2="18"/><line x1="16" y1="25" x2="32" y2="25"/><line x1="16" y1="32" x2="26" y2="32"/></g></svg>`,
+    // An open book for the reading, a figure for the map. Same weight as the
+    // other three so the two forks look like one family.
+    learn: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="M24 13c-3.5-3-8-4-14-4v27c6 0 10.5 1 14 4 3.5-3 8-4 14-4V9c-6 0-10.5 1-14 4z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><line x1="24" y1="13" x2="24" y2="40" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>`,
+    bodymap: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><rect x="17.5" y="15" width="13" height="15" rx="5" fill="currentColor" fill-opacity="0.18"/><circle cx="24" cy="9" r="4.5" stroke="currentColor" stroke-width="3"/><g stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M24 15v13"/><path d="M24 18 13 23"/><path d="M24 18l11 5"/><path d="M24 28 17 42"/><path d="M24 28l7 14"/></g></svg>`
   };
 
   // Marks for the set-row hold menu. "D" on a button is enough when it sits
@@ -1712,12 +1730,16 @@
         continue;
       }
       const active = state.tab === it.id || (it.id === "stats" && state.tab === "history");
+      // Learn is the one tab holding two unrelated destinations, so it forks
+      // rather than landing you on whichever happens to be at the top. Every
+      // other tab is one place and goes straight there.
+      const opens = it.id === "library" ? openLearnFork : () => switchTab(it.id);
       const btn = el("button", {
         class: "dock-item" + (active ? " active" : ""),
         title: it.label,
         "data-testid": "dock-" + it.id,
         html: it.icon,
-        on: { click: () => switchTab(it.id) }
+        on: { click: opens }
       });
       // Hold a tab to land inside it rather than at the top of it. Tapping
       // still just switches tabs, and every one of these is somewhere you can
@@ -1883,7 +1905,14 @@
   const SWIPE_TABS = ["home", "nutrition", "stats", "library"];
   function initTabSwipe() {
     // Sheets/modals/quizzes that should own the gesture while open.
-    const BLOCKING = ".modal-overlay, .qa-fork-overlay, .qa-overlay, .numpad-overlay, .rest-overlay, .wsheet-overlay, .pquiz";
+    // Anything full-screen owns the gesture. The last four were missing and
+    // happened to be safe anyway — the reader and the runners cover the dock
+    // and absorb the touch themselves — but that is incidental protection,
+    // one CSS change away from a swipe that changes the tab underneath an
+    // overlay and leaves it stranded there. Listed explicitly so the intent
+    // survives the next layout change.
+    const BLOCKING = ".modal-overlay, .qa-fork-overlay, .qa-overlay, .numpad-overlay, " +
+      ".rest-overlay, .wsheet-overlay, .pquiz, .learn-overlay, .srun, .ivr, .radial-overlay";
     // Walk up from the touch target: if something scrolls horizontally itself
     // (category pager, week strip, a wheel, a range slider), let it have the swipe.
     function ownsHorizontal(node) {
@@ -2218,60 +2247,38 @@
     numpadState = { overlay, input, keyHandler };
   }
 
-  function openQuickSheet() {
-    if (state.tab === "workout") { renderMain(); window.scrollTo(0, 0); return; }
-    // Full-screen "fork in the road" — the screen splits down the middle into
-    // two paths. Covers the app; dismiss with the close button or Escape.
-    const overlay = el("div", { class: "qa-fork-overlay", "data-testid": "quick-sheet", role: "dialog", "aria-label": "Quick actions" });
+  /**
+   * The full-screen "fork in the road": the screen splits into panels, one per
+   * route, chosen by tapping or by swiping toward the side you want.
+   *
+   * Extracted so the + and the Learn tab are the same object rather than two
+   * that resemble each other. A second hand-rolled copy is how the swipe
+   * threshold, the Escape handler and the did-swipe-so-suppress-the-tap guard
+   * end up subtly different on one of them.
+   *
+   * `panels` are given outermost-first; a swipe picks the first or the last,
+   * which is what "toward the side you want" means with two or with three.
+   */
+  function openForkSheet({ label, testid, panels, tip }) {
+    const overlay = el("div", { class: "qa-fork-overlay", "data-testid": testid, role: "dialog", "aria-label": label });
     function onKey(e) { if (e.key === "Escape") { e.preventDefault(); close(); } }
     const close = () => { document.removeEventListener("keydown", onKey, true); overlay.remove(); };
     document.addEventListener("keydown", onKey, true);
-    const go = (tab) => { close(); goTab(tab); window.scrollTo(0, 0); };
-    // Animated marks — dumbbell "reps" on the workout path, steam rises off the meal bowl.
+
     const CLOSE_ART = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>`;
-    const workoutPanel = el("button", {
-      class: "qa-fork-panel qa2-workout", "data-testid": "quick-start-workout",
-      on: { click: () => go("workout") }
+    const nodes = panels.map((p) => el("button", {
+      class: `qa-fork-panel ${p.cls}`, "data-testid": p.testid,
+      on: { click: () => { close(); p.onPick(); } }
     },
-      el("span", { class: "qa2-art", html: QA_ART.workout }),
-      el("span", { class: "qa2-label" }, state.activeWorkout ? "Resume workout" : "Start workout"),
-      el("span", { class: "qa2-sub" }, state.activeWorkout ? "Pick up where you left off" : "Pick an exercise to begin")
-    );
-    const mealPanel = el("button", {
-      class: "qa-fork-panel qa2-meal", "data-testid": "quick-log-meal",
-      on: { click: () => go("nutrition") }
-    },
-      el("span", { class: "qa2-art", html: QA_ART.meal }),
-      el("span", { class: "qa2-label" }, "Log meal"),
-      el("span", { class: "qa2-sub" }, "Add food to today")
-    );
-    const sessionsPanel = el("button", {
-      class: "qa-fork-panel qa2-sessions", "data-testid": "quick-sessions",
-      on: { click: () => { close(); goTab("workout"); window.scrollTo(0, 0); setTimeout(openSessionsSheet, 260); } }
-    },
-      el("span", { class: "qa2-art", html: QA_ART.sessions }),
-      el("span", { class: "qa2-label" }, "Sessions"),
-      el("span", { class: "qa2-sub" }, "Ready-made workouts")
-    );
-    overlay.appendChild(workoutPanel);
-    overlay.appendChild(sessionsPanel);
-    overlay.appendChild(mealPanel);
+      el("span", { class: "qa2-art", html: p.art }),
+      el("span", { class: "qa2-label" }, p.label),
+      el("span", { class: "qa2-sub" }, p.sub)
+    ));
+    for (const n of nodes) overlay.appendChild(n);
     overlay.appendChild(el("button", { class: "qa-fork-close", "aria-label": "Close", title: "Close", html: CLOSE_ART, on: { click: close } }));
 
-    // Teach the shortcut at the one moment someone is demonstrably in the
-    // market for it — they are here, taking the long way to these same three
-    // choices. It stops appearing the first time the hold is actually used,
-    // so it is never advice you have already taken.
-    if (state.prefs && !state.prefs.radialDiscovered) {
-      overlay.appendChild(el("div", { class: "qa-fork-tip", "data-testid": "quick-sheet-tip" },
-        el("span", { class: "qa-fork-tip-hold", "aria-hidden": "true" }),
-        el("span", {}, "Next time, "),
-        el("strong", {}, "hold the +"),
-        el("span", {}, " to jump straight there.")
-      ));
-    }
+    if (tip) overlay.appendChild(tip);
 
-    // Subtle hint that you can swipe to choose (chevrons breathe outward).
     const CHEV_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
     const CHEV_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
     overlay.appendChild(el("div", { class: "qa-fork-hint", "aria-hidden": "true" },
@@ -2280,7 +2287,8 @@
       el("span", { class: "qa-fork-chev qa-fork-chev-r", html: CHEV_R })
     ));
 
-    // Swipe toward the side you want: left → Workout (left), right → Log meal (right).
+    // Swipe toward the side you want: left picks the first panel, right the last.
+    const first = nodes[0], last = nodes[nodes.length - 1];
     let sx = 0, sy = 0, swiping = false, didSwipe = false;
     overlay.addEventListener("touchstart", (e) => {
       if (e.touches.length !== 1) { swiping = false; return; }
@@ -2292,16 +2300,80 @@
       const dx = t.clientX - sx, dy = t.clientY - sy;
       if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
       didSwipe = true;
-      const panel = dx < 0 ? workoutPanel : mealPanel;
-      panel.classList.add("qa2-chosen");
-      setTimeout(() => go(dx < 0 ? "workout" : "nutrition"), 140);
+      const idx = dx < 0 ? 0 : panels.length - 1;
+      nodes[idx].classList.add("qa2-chosen");
+      setTimeout(() => { close(); panels[idx].onPick(); }, 140);
     }, { passive: true });
     // A swipe that ends on a panel shouldn't also fire its tap.
-    [workoutPanel, mealPanel].forEach(p => p.addEventListener("click", (e) => { if (didSwipe) { e.preventDefault(); e.stopPropagation(); } }, true));
+    [first, last].forEach((n) => n.addEventListener("click", (e) => {
+      if (didSwipe) { e.preventDefault(); e.stopPropagation(); }
+    }, true));
 
     document.body.appendChild(overlay);
+    return { close };
   }
 
+  function openQuickSheet() {
+    if (state.tab === "workout") { renderMain(); window.scrollTo(0, 0); return; }
+    const go = (tab, after) => { goTab(tab); window.scrollTo(0, 0); if (after) setTimeout(after, 260); };
+    // Teach the shortcut at the one moment someone is demonstrably in the
+    // market for it — they are here, taking the long way to these same three
+    // choices. It stops appearing the first time the hold is actually used,
+    // so it is never advice you have already taken.
+    const tip = (state.prefs && !state.prefs.radialDiscovered)
+      ? el("div", { class: "qa-fork-tip", "data-testid": "quick-sheet-tip" },
+          el("span", { class: "qa-fork-tip-hold", "aria-hidden": "true" }),
+          el("span", {}, "Next time, "),
+          el("strong", {}, "hold the +"),
+          el("span", {}, " to jump straight there."))
+      : null;
+    openForkSheet({
+      label: "Quick actions", testid: "quick-sheet", tip,
+      panels: [
+        {
+          cls: "qa2-workout", testid: "quick-start-workout", art: QA_ART.workout,
+          label: state.activeWorkout ? "Resume workout" : "Start workout",
+          sub: state.activeWorkout ? "Pick up where you left off" : "Pick an exercise to begin",
+          onPick: () => go("workout")
+        },
+        {
+          cls: "qa2-sessions", testid: "quick-sessions", art: QA_ART.sessions,
+          label: "Sessions", sub: "Ready-made workouts",
+          onPick: () => go("workout", openSessionsSheet)
+        },
+        {
+          cls: "qa2-meal", testid: "quick-log-meal", art: QA_ART.meal,
+          label: "Log meal", sub: "Add food to today",
+          onPick: () => go("nutrition")
+        }
+      ]
+    });
+  }
+
+  /**
+   * The Learn tab holds two quite different things stacked on one page — the
+   * reading, then the exercise library with the body map at its head — and the
+   * map sits below the fold, so arriving on the tab only ever showed you one
+   * of them. Same fork as the +, two ways instead of three.
+   */
+  function openLearnFork() {
+    const go = (after) => { jumpTo("library", after); };
+    openForkSheet({
+      label: "Learn", testid: "learn-fork",
+      panels: [
+        {
+          cls: "qa2-learn", testid: "learn-fork-centre", art: QA_ART.learn,
+          label: "Learning Centre", sub: "Why the training works, and what the numbers mean",
+          onPick: () => go(() => window.scrollTo(0, 0))
+        },
+        {
+          cls: "qa2-bodymap", testid: "learn-fork-bodymap", art: QA_ART.bodymap,
+          label: "Body map", sub: "Tap a muscle to find exercises for it",
+          onPick: () => go(() => scrollToTestId("body-map"))
+        }
+      ]
+    });
+  }
 
   // ============ Radial hold menu ============
   //
@@ -3024,7 +3096,7 @@
       el("div", {},
         el("div", { class: "card-title", style: "margin: 0 0 4px 0" }, "Bodyweight"),
         el("div", { style: "font-family: var(--font-numeric); font-size: 22px; font-weight: 600;" },
-          latest ? `${latest.kg}kg` : el("span", { class: "text-faint", style: "font-size: 14px; font-weight: 400" }, "Add your weight below")
+          latest ? U.formatWeight(latest.kg, { space: false }) : el("span", { class: "text-faint", style: "font-size: 14px; font-weight: 400" }, "Add your weight below")
         ),
         latest && list.length > 1 ? (() => {
           const first = list[0];
@@ -3035,7 +3107,7 @@
           // already carries the direction; the colour was adding a verdict.
           const sign = delta > 0 ? "+" : "";
           return el("div", { class: "text-xs text-muted", style: "margin-top: 4px" },
-            `${sign}${delta.toFixed(1)}kg since ${U.formatDate(first.date)}`);
+            `${sign}${U.trimNum(Math.abs(U.toDisplayWeight(Math.abs(delta))))}${U.weightUnit()} since ${U.formatDate(first.date)}`);
         })() : null
       )
     );
@@ -3043,20 +3115,20 @@
 
     // Input row
     const wI = el("input", { type: "number", step: "0.1", inputmode: "decimal",
-      class: "input input-num", placeholder: latest ? `${latest.kg}` : "kg",
+      class: "input input-num", placeholder: latest ? String(U.toDisplayWeight(latest.kg)) : U.weightUnit(),
       value: todayEntry?.kg ?? "", style: "max-width: 140px" });
     // Tap-first numeric keypad, same as logging reps/weight in a workout.
-    attachNumPad(wI, { decimals: true, step: 0.1, unit: "kg", label: "Log bodyweight" });
+    attachNumPad(wI, { decimals: true, step: U.isImperial() ? 0.2 : 0.1, unit: U.weightUnit(), label: "Log bodyweight" });
     const saveBtn = el("button", { class: "btn btn-primary btn-sm", on: { click: async () => {
-      const kg = parseFloat(wI.value);
-      if (isNaN(kg) || kg <= 0) return toast("Enter a valid weight");
+      const kg = U.fromDisplayWeight(wI.value);
+      if (kg == null || isNaN(kg) || kg <= 0) return toast("Enter a valid weight");
       await Storage.saveBodyweight({ date: today, kg });
       toast("Weight logged");
       renderMainKeepScroll();
     } } }, "Log today");
     card.appendChild(el("div", { class: "row mt-8", style: "gap: 8px; align-items: center;" },
       wI,
-      el("span", { class: "text-sm text-muted" }, "kg"),
+      el("span", { class: "text-sm text-muted" }, U.weightUnit()),
       saveBtn,
       todayEntry ? el("button", { class: "icon-btn", title: "Delete today’s entry", on: { click: async () => {
         if (!(await confirmDialog("Delete today’s bodyweight entry?", { title: "Delete entry?", okLabel: "Delete", danger: true }))) return;
@@ -4235,7 +4307,7 @@
           el("span", { class: "week-mini-peak" }, (() => {
             const peak = Math.max(0, ...dayVols);
             // No k-suffix here: "1.7k" + "kg" reads as "1.7kkg".
-            return peak ? `peak ${Math.round(peak).toLocaleString("en-GB")}kg` : "nothing logged";
+            return peak ? `peak ${U.formatVolume(peak).replace(" ", "")}` : "nothing logged";
           })())
         )
       ),
@@ -4251,7 +4323,7 @@
           el("span", { class: "week-mini-peak" }, (() => {
             if (bwVals.length < 2) return "log to start";
             const d = bwVals[bwVals.length - 1] - bwVals[0];
-            return `${d > 0 ? "+" : ""}${d.toFixed(1)}kg`;
+            return `${d > 0 ? "+" : ""}${U.trimNum(U.toDisplayWeight(d))}${U.weightUnit()}`;
           })())
         )
       )
@@ -5500,9 +5572,9 @@
         list.appendChild(el("div", { class: "warmup-item" },
           el("div", { class: "warmup-ramp-badge" }, `${r.weight}`),
           el("div", { class: "warmup-item-main" },
-            el("div", { class: "warmup-item-name" }, `${r.weight}kg × ${r.reps}`),
+            el("div", { class: "warmup-item-name" }, `${U.formatWeight(r.weight, { space: false })} × ${r.reps}`),
             el("div", { class: "warmup-item-sub" }, r.label)),
-          el("div", { class: "warmup-item-dose" }, "kg")
+          el("div", { class: "warmup-item-dose" }, U.weightUnit())
         ));
       }
     }
@@ -6478,7 +6550,7 @@
     const TYPE_LABELS = {
       weighted: "Weighted",
       bodyweight: "Bodyweight",
-      weighted_bodyweight: "BW +kg",
+      weighted_bodyweight: `BW +${U.weightUnit()}`,
       cardio: "Cardio",
       hold: "Hold",
       interval: "Intervals",
@@ -6577,7 +6649,7 @@
         } else if (exType === "bodyweight" || ((!s.weight || s.weight === 0) && s.reps)) {
           label = `${s.reps}`;
         } else {
-          label = `${s.weight}×${s.reps}`;
+          label = `${U.trimNum(U.toDisplayWeight(s.weight))}×${s.reps}`;
         }
         chips.appendChild(el("span", { class: "prev-set-chip", title: `Set ${i + 1}` }, label));
       }
@@ -6756,7 +6828,7 @@
       body.appendChild(controls);
     } else {
       // Sets table — e1RM/kcal are meta columns (hidden on phone to keep weight/reps readable)
-      const weightHead = exType === "bodyweight" ? "" : (exType === "weighted_bodyweight" ? "+kg" : "kg");
+      const weightHead = exType === "bodyweight" ? "" : (exType === "weighted_bodyweight" ? "+" + U.weightUnit() : U.weightUnit());
       const header = el("div", { class: `set-row set-row-header type-${exType}` },
         el("div", { class: "set-index" }, "#"),
         exType === "bodyweight" ? null : el("div", {}, weightHead),
@@ -6961,8 +7033,8 @@
       type: "number", step: "0.1", inputmode: "decimal", min: "0",
       class: "input input-sm input-num",
       "data-cardio-field": "distanceKm",
-      placeholder: prevSet?.distanceKm != null ? String(prevSet.distanceKm) : "—",
-      value: s.distanceKm ?? "",
+      placeholder: prevSet?.distanceKm != null ? String(U.toDisplayDistance(prevSet.distanceKm)) : "—",
+      value: s.distanceKm != null ? String(U.toDisplayDistance(s.distanceKm)) : "",
       title: "Distance (km)"
     }) : null;
 
@@ -7035,7 +7107,7 @@
       if (nextDur !== s.durationMin) s.touched = true;   // see mirrorStrengthInputs
       s.durationMin = nextDur;
       if (!s.intensity) s.intensity = "moderate";
-      if (distInput) s.distanceKm = distInput.value === "" ? null : parseFloat(distInput.value);
+      if (distInput) s.distanceKm = U.fromDisplayDistance(distInput.value);
       // Keep manual kcal when the user typed it; otherwise refresh estimate.
       if (kcalInput.value !== "") {
         s.kcalManual = true;
@@ -7086,7 +7158,7 @@
         if (!s.done) {
           s.durationMin = durInput.value === "" ? null : parseFloat(durInput.value);
           if (!s.intensity) s.intensity = "moderate";
-          if (distInput) s.distanceKm = distInput.value === "" ? null : parseFloat(distInput.value);
+          if (distInput) s.distanceKm = U.fromDisplayDistance(distInput.value);
           if (!s.durationMin || s.durationMin <= 0) { toast("Enter duration in minutes first"); return; }
           // Prefer typed machine/watch kcal; fall back to MET estimate.
           const kcal = resolveKcal();
@@ -7318,7 +7390,11 @@
     };
     const isBodyweight = exType === "bodyweight";
     const r = num(reps);
-    s.weight = isBodyweight ? 0 : num(weight);
+    // `weight` arrives in whatever the user is looking at — the classic row
+    // reads an input, the runner holds a spun figure — and both are display
+    // units. This is the one place a set becomes done, so it is the one place
+    // that has to land in kilograms.
+    s.weight = isBodyweight ? 0 : U.fromDisplayWeight(num(weight));
     s.reps = r == null ? null : Math.trunc(r);
     if (!s.reps || (!isBodyweight && !s.weight && exType !== "weighted_bodyweight")) {
       toast("Enter weight and reps first");
@@ -7376,11 +7452,11 @@
     const weightInput = el("input", {
       type: "number", step: "0.5", inputmode: "decimal",
       class: "input input-sm input-num",
-      placeholder: placeholder || "kg",
-      value: s.weight != null && s.weight !== "" ? String(s.weight) : "",
-      title: "Weight (kg)",
+      placeholder: placeholder || U.weightUnit(),
+      value: s.weight != null && s.weight !== "" ? String(U.toDisplayWeight(s.weight)) : "",
+      title: `Weight (${U.weightUnit()})`,
       autocomplete: "off",
-      "aria-label": `Set ${si + 1} weight in kilograms`,
+      "aria-label": `Set ${si + 1} weight in ${U.isImperial() ? "pounds" : "kilograms"}`,
       "data-testid": `set-weight-${si}`
     });
     const repsInput = el("input", {
@@ -7422,7 +7498,7 @@
     const toolsMeta = el("div", { class: "set-tools-meta mono text-xs text-muted" }, toolsE1, toolsKcal);
 
     const mirrorStrengthInputs = () => {
-      const nextW = isBodyweight ? (s.weight ?? 0) : (weightInput.value === "" ? null : parseFloat(weightInput.value));
+      const nextW = isBodyweight ? (s.weight ?? 0) : U.fromDisplayWeight(weightInput.value);
       const nextR = repsInput.value === "" ? null : parseInt(repsInput.value, 10);
       // Only a real change counts as "touched" — opening the numpad on a
       // prefilled set commits its seeded value and fires input, which used to
@@ -7446,15 +7522,17 @@
     const prevInSession = si > 0 ? ex.sets[si - 1] : null;
     const dedupeChips = (arr) => { const seen = new Set(); return arr.filter(c => { const k = String(c.value); if (seen.has(k)) return false; seen.add(k); return true; }); };
     const weightChips = dedupeChips([
-      prevInSession && prevInSession.weight != null ? { label: `Prev ${prevInSession.weight}`, value: prevInSession.weight } : null,
-      prevSet && prevSet.weight != null ? { label: `Last ${prevSet.weight}`, value: prevSet.weight } : null
+      prevInSession && prevInSession.weight != null
+        ? { label: `Prev ${U.trimNum(U.toDisplayWeight(prevInSession.weight))}`, value: U.toDisplayWeight(prevInSession.weight) } : null,
+      prevSet && prevSet.weight != null
+        ? { label: `Last ${U.trimNum(U.toDisplayWeight(prevSet.weight))}`, value: U.toDisplayWeight(prevSet.weight) } : null
     ].filter(Boolean));
     const repsChips = dedupeChips([
       prevInSession && prevInSession.reps != null ? { label: `Prev ${prevInSession.reps}`, value: prevInSession.reps } : null,
       prevSet && prevSet.reps != null ? { label: `Last ${prevSet.reps}`, value: prevSet.reps } : null
     ].filter(Boolean));
     const setHint = prevSet
-      ? (isBodyweight ? `Last: ${prevSet.reps ?? "\u2014"} reps` : `Last: ${prevSet.weight ?? 0} kg \u00d7 ${prevSet.reps ?? "\u2014"}`)
+      ? (isBodyweight ? `Last: ${prevSet.reps ?? "\u2014"} reps` : `Last: ${U.formatWeight(prevSet.weight ?? 0)} \u00d7 ${prevSet.reps ?? "\u2014"}`)
       : "";
 
     // Mark this set complete. The row owns only where the numbers come from \u2014
@@ -7469,12 +7547,12 @@
 
     attachNumPad(weightInput, {
       label: `${ex.name} \u00b7 set ${si + 1} \u00b7 ${exType === "weighted_bodyweight" ? "added weight" : "weight"}`,
-      unit: "kg", step: 2.5, decimals: exType !== "weighted_bodyweight",
+      unit: U.weightUnit(), step: U.weightStep(), decimals: exType !== "weighted_bodyweight",
       allowMinus: exType === "weighted_bodyweight",
       // Added weight can be negative (assisted); plain weight starts at 0.
       // Standard weight gets a tens+ones+¼ split (fast to reach heavy loads);
       // assisted (negative) weight keeps the single whole-number column.
-      wheel: { min: exType === "weighted_bodyweight" ? -100 : 0, max: 400, frac: "quarter", tens: exType !== "weighted_bodyweight" },
+      wheel: { min: exType === "weighted_bodyweight" ? -100 : 0, max: U.weightWheelMax(), frac: "quarter", tens: exType !== "weighted_bodyweight" },
       chips: weightChips, hint: setHint
     });
     attachNumPad(repsInput, {
@@ -7483,7 +7561,7 @@
       onLogSet: async () => { if (await markSetDone()) { await refreshExerciseBlock(ex); flashCompletedSet(ex, si); } }
     });
 
-    const openPlates = () => openPlateCalculator(parseFloat(weightInput.value) || (prevSet?.weight ?? 60));
+    const openPlates = () => openPlateCalculator(U.fromDisplayWeight(weightInput.value) || (prevSet?.weight ?? 60));
     const makePlatesBtn = (extraClass) => {
       if (!showPlates) return null;
       return el("button", {
@@ -7978,7 +8056,7 @@
       const when = U.formatDate ? U.formatDate(prev.date) : prev.date;
       return step.exType === "bodyweight"
         ? `${when} · ${at.reps ?? "—"} reps`
-        : `${when} · ${fmtKg(at.weight)} kg × ${at.reps ?? "—"}`;
+        : `${when} · ${U.formatWeight(at.weight)} × ${at.reps ?? "—"}`;
     }
 
     function render() {
@@ -8019,7 +8097,10 @@
       const setCount = (ex.sets || []).length;
       const exOrder = [...new Set(steps.map(x => x.ei))];
 
-      let curW = prefill(step, "weight");
+      // Display units for the whole of this screen: the figure, the deltas and
+      // the wheel are all things the user reads and spins. commitStrengthSet
+      // turns it back into kilograms on the way out.
+      let curW = U.toDisplayWeight(prefill(step, "weight"));
       let curR = prefill(step, "reps");
 
       body.appendChild(el("div", { class: "srun-eyebrow" },
@@ -8091,14 +8172,14 @@
 
       if (!isBw) {
         figures.appendChild(mkFigure({
-          key: "weight", unit: "kg",
+          key: "weight", unit: U.weightUnit(),
           get: () => curW, set: (v) => { curW = v; },
-          deltas: [-5, -2.5, 2.5, 5],
+          deltas: U.isImperial() ? [-10, -5, 5, 10] : [-5, -2.5, 2.5, 5],
           pad: {
             label: `${ex.name} · set ${si + 1} · ${exType === "weighted_bodyweight" ? "added weight" : "weight"}`,
-            unit: "kg", step: 2.5, decimals: exType !== "weighted_bodyweight",
+            unit: U.weightUnit(), step: U.weightStep(), decimals: exType !== "weighted_bodyweight",
             allowMinus: exType === "weighted_bodyweight",
-            wheel: { min: exType === "weighted_bodyweight" ? -100 : 0, max: 400, frac: "quarter", tens: exType !== "weighted_bodyweight" },
+            wheel: { min: exType === "weighted_bodyweight" ? -100 : 0, max: U.weightWheelMax(), frac: "quarter", tens: exType !== "weighted_bodyweight" },
             hint: lastLine(step)
           }
         }));
@@ -8137,8 +8218,32 @@
           render();
         } }
       }, "LOG SET");
+      // Copying last session's set count, which the classic card has always
+      // offered and this screen did not. A new exercise starts with one set,
+      // so the runner announced "SET 1 OF 1" and "Last one" to somebody who
+      // did four of them last Tuesday — turning the one-tap screen into
+      // Log, + Add set, Log, + Add set. Only offered before anything is
+      // logged, because it replaces the set list rather than extending it.
+      const prevForEx = prevByEx.get(ex.exerciseId);
+      const canUseLast = prevForEx
+        && !(ex.sets || []).some((x) => x.done)
+        && cloneSetsForReplay(prevForEx.sets, exType).length > (ex.sets || []).length;
+      const useLastBtn = canUseLast ? el("button", {
+        class: "srun-minor-btn", type: "button", "data-testid": "srun-use-last",
+        title: `Copy last session — ${U.formatDate(prevForEx.date)}`,
+        on: { click: async () => {
+          ex.sets = cloneSetsForReplay(prevForEx.sets, exType);
+          await Storage.saveWorkout(w);
+          steps = guidedSteps(w);
+          const i = steps.findIndex((x) => x.ei === step.ei && x.si === 0);
+          if (i >= 0) cursor = i;
+          render();
+        } }
+      }, `Use last · ${cloneSetsForReplay(prevForEx.sets, exType).length} sets`) : null;
+
       const foot = el("div", { class: "srun-foot" }, logBtn,
         el("div", { class: "srun-minor" },
+          useLastBtn,
           el("button", {
             class: "srun-minor-btn", type: "button", "data-testid": "srun-skip",
             on: { click: () => { const n = nextCursor(cursor); if (n < 0) { renderAllDone(); return; } cursor = n; render(); } }
@@ -9440,8 +9545,8 @@
     };
     const prLabelFor = (s) => {
       if (!s) return null;
-      if (s.bestWeight > 0) return `${Math.round(s.bestWeight)}kg`;
-      if (s.maxDistance > 0) return `${s.maxDistance}km`;
+      if (s.bestWeight > 0) return U.formatWeight(s.bestWeight, { space: false, round: true });
+      if (s.maxDistance > 0) return U.formatDistance(s.maxDistance).replace(" ", "");
       if (s.maxDuration > 0) return `${Math.round(s.maxDuration)}m`;
       return null;
     };
@@ -9846,7 +9951,7 @@
               ),
               el("div", { class: "stat" },
                 el("div", { class: "stat-label" }, "Distance"),
-                el("div", { class: "stat-value" }, prs.maxDistance ? `${prs.maxDistance} km` : "—")
+                el("div", { class: "stat-value" }, prs.maxDistance ? U.formatDistance(prs.maxDistance) : "—")
               ),
               el("div", { class: "stat" },
                 el("div", { class: "stat-label" }, "Best burn"),
@@ -9859,11 +9964,11 @@
             el("div", { class: "stat-row" },
               el("div", { class: "stat" },
                 el("div", { class: "stat-label" }, "Max weight"),
-                el("div", { class: "stat-value" }, prs.maxWeight ? `${prs.maxWeight}kg` : "—")
+                el("div", { class: "stat-value" }, prs.maxWeight ? U.formatWeight(prs.maxWeight, { space: false }) : "—")
               ),
               el("div", { class: "stat" },
                 el("div", { class: "stat-label" }, "e1RM"),
-                el("div", { class: "stat-value" }, prs.maxE1RM ? `${prs.maxE1RM.toFixed(1)}kg` : "—")
+                el("div", { class: "stat-value" }, prs.maxE1RM ? U.formatWeight(prs.maxE1RM, { space: false }) : "—")
               ),
               el("div", { class: "stat" },
                 el("div", { class: "stat-label" }, "Max reps"),
@@ -9898,14 +10003,14 @@
           el("div", { class: "row-between", style: "align-items: flex-start; margin-bottom: 12px" },
             el("div", {},
               el("div", { class: "card-title", style: "margin: 0 0 2px" }, "Strength level"),
-              el("div", { class: "text-xs text-faint" }, `e1RM ${prs.maxE1RM.toFixed(1)}kg · ${lvl.ratio.toFixed(2)}× bodyweight`)),
+              el("div", { class: "text-xs text-faint" }, `e1RM ${U.formatWeight(prs.maxE1RM, { space: false })} · ${lvl.ratio.toFixed(2)}× bodyweight`)),
             el("div", { class: "strength-badge", style: `--tier:${lvl.color}` }, lvl.tier)),
           el("div", { class: "tier-ladder" },
             ...STRENGTH_TIERS.map((t, i) => el("div", { class: "tier-step" + (i <= lvl.tierIndex ? " on" : ""), style: `--tier:${lvl.color}`, title: t }))),
           lvl.nextTier
             ? el("div", { style: "margin-top: 10px" },
                 el("div", { class: "strength-progress" }, el("i", { style: `width:${lvl.pctToNext}%; background:${lvl.color}` })),
-                el("div", { class: "text-xs text-muted", style: "margin-top: 6px" }, `${lvl.pctToNext}% to ${lvl.nextTier} · reach ${lvl.nextAt}kg e1RM`))
+                el("div", { class: "text-xs text-muted", style: "margin-top: 6px" }, `${lvl.pctToNext}% to ${lvl.nextTier} · reach ${U.formatWeight(lvl.nextAt, { space: false })} e1RM`))
             : el("div", { class: "text-sm", style: `color:${lvl.color}; margin-top: 10px; font-weight: 700` }, "Top tier — Elite 💪"),
           el("div", { class: "text-xs text-faint", style: "margin-top: 10px" }, "A rough guide from bodyweight ratios — real standards vary by lift and person.")
         );
@@ -9928,7 +10033,7 @@
             el("div", { class: "card-title", style: "margin: 0" }, "Strength trend"),
             el("div", { class: "text-sm", style: `color:${up ? "var(--accent)" : "#e0913f"}; font-weight: 700` }, `${up ? "▲" : "▼"} ${Math.abs(pct)}% · ${series.length} sessions`)),
           sparkline(series, { width: 300, height: 56 }),
-          el("div", { class: "text-xs text-faint", style: "margin-top: 6px" }, `Estimated 1RM per session (Epley). ${first}kg → ${last}kg.`)
+          el("div", { class: "text-xs text-faint", style: "margin-top: 6px" }, `Estimated 1RM per session (Epley). ${U.formatWeight(first, { space: false })} → ${U.formatWeight(last, { space: false })}.`)
         );
       })() : null,
       // 1RM projections — strength only
@@ -9941,7 +10046,7 @@
             const rounded = Math.round(w * 2) / 2;
             return el("div", { class: "rm-cell" },
               el("div", { class: "rm-reps" }, `${r} rep${r === 1 ? "" : "s"}`),
-              el("div", { class: "rm-weight" }, `${rounded.toFixed(1)}kg`)
+              el("div", { class: "rm-weight" }, U.formatWeight(rounded, { space: false }))
             );
           })
         )
@@ -9989,12 +10094,12 @@
           el("div", { class: "history-item-date" }, U.formatDate(h.date, { year: "numeric" })),
           el("div", { class: "history-item-summary" }, h.sets.map(s => {
             if (s.durationMin != null) {
-              const dist = s.distanceKm ? ` · ${s.distanceKm}km` : "";
+              const dist = s.distanceKm ? ` · ${U.formatDistance(s.distanceKm).replace(" ", "")}` : "";
               const kcal = s.kcal ? ` · ${s.kcal} kcal` : "";
               return `${s.durationMin} min · ${U.intensityLabel(s.intensity)}${dist}${kcal}`;
             }
             if (!s.weight && s.reps) return `${s.reps} reps`;
-            return `${s.weight}kg × ${s.reps}`;
+            return `${U.formatWeight(s.weight, { space: false })} × ${s.reps}`;
           }).join(" · "))
         ))
       ) : null
@@ -12894,7 +12999,7 @@
         },
           el("div", { class: "stats-hero-value" },
             el("span", { class: "stats-hero-num" }, String(h.maxWeight)),
-            el("span", { class: "stats-hero-unit" }, "kg")
+            el("span", { class: "stats-hero-unit" }, U.weightUnit())
           ),
           el("div", { class: "stats-hero-label" }, shortName.toUpperCase()),
           h.maxWeightDate
@@ -13078,7 +13183,7 @@
               el("div", { class: "stats-record-meta" },
                 [
                   rec.maxDuration ? `${rec.maxDuration} min` : null,
-                  rec.maxDistance ? `${rec.maxDistance} km` : null,
+                  rec.maxDistance ? U.formatDistance(rec.maxDistance) : null,
                   rec.sessionCount ? `${rec.sessionCount} session${rec.sessionCount === 1 ? "" : "s"}` : null
                 ].filter(Boolean).join(" · ")
               )
@@ -13090,7 +13195,7 @@
           ));
         } else {
           const sub = [
-            rec.maxE1RM ? `e1RM ${rec.maxE1RM.toFixed(1)}kg` : null,
+            rec.maxE1RM ? `e1RM ${U.formatWeight(rec.maxE1RM, { space: false })}` : null,
             rec.maxWeightDate ? U.formatDate(rec.maxWeightDate) : null,
             rec.sessionCount ? `${rec.sessionCount}×` : null
           ].filter(Boolean).join(" · ");
@@ -13105,7 +13210,7 @@
             ),
             el("div", { class: "stats-record-value" },
               rec.maxWeight > 0 ? String(rec.maxWeight) : (rec.maxReps ? String(rec.maxReps) : "—"),
-              el("span", { class: "stats-record-unit" }, rec.maxWeight > 0 ? "kg" : (rec.maxReps ? "reps" : ""))
+              el("span", { class: "stats-record-unit" }, rec.maxWeight > 0 ? U.weightUnit() : (rec.maxReps ? "reps" : ""))
             )
           ));
         }
@@ -13191,9 +13296,9 @@
           },
             el("div", {},
               el("div", { class: "pr-name" }, p.ex.name),
-              el("div", { class: "pr-date" }, `Best set: ${p.bestWeight}kg × ${p.bestReps} · top weight ${p.maxWeight}kg · best reps ${p.maxReps}`)
+              el("div", { class: "pr-date" }, `Best set: ${U.formatWeight(p.bestWeight, { space: false })} × ${p.bestReps} · top weight ${U.formatWeight(p.maxWeight, { space: false })} · best reps ${p.maxReps}`)
             ),
-            el("div", { class: "pr-value" }, `${p.maxE1RM.toFixed(1)}kg`, el("span", { class: "text-xs text-faint" }, " e1RM"))
+            el("div", { class: "pr-value" }, U.formatWeight(p.maxE1RM, { space: false }), el("span", { class: "text-xs text-faint" }, " e1RM"))
           )
         )
       ));
@@ -13209,7 +13314,7 @@
       const totalSets = (w.exercises || []).reduce((s, e) => s + (e.sets || []).length, 0);
       const burned = w.kcalBurned != null ? w.kcalBurned : workoutKcalTotal(w);
       const hasStrength = (w.exercises || []).some(e => e.type !== "cardio");
-      const volBit = hasStrength && totalVol > 0 ? ` · ${totalVol.toLocaleString()}kg volume` : "";
+      const volBit = hasStrength && totalVol > 0 ? ` · ${U.formatVolume(totalVol)} volume` : "";
       const burnBit = burned > 0 ? ` · ≈ ${burned} kcal` : "";
       // The freshly-finished session (top of the list) gets a one-off flourish.
       const flourish = firstItem && finishFlourish ? " finish-flourish" : "";
@@ -13451,7 +13556,7 @@
         numCell(s, "weight", {
           testid: "wd-weight", onCommit: refreshE1,
           pad: {
-            decimals: true, unit: "kg",
+            decimals: true, unit: U.weightUnit(),
             wheel: { min: ex.type === "weighted_bodyweight" ? -100 : 0, max: 400,
               frac: "quarter", tens: ex.type !== "weighted_bodyweight" }
           }
@@ -13821,32 +13926,55 @@
     }
 
     function renderHeight() {
-      const cap = el("div", { class: "quiz-wheel-unit text-faint" }, `${cmToFtIn(draft.heightCm)} · cm`);
+      // Imperial spins whole inches and reads out as feet-and-inches; metric
+      // spins centimetres and shows the ft/in equivalent underneath. Either
+      // way the draft holds centimetres.
+      const imp = U.isImperial();
+      const label = (cm) => imp ? `${U.formatHeight(cm)} · ${Math.round(cm)} cm` : `${cmToFtIn(cm)} · cm`;
+      const cap = el("div", { class: "quiz-wheel-unit text-faint" }, label(draft.heightCm));
       const wheelC = buildWheel({
-        items: wheelRange(120, 220, 1), value: Math.round(draft.heightCm),
+        items: imp
+          ? wheelRange(48, 86, 1, (i) => `${Math.floor(i / 12)}′ ${i % 12}″`)
+          : wheelRange(120, 220, 1),
+        value: imp ? Math.round(draft.heightCm / 2.54) : Math.round(draft.heightCm),
         variant: "wheel-quiz", itemHeight: 54, testid: "quiz-wheel-height",
-        onChange: (v) => { draft.heightCm = v; cap.textContent = `${cmToFtIn(v)} · cm`; }
+        onChange: (v) => {
+          draft.heightCm = imp ? U.ftInToCm(Math.floor(v / 12), v % 12) : v;
+          cap.textContent = label(draft.heightCm);
+        }
       });
       return stepShell({
         eyebrow: "About you",
         title: "How tall are you?",
         content: el("div", { class: "quiz-wheel" }, wheelC.el, cap),
-        footer: primaryBtn("Continue", () => { draft.heightCm = wheelC.getValue(); goto(idx + 1, "next"); })
+        footer: primaryBtn("Continue", () => {
+          const v = wheelC.getValue();
+          draft.heightCm = imp ? U.ftInToCm(Math.floor(v / 12), v % 12) : v;
+          goto(idx + 1, "next");
+        })
       });
     }
 
     function renderWeight() {
+      // The wheel spins in whatever the user weighs themselves in; the draft
+      // stays kilograms, because that is what gets stored.
+      const imp = U.isImperial();
       const wheelC = buildWheel({
-        items: wheelRange(30, 200, 0.5, v => String(v)), value: Math.round(draft.weightKg * 2) / 2,
+        items: imp ? wheelRange(66, 440, 1, v => String(v)) : wheelRange(30, 200, 0.5, v => String(v)),
+        value: imp ? Math.round(U.toDisplayWeight(draft.weightKg)) : Math.round(draft.weightKg * 2) / 2,
         variant: "wheel-quiz", itemHeight: 54, testid: "quiz-wheel-weight",
-        onChange: (v) => { draft.weightKg = v; }
+        onChange: (v) => { draft.weightKg = imp ? U.fromDisplayWeight(v) : v; }
       });
       return stepShell({
         eyebrow: "About you",
         title: "What's your current weight?",
         subtitle: "You can update this any time from Home.",
-        content: el("div", { class: "quiz-wheel" }, wheelC.el, el("div", { class: "quiz-wheel-unit text-faint" }, "kg")),
-        footer: primaryBtn("Continue", () => { draft.weightKg = wheelC.getValue(); goto(idx + 1, "next"); })
+        content: el("div", { class: "quiz-wheel" }, wheelC.el, el("div", { class: "quiz-wheel-unit text-faint" }, U.weightUnit())),
+        footer: primaryBtn("Continue", () => {
+          const v = wheelC.getValue();
+          draft.weightKg = imp ? U.fromDisplayWeight(v) : v;
+          goto(idx + 1, "next");
+        })
       });
     }
 
@@ -14639,6 +14767,32 @@
     }
     syncSwatches();
 
+    // Units. Stored data never changes — only what the app draws and what a
+    // typed number is taken to mean — so switching is free and reversible.
+    const unitBtn = (system, label, sub) => el("button", {
+      class: "seg-btn" + (state.prefs.units === system ? " active" : ""),
+      type: "button", "data-testid": `units-${system}`,
+      on: { click: async () => {
+        if (state.prefs.units === system) return;
+        state.prefs.units = system;
+        U.setUnits(system);
+        await Storage.setPref("units", system);
+        closeModal();
+        renderMain();
+        toast(system === "imperial" ? "Showing pounds and miles" : "Showing kilograms and kilometres");
+        openSettings();
+      } }
+    }, el("span", {}, label), el("span", { class: "seg-btn-sub" }, sub));
+
+    const unitsSection = el("div", {},
+      el("div", { class: "settings-section-title mt-16" }, "Units"),
+      el("div", { class: "seg-control seg-control-block" },
+        unitBtn("metric", "Metric", "kg · km · cm"),
+        unitBtn("imperial", "Imperial", "lb · mi · ft")),
+      el("div", { class: "text-xs text-faint", style: "margin-top: 6px" },
+        "Changes how weights and distances are shown and entered. Everything already logged is converted on screen, not rewritten — food macros stay in grams either way.")
+    );
+
     const appearanceSection = el("div", {},
       el("div", { class: "settings-section-title mt-16" }, "Appearance"),
       el("div", { class: "seg-control seg-control-block" }, themeLight, themeDark),
@@ -14663,6 +14817,7 @@
       ),
 
       appearanceSection,
+      unitsSection,
 
       el("div", { class: "settings-section-title mt-16", "data-step": "1" }, "1 · Body"),
       el("div", { class: "text-xs text-faint", style: "margin: -4px 0 10px" },

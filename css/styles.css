@@ -3294,10 +3294,13 @@ input:disabled.input,
   cursor: pointer; position: relative;
   transition: flex-grow .35s cubic-bezier(.22, 1, .36, 1), background .25s ease;
 }
-.qa-fork-panel.qa2-meal { border-left: 1px solid var(--border); }
+.qa-fork-panel.qa2-meal,
+.qa-fork-panel.qa2-bodymap { border-left: 1px solid var(--border); }
 .qa-fork-panel:active { background: var(--accent-soft); }
-.qa2-workout { animation: qaForkLeft .32s cubic-bezier(.22, 1, .36, 1) both; }
-.qa2-meal { animation: qaForkRight .32s cubic-bezier(.22, 1, .36, 1) both; }
+/* The outermost panels slide in from their own side. Learn's two use the same
+   pair of animations as the +'s outermost two, so both forks open alike. */
+.qa2-workout, .qa2-learn { animation: qaForkLeft .32s cubic-bezier(.22, 1, .36, 1) both; }
+.qa2-meal, .qa2-bodymap { animation: qaForkRight .32s cubic-bezier(.22, 1, .36, 1) both; }
 @media (hover: hover) {
   .qa-fork-panel:hover { background: var(--accent-soft); flex-grow: 2.4; }
 }
@@ -5290,6 +5293,11 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
 /* ============ You tab — profile header ============ */
 .seg-control-block { display: flex; width: 100%; }
 .seg-control-block .seg-btn { flex: 1; }
+/* Two-line segment: the choice, and what it actually changes underneath. */
+.seg-btn-sub {
+  display: block; margin-top: 2px; font-size: 10.5px; font-weight: 600;
+  letter-spacing: .04em; opacity: .72;
+}
 
 /* Theme colour swatches — the second appearance axis, under light/dark.
    Each carries the tone for the mode you're in, so the swatch is a preview

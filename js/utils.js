@@ -135,6 +135,121 @@ window.U = {
     if (h > 0) return `${h}h ${m}m`;
     return `${m}m`;
   },
+
+  // ---- Units -----------------------------------------------------------
+  //
+  // Everything on disk is metric, always: kilograms, centimetres, kilometres.
+  // Imperial exists only at the edges — what a number looks like on screen and
+  // what a typed number means on the way in. Nothing else in the app knows
+  // which system is on, which is the point: a backup written on one setting
+  // restores correctly on the other, and no arithmetic anywhere has to care.
+  //
+  // The one thing to be careful of is round-tripping. 100 kg shown as 220.5 lb
+  // and typed straight back must not drift to 100.02 kg, so display rounds to
+  // one decimal and the inverse conversion is applied to that rounded figure.
+  LB_PER_KG: 2.2046226218,
+  MI_PER_KM: 0.6213711922,
+  DEFAULT_UNITS: "metric",
+
+  _units: "metric",
+  setUnits(system) { U._units = system === "imperial" ? "imperial" : "metric"; },
+  units() { return U._units; },
+  isImperial() { return U._units === "imperial"; },
+
+  weightUnit() { return U.isImperial() ? "lb" : "kg"; },
+  distanceUnit() { return U.isImperial() ? "mi" : "km"; },
+
+  /** Smallest sensible nudge on a weight input: plates come in 2.5 kg or 5 lb. */
+  weightStep() { return U.isImperial() ? 5 : 2.5; },
+  /** Upper bound for weight wheels, in display units. */
+  weightWheelMax() { return U.isImperial() ? 900 : 400; },
+
+  /** Stored kilograms to the number shown on screen. */
+  toDisplayWeight(kg) {
+    if (kg == null || kg === "") return kg;
+    const n = Number(kg);
+    if (!Number.isFinite(n)) return null;
+    return U.isImperial() ? Math.round(n * U.LB_PER_KG * 10) / 10 : Math.round(n * 100) / 100;
+  },
+
+  /** A number the user typed or spun, back to stored kilograms. */
+  fromDisplayWeight(value) {
+    if (value == null || value === "") return null;
+    const n = typeof value === "number" ? value : parseFloat(String(value).replace(",", "."));
+    if (!Number.isFinite(n)) return null;
+    return U.isImperial() ? Math.round((n / U.LB_PER_KG) * 10000) / 10000 : n;
+  },
+
+  /** Trim a display number: 80 not 80.0, 82.5 kept. */
+  trimNum(n) {
+    if (n == null || !Number.isFinite(Number(n))) return "—";
+    const v = Math.round(Number(n) * 100) / 100;
+    return String(v);
+  },
+
+  /** "80 kg" / "176.4 lb". `space:false` gives "80kg" for tight rows. */
+  formatWeight(kg, opts = {}) {
+    const v = U.toDisplayWeight(kg);
+    if (v == null) return "—";
+    const num = opts.round ? String(Math.round(v)) : U.trimNum(v);
+    return `${num}${opts.space === false ? "" : " "}${U.weightUnit()}`;
+  },
+
+  /** Volume totals — big numbers, never fractional. */
+  formatVolume(kg) {
+    const v = U.toDisplayWeight(kg);
+    if (v == null) return "—";
+    return `${Math.round(v).toLocaleString("en-GB")} ${U.weightUnit()}`;
+  },
+
+  toDisplayDistance(km) {
+    if (km == null || km === "") return km;
+    const n = Number(km);
+    if (!Number.isFinite(n)) return null;
+    return Math.round((U.isImperial() ? n * U.MI_PER_KM : n) * 100) / 100;
+  },
+  fromDisplayDistance(value) {
+    if (value == null || value === "") return null;
+    const n = typeof value === "number" ? value : parseFloat(String(value).replace(",", "."));
+    if (!Number.isFinite(n)) return null;
+    return U.isImperial() ? Math.round((n / U.MI_PER_KM) * 10000) / 10000 : n;
+  },
+  formatDistance(km) {
+    const v = U.toDisplayDistance(km);
+    return v == null ? "—" : `${U.trimNum(v)} ${U.distanceUnit()}`;
+  },
+
+  /** Height is the odd one: imperial wants feet and inches, not a decimal. */
+  cmToFtIn(cm) {
+    const total = Math.round(Number(cm) / 2.54);
+    return { ft: Math.floor(total / 12), in: total % 12 };
+  },
+  ftInToCm(ft, inch) {
+    return Math.round(((Number(ft) || 0) * 12 + (Number(inch) || 0)) * 2.54);
+  },
+  formatHeight(cm) {
+    if (!cm) return "—";
+    if (!U.isImperial()) return `${Math.round(cm)} cm`;
+    const { ft, in: i } = U.cmToFtIn(cm);
+    return `${ft}′ ${i}″`;
+  },
+
+  /** Barbell weights offered by the plate calculator, in kilograms. The
+      imperial set is the real-world one (45 lb bar), not a converted 20 kg. */
+  barOptions() {
+    return U.isImperial()
+      ? [{ kg: 20.4117, label: "45 lb (Olympic)" }, { kg: 15.8757, label: "35 lb (Women's)" },
+         { kg: 11.3398, label: "25 lb (Training bar)" }, { kg: 6.8039, label: "15 lb (EZ / short bar)" }]
+      : [{ kg: 20, label: "20 kg (Olympic)" }, { kg: 15, label: "15 kg (Women's Olympic)" },
+         { kg: 10, label: "10 kg (Training bar)" }, { kg: 7, label: "7 kg (EZ / short bar)" }];
+  },
+
+  /** Plate denominations actually found on a rack, in kilograms. */
+  plateSet() {
+    return U.isImperial()
+      ? [20.4117, 15.8757, 11.3398, 4.5359, 2.2680, 1.1340]   // 45/35/25/10/5/2.5 lb
+      : [25, 20, 15, 10, 5, 2.5, 1.25];
+  },
   epley(weight, reps) {
     if (!weight || !reps) return 0;
     if (reps === 1) return weight;

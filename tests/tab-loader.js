@@ -67,7 +67,7 @@ const HOLD_MS = 1500;   // what showTabLoader waits before dismissing itself
 
   // === 2. a tap skips it ===
   console.log('\n=== 2. a tap skips it, well before the hold expires ===');
-  await openTab('library');
+  await openTab('nutrition');
   const box = await page.evaluate(() => {
     const r = document.querySelector('[data-testid="tab-loader"]').getBoundingClientRect();
     return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
@@ -86,7 +86,11 @@ const HOLD_MS = 1500;   // what showTabLoader waits before dismissing itself
 
   // === 3. it stops swallowing taps the instant it starts leaving ===
   console.log('\n=== 3. it stops intercepting as soon as it is on the way out ===');
-  await openTab('nutrition');
+  // Loaders play once per tab per session and Learn no longer plays one at
+  // all, so reload to get a fresh set rather than hunting for an unused tab.
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForTimeout(2600);
+  await openTab('stats');
   const passthrough = await page.evaluate(() => {
     const o = document.querySelector('[data-testid="tab-loader"]');
     const before = getComputedStyle(o).pointerEvents;
@@ -100,6 +104,25 @@ const HOLD_MS = 1500;   // what showTabLoader waits before dismissing itself
   check('a leaving loader no longer takes the hit', !passthrough.stillHits,
     `pointer-events: ${passthrough.after}`);
   await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"]').forEach(n => n.remove()));
+
+  // === 3b. Learn shows its fork instead of a loader, never both ===
+  //
+  // The fork is already a full-screen interstitial. Playing the tab loader
+  // after it would put two of them back to back on one tap, so the fork
+  // navigates with jumpTo — destination, no journey — and the loader is
+  // deliberately skipped. This asserts the pair cannot both appear.
+  console.log('\n=== 3b. the Learn fork replaces the loader rather than preceding it ===');
+  await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"]').forEach(n => n.remove()));
+  await page.evaluate(() => document.querySelector('[data-testid="dock-home"]').click());
+  await sleep(900);
+  await page.evaluate(() => document.querySelector('[data-testid="dock-library"]').click());
+  await sleep(500);
+  check('tapping Learn raises the fork', !!(await page.$('[data-testid="learn-fork"]')));
+  check('and no loader is stacked underneath it', !(await loaderUp()));
+  await page.evaluate(() => document.querySelector('[data-testid="learn-fork-centre"]').click());
+  await sleep(900);
+  check('choosing a side lands on the tab', !!(await page.$('[data-testid="learn-section"]')));
+  check('still with no loader', !(await loaderUp()));
 
   // === 4. the Nutrition shine animates transform, not layout ===
   console.log('\n=== 4. the saved-meals shine does not reflow every frame ===');

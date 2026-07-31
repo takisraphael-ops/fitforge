@@ -104,7 +104,11 @@ console.log('=== 0. shipped content makes no claims FitForge cannot keep ===');
   });
   await page.reload({ waitUntil: 'networkidle' });
   await page.waitForTimeout(3800);
+  // The Learn dock button forks: the reading, or the body map. Take the
+  // reading, which is where this tab used to land on its own.
   await page.evaluate(() => document.querySelector('.dock button:last-child').click());
+  await page.waitForTimeout(700);
+  await page.evaluate(() => document.querySelector('[data-testid="learn-fork-centre"]').click());
   await page.waitForTimeout(1400);
 
   // ================= 1. the tab =================
