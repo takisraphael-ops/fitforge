@@ -114,10 +114,19 @@ for (const b of blocks) {
     if (cx < AXIS) left += area(pts);
     else right += area(pts);
   }
-  // Zones drawn entirely on one side (none today) would divide by zero.
-  if (left === 0 || right === 0) continue;
-  const skew = Math.abs(right - left) / Math.max(right, left) * 100;
+  // A zone with nothing on one side is the worst version of this bug, not an
+  // edge case to skip — and skipping it is exactly what this line used to do,
+  // on the strength of a "(none today)" that was untrue when it was written.
+  // The male back's lower_back held two shapes, both right of the midline, and
+  // sailed through the sweep that was supposed to have caught it. Division by
+  // zero was the only thing that comment was really guarding against.
   const key = `${b.figure} ${b.view} ${b.zone}`;
+  if (left === 0 || right === 0) {
+    check(`${b.figure} ${b.view} · ${b.zone}`, false,
+      `drawn on one side only (L ${left.toFixed(0)} / R ${right.toFixed(0)})`);
+    continue;
+  }
+  const skew = Math.abs(right - left) / Math.max(right, left) * 100;
   const known = KNOWN_ASYMMETRIC[key];
   const detail = `${skew.toFixed(1)}% apart (L ${left.toFixed(0)} / R ${right.toFixed(0)})`;
 

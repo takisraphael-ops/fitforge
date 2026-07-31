@@ -375,6 +375,9 @@ button, a, [role="button"], input, textarea, select, .xpick-chip, .xrow, .xpick-
    "delete this?" from a layer at z-index 2500 must not render the question
    behind it. */
 .dialog-overlay { z-index: 10000; }
+/* Above the article reader (2600), which is where the pattern rule editor is
+   opened from. Without this it renders behind the page you opened it from. */
+.modal-overlay.is-raised { z-index: 2720; }
 .modal {
   background: var(--bg-elev);
   border-radius: var(--radius-lg);
@@ -6227,9 +6230,11 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
 .learn-title { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }
 .learn-sub { font-size: 13px; color: var(--text-muted); margin-top: 3px; }
 
-.learn-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+/* Four topics, not three — the padding is tuned so "Reference" still fits at
+   390px without the row wrapping. */
+.learn-tabs { display: flex; gap: 5px; margin-bottom: 12px; }
 .learn-tab {
-  flex: 1; padding: 9px 10px; font-size: 13px; font-weight: 700;
+  flex: 1; min-width: 0; padding: 9px 4px; font-size: 12.5px; font-weight: 700;
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--bg-elev); color: var(--text-muted); cursor: pointer;
   transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
@@ -6321,3 +6326,144 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
 .watch-btn { display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; }
 .watch-btn svg { width: 20px; height: 20px; }
 .watch-note { font-size: 12px; color: var(--text-faint); margin-top: 6px; text-align: center; line-height: 1.45; }
+
+/* ============ Eating patterns ============
+   Deliberately colourless. Everything here reports a rule the user set against
+   food they logged, and the moment "outside your window" is drawn in red it
+   has become a mark out of ten. Neutral ink, one accent for the name of the
+   pattern itself, and no success/danger tokens anywhere in this block. */
+
+.learn-card-flag {
+  display: inline-block; margin-left: 8px; vertical-align: 1px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 100px;
+  background: var(--accent-soft); color: var(--accent);
+}
+.learn-card.is-guideline { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+
+/* ---- the control at the foot of a guide ---- */
+.plan-foot {
+  margin-top: 26px; padding: 16px; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--bg-sunken);
+}
+.plan-foot-title { font-size: 15px; font-weight: 800; }
+.plan-foot-sub { font-size: 13px; line-height: 1.5; color: var(--text-muted); margin-top: 4px; }
+.plan-foot-rule {
+  margin-top: 10px; padding: 9px 12px; border-radius: var(--radius-sm);
+  background: var(--bg-elev); border: 1px solid var(--border);
+  font-size: 13px; font-weight: 700; color: var(--text);
+}
+.plan-foot-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.plan-foot-row .btn { flex: 1; min-width: 130px; }
+
+/* ---- the rule editor ---- */
+.plan-presets { display: flex; gap: 8px; margin-bottom: 14px; }
+.plan-preset {
+  flex: 1; min-width: 0; padding: 10px 6px; cursor: pointer; text-align: center;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elev);
+}
+.plan-preset:hover { border-color: var(--border-strong); }
+.plan-preset-label { display: block; font-size: 14px; font-weight: 800; }
+.plan-preset-hint { display: block; font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+.plan-times { display: flex; gap: 10px; }
+.plan-time { flex: 1; display: flex; flex-direction: column; gap: 5px; }
+.plan-time span { font-size: 12px; font-weight: 700; color: var(--text-muted); }
+.plan-days { display: flex; gap: 5px; }
+.plan-day {
+  flex: 1; min-width: 0; padding: 10px 2px; cursor: pointer;
+  font-size: 12px; font-weight: 700; color: var(--text-muted);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elev);
+}
+.plan-day.is-on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.plan-cap-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.plan-cap-row > span:first-child { flex: 1; font-size: 13px; font-weight: 700; color: var(--text-muted); }
+.plan-cap-row .input { width: 92px; text-align: right; }
+.plan-cap-unit { font-size: 13px; color: var(--text-faint); }
+.plan-editor-summary {
+  margin-top: 16px; padding: 11px 13px; border-radius: var(--radius-sm);
+  background: var(--bg-sunken); border: 1px solid var(--border);
+  font-size: 13px; font-weight: 700; text-align: center;
+}
+
+/* ---- the picker ---- */
+.plan-picker { display: flex; flex-direction: column; gap: 8px; }
+.plan-pick {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; cursor: pointer;
+  padding: 13px 14px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-elev);
+}
+.plan-pick:hover { border-color: var(--border-strong); }
+.plan-pick.is-on { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.plan-pick-main { flex: 1; min-width: 0; }
+.plan-pick-name { font-size: 15px; font-weight: 700; }
+.plan-pick-sub { font-size: 13px; line-height: 1.45; color: var(--text-muted); margin-top: 3px; }
+.plan-pick-checks { font-size: 11.5px; color: var(--text-faint); margin-top: 5px; }
+.plan-pick-chev { flex: none; width: 18px; height: 18px; color: var(--text-faint); }
+.plan-pick-chev svg { width: 100%; height: 100%; }
+
+/* ---- the one-line prompt, before a pattern is chosen ---- */
+.plan-prompt {
+  display: flex; align-items: stretch; gap: 6px; margin: 14px 0 4px;
+  border: 1px dashed var(--border-strong); border-radius: var(--radius);
+  background: var(--bg-sunken);
+}
+.plan-prompt-main {
+  flex: 1; display: flex; align-items: center; gap: 10px; cursor: pointer;
+  padding: 11px 4px 11px 13px; background: none; border: 0; text-align: left;
+}
+.plan-prompt-text { flex: 1; font-size: 12.5px; line-height: 1.45; color: var(--text-muted); }
+.plan-prompt-go { flex: none; font-size: 12.5px; font-weight: 800; color: var(--accent); }
+.plan-prompt-x {
+  flex: none; width: 38px; cursor: pointer; background: none; border: 0;
+  color: var(--text-faint); display: grid; place-items: center;
+}
+.plan-prompt-x svg { width: 15px; height: 15px; }
+
+/* ---- today against the guideline ---- */
+.plan-card {
+  margin: 16px 0 4px; padding: 15px 16px; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--bg-elev);
+}
+.plan-card-head { display: flex; align-items: flex-start; gap: 10px; }
+.plan-card-head-text { flex: 1; min-width: 0; }
+.plan-card-name { font-size: 16px; font-weight: 800; margin-top: 3px; }
+.plan-card-rule { font-size: 12.5px; font-weight: 700; color: var(--accent); margin-top: 2px; }
+.plan-card-edit {
+  flex: none; padding: 6px 12px; cursor: pointer; font-size: 12px; font-weight: 700;
+  color: var(--text-muted); background: var(--bg-sunken);
+  border: 1px solid var(--border); border-radius: 100px;
+}
+.plan-card-headline {
+  font-size: 14px; font-weight: 700; line-height: 1.45; margin-top: 12px;
+  padding-top: 12px; border-top: 1px solid var(--border);
+}
+.plan-card-headline.is-quiet { font-weight: 600; color: var(--text-muted); }
+.plan-card-fact { font-size: 12.5px; line-height: 1.5; color: var(--text-muted); margin-top: 6px; }
+.plan-card-items {
+  margin-top: 11px; border-top: 1px solid var(--border); padding-top: 4px;
+}
+.plan-item {
+  display: flex; align-items: baseline; gap: 8px; padding: 6px 0;
+  font-size: 12.5px; border-bottom: 1px solid var(--border);
+}
+.plan-item:last-child { border-bottom: 0; }
+.plan-item-when {
+  flex: none; min-width: 42px; font-weight: 800; font-variant-numeric: tabular-nums;
+}
+.plan-item-name {
+  flex: 1; min-width: 0; color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.plan-item-text { flex: none; color: var(--text-faint); font-size: 11.5px; }
+.plan-card-read {
+  margin-top: 12px; padding: 0; border: 0; background: none; cursor: pointer;
+  color: var(--accent); font-size: 13px; font-weight: 700;
+}
+
+/* The per-item mark on a meal row. Outline only, no fill and no state colour —
+   this says "outside the hours you set", not "wrong". */
+.nfood-plan {
+  display: inline-block; margin-top: 5px; padding: 2px 8px;
+  font-size: 11px; font-weight: 700; color: var(--text-muted);
+  border: 1px solid var(--border-strong); border-radius: 100px;
+}

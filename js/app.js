@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=225").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=226").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -539,6 +539,13 @@
       warmupPrompt: !!(await Storage.getPref("warmupPrompt", true)),
       // Meal reminder times: { breakfast: "08:00", ... } — only sections the user opted in.
       mealReminders: await Storage.getPref("mealReminders", {}),
+      // Eating pattern chosen as a guideline, and its rule ({start,end} /
+      // {days,cap}). Null = none, which is the default and stays the default:
+      // the app never picks one for you.
+      dietPlanId: await Storage.getPref("dietPlanId", null),
+      dietPlanConfig: await Storage.getPref("dietPlanConfig", {}),
+      // The one-line prompt on Nutrition, once dismissed, stays dismissed.
+      dietPlanPromptSeen: !!(await Storage.getPref("dietPlanPromptSeen", false)),
       theme: await Storage.getPref("theme", null),
       // Accent colour — a separate axis from light/dark.
       accent: await Storage.getPref("accent", null)
@@ -8833,8 +8840,19 @@
   const LEARN_TOPICS = [
     { id: "training", label: "Training" },
     { id: "nutrition", label: "Nutrition" },
+    // The eating-pattern guides, which arrive from data/diet-plans.js rather
+    // than data/learn.js because each one ships with the rule it describes.
+    { id: "eating", label: "Patterns" },
     { id: "reference", label: "Reference" }
   ];
+
+  /** The disclaimer a topic must carry, or null. Nutrition explains the app's
+      own numbers; the patterns go further and describe ways of eating, so they
+      get the stronger note that names who to ask instead. */
+  const learnTopicNote = (topic) =>
+    topic === "eating" ? (window.DIET_PLAN_NOTE || null)
+      : topic === "nutrition" ? (window.LEARN_NUTRITION_NOTE || null)
+      : null;
 
   const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -8992,10 +9010,11 @@
         el("div", { class: "article-eyebrow" }, (LEARN_TOPICS.find((t) => t.id === a.topic) || {}).label || "Learn"),
         el("h2", { class: "article-title", "data-testid": "article-title" }, a.title),
         el("div", { class: "article-oneliner" }, a.oneLiner),
-        a.topic === "nutrition"
-          ? el("div", { class: "article-note", "data-testid": "article-note" }, window.LEARN_NUTRITION_NOTE || "")
+        learnTopicNote(a.topic)
+          ? el("div", { class: "article-note", "data-testid": "article-note" }, learnTopicNote(a.topic))
           : null,
-        articleBodyEl(a)
+        articleBodyEl(a),
+        a.planId ? planArticleFooter(a.planId) : null
       )
     );
     learnOverlayKeyHandler = (e) => {
@@ -9032,16 +9051,19 @@
       for (const b of tabs.querySelectorAll(".learn-tab")) {
         b.classList.toggle("active", b.getAttribute("data-topic") === topic);
       }
-      if (topic === "nutrition" && window.LEARN_NUTRITION_NOTE) {
-        noteHost.appendChild(el("div", { class: "learn-note", "data-testid": "learn-note" },
-          window.LEARN_NUTRITION_NOTE));
+      const note = learnTopicNote(topic);
+      if (note) {
+        noteHost.appendChild(el("div", { class: "learn-note", "data-testid": "learn-note" }, note));
       }
       for (const a of articles.filter((x) => x.topic === topic)) {
+        const isGuideline = a.planId && a.planId === state.prefs.dietPlanId;
         listHost.appendChild(el("button", {
-          class: "learn-card", type: "button", "data-slug": a.slug, "data-testid": "learn-card",
+          class: "learn-card" + (isGuideline ? " is-guideline" : ""),
+          type: "button", "data-slug": a.slug, "data-testid": "learn-card",
           on: { click: () => openArticle(a.slug) }
         },
-          el("div", { class: "learn-card-title" }, a.title),
+          el("div", { class: "learn-card-title" }, a.title,
+            isGuideline ? el("span", { class: "learn-card-flag", "data-testid": "learn-card-flag" }, "Your guideline") : null),
           el("div", { class: "learn-card-sub" }, a.oneLiner)));
       }
     }
@@ -9056,6 +9078,320 @@
     section.appendChild(listHost);
     paint();
     return section;
+  }
+
+  // ============ EATING PATTERNS ============
+  //
+  // You read a guide, and you may nominate one pattern as your own guideline.
+  // From then on FitForge reports your logged food against that pattern's own
+  // rules — which items fell outside the window you set, where the day landed
+  // against the cap you chose — and nothing else.
+  //
+  // What it deliberately does not do: recommend a pattern, score you, keep a
+  // streak, or say whether any of it is working. A score is something you can
+  // fail, and the moment eating has a pass mark attached the app has changed
+  // its relationship to your food. Reporting a rule back to the person who set
+  // it is a different thing from judging them by it, and the whole feature
+  // lives or dies on keeping those apart.
+  //
+  // Only patterns whose definition survives contact with what a meal record
+  // actually holds are offered at all — see the note at the top of
+  // data/diet-plans.js.
+
+  const activePlan = () => (window.DietPlan ? DietPlan.byId(state.prefs.dietPlanId) : null);
+  function activePlanConfig(plan) {
+    const p = plan || activePlan();
+    return p ? DietPlan.normalizeConfig(p, state.prefs.dietPlanConfig) : {};
+  }
+
+  async function setDietPlan(planId, config) {
+    state.prefs.dietPlanId = planId || null;
+    state.prefs.dietPlanConfig = planId ? (config || {}) : {};
+    await Storage.setPref("dietPlanId", state.prefs.dietPlanId);
+    await Storage.setPref("dietPlanConfig", state.prefs.dietPlanConfig);
+  }
+
+  /** The bit of a log toast that reports the pattern's rule, or null. Only the
+      window pattern has anything to say about one item — a daily cap and a
+      macro split are properties of the day, not of the sandwich. */
+  function mealPlanNotice(meal) {
+    const plan = activePlan();
+    if (!plan) return null;
+    const r = DietPlan.checkMeal(plan, activePlanConfig(plan), meal);
+    if (!r || r.state !== "outside") return null;
+    return r.detail.replace(/\.$/, "");
+  }
+
+  /** Log-time toast text: what was logged, plus the rule it fell outside of. */
+  function withPlanNotice(base, meal) {
+    const n = mealPlanNotice(meal);
+    return n ? `${base} · ${n}` : base;
+  }
+
+  // ---- choosing one ----
+
+  /** The follow / change / stop control at the foot of a pattern's guide. */
+  function planArticleFooter(planId) {
+    const plan = DietPlan.byId(planId);
+    if (!plan) return null;
+    const host = el("div", { class: "plan-foot", "data-testid": "plan-foot" });
+
+    function paint() {
+      clear(host);
+      const mine = state.prefs.dietPlanId === plan.id;
+      host.appendChild(el("div", { class: "plan-foot-head" },
+        el("div", { class: "plan-foot-title" }, mine ? "This is your guideline" : "Follow this as a guideline"),
+        el("div", { class: "plan-foot-sub" }, mine
+          ? `FitForge reports your logged food against it. Checked: ${plan.checks.toLowerCase()}.`
+          : "FitForge will report your logged food against this pattern's own rules. It will not score you, and nothing else in the app changes.")
+      ));
+      if (mine) {
+        host.appendChild(el("div", { class: "plan-foot-rule", "data-testid": "plan-foot-rule" },
+          DietPlan.summaryLine(plan, activePlanConfig(plan))));
+      }
+      const row = el("div", { class: "plan-foot-row" });
+      if (mine) {
+        if (plan.kind !== "composition") {
+          row.appendChild(el("button", {
+            class: "btn btn-sm", type: "button", "data-testid": "plan-change",
+            on: { click: () => openPlanRuleEditor(plan, paint) }
+          }, "Change the rule"));
+        }
+        row.appendChild(el("button", {
+          class: "btn btn-sm btn-ghost", type: "button", "data-testid": "plan-stop",
+          on: { click: async () => {
+            await setDietPlan(null);
+            toast("No guideline set");
+            paint();
+            renderMain();
+          } }
+        }, "Stop using this"));
+      } else {
+        row.appendChild(el("button", {
+          class: "btn btn-primary btn-sm", type: "button", "data-testid": "plan-use",
+          on: { click: async () => {
+            // A window or a set of reduced days is the user's to choose, so
+            // those open the editor before anything is saved. A macro split
+            // has no dial to set — the pattern is the rule.
+            if (plan.kind === "composition") {
+              await setDietPlan(plan.id, {});
+              toast(`${plan.name} is now your guideline`);
+              paint();
+              renderMain();
+            } else {
+              openPlanRuleEditor(plan, paint, { adopting: true });
+            }
+          } }
+        }, "Use this as my guideline"));
+      }
+      host.appendChild(row);
+    }
+
+    paint();
+    return host;
+  }
+
+  /** Set the window, or the reduced days and their cap. `onDone` repaints
+      whatever opened it, since both callers show the rule they just changed. */
+  function openPlanRuleEditor(plan, onDone, opts = {}) {
+    const cfg = DietPlan.normalizeConfig(plan, state.prefs.dietPlanId === plan.id ? state.prefs.dietPlanConfig : null);
+    const body = el("div", { class: "plan-editor" });
+    const summary = el("div", { class: "plan-editor-summary", "data-testid": "plan-editor-summary" });
+    let read = () => cfg;
+
+    if (plan.kind === "window") {
+      const startI = el("input", { class: "input", type: "time", value: cfg.start, "data-testid": "plan-window-start" });
+      const endI = el("input", { class: "input", type: "time", value: cfg.end, "data-testid": "plan-window-end" });
+      read = () => ({ start: startI.value, end: endI.value });
+      const repaint = () => { summary.textContent = DietPlan.summaryLine(plan, read()); };
+
+      body.appendChild(el("p", { class: "text-sm text-muted", style: "margin-bottom:12px" },
+        "The hours you intend to eat between. Start from a preset if one fits, then move either end."));
+      const presets = el("div", { class: "plan-presets" });
+      for (const p of plan.presets) {
+        presets.appendChild(el("button", {
+          class: "plan-preset", type: "button", "data-testid": `plan-preset-${p.id}`,
+          on: { click: () => { startI.value = p.start; endI.value = p.end; repaint(); } }
+        }, el("span", { class: "plan-preset-label" }, p.label),
+           el("span", { class: "plan-preset-hint" }, p.hint)));
+      }
+      body.appendChild(presets);
+      body.appendChild(el("div", { class: "plan-times" },
+        el("label", { class: "plan-time" }, el("span", {}, "Opens"), startI),
+        el("label", { class: "plan-time" }, el("span", {}, "Closes"), endI)));
+      startI.addEventListener("input", repaint);
+      endI.addEventListener("input", repaint);
+      repaint();
+    } else if (plan.kind === "dayType") {
+      const chosen = new Set(cfg.days);
+      const capI = el("input", {
+        class: "input", type: "number", inputmode: "numeric", value: String(cfg.cap),
+        min: String(plan.capRange.min), max: String(plan.capRange.max), "data-testid": "plan-cap"
+      });
+      read = () => ({ days: DietPlan.WEEKDAY_KEYS.filter((d) => chosen.has(d)), cap: capI.value });
+      const repaint = () => {
+        summary.textContent = chosen.size
+          ? DietPlan.summaryLine(plan, read())
+          : "Pick at least one day.";
+      };
+
+      body.appendChild(el("p", { class: "text-sm text-muted", style: "margin-bottom:12px" },
+        "Which days are the reduced ones, and the ceiling you are setting for them."));
+      const presets = el("div", { class: "plan-presets" });
+      for (const p of plan.presets) {
+        presets.appendChild(el("button", {
+          class: "plan-preset", type: "button", "data-testid": `plan-preset-${p.id}`,
+          on: { click: () => {
+            chosen.clear();
+            for (const d of p.days) chosen.add(d);
+            capI.value = String(p.cap);
+            for (const b of days.children) b.classList.toggle("is-on", chosen.has(b.getAttribute("data-day")));
+            repaint();
+          } }
+        }, el("span", { class: "plan-preset-label" }, p.label),
+           el("span", { class: "plan-preset-hint" }, p.hint)));
+      }
+      body.appendChild(presets);
+      // Monday-first, because the week the reduced days are counted over is.
+      const days = el("div", { class: "plan-days", "data-testid": "plan-days" });
+      for (const d of ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]) {
+        days.appendChild(el("button", {
+          class: "plan-day" + (chosen.has(d) ? " is-on" : ""), type: "button", "data-day": d,
+          "data-testid": `plan-day-${d}`,
+          on: { click: (e) => {
+            if (chosen.has(d)) chosen.delete(d); else chosen.add(d);
+            e.currentTarget.classList.toggle("is-on", chosen.has(d));
+            repaint();
+          } }
+        }, DietPlan.WEEKDAY_LABELS[d]));
+      }
+      body.appendChild(days);
+      body.appendChild(el("label", { class: "plan-cap-row" },
+        el("span", {}, "Cap on those days"),
+        capI,
+        el("span", { class: "plan-cap-unit" }, "kcal")));
+      capI.addEventListener("input", repaint);
+      repaint();
+    }
+
+    body.appendChild(summary);
+    const footer = el("div", {},
+      el("button", { class: "btn", on: { click: closeModal } }, "Cancel"),
+      el("button", { class: "btn btn-primary", "data-testid": "plan-editor-save", on: { click: async () => {
+        const next = read();
+        if (plan.kind === "dayType" && !next.days.length) return toast("Pick at least one day");
+        await setDietPlan(plan.id, DietPlan.normalizeConfig(plan, next));
+        closeModal();
+        toast(opts.adopting ? `${plan.name} is now your guideline` : "Rule updated");
+        if (onDone) onDone();
+        renderMain();
+      } } }, opts.adopting ? "Use this pattern" : "Save")
+    );
+    // Raised: this is nearly always opened from inside the guide's reader.
+    openModal(opts.adopting ? `Set up ${plan.name}` : "Change the rule", body, footer, { raised: true });
+  }
+
+  /** The list of patterns, reached from Nutrition. Reading comes first — each
+      row opens the guide, which is where the decision is actually made. */
+  function openDietPlanPicker() {
+    const body = el("div", {});
+    body.appendChild(el("div", { class: "learn-note" }, window.DIET_PLAN_NOTE || ""));
+    const list = el("div", { class: "plan-picker", "data-testid": "plan-picker" });
+    for (const plan of DietPlan.plans()) {
+      const mine = state.prefs.dietPlanId === plan.id;
+      list.appendChild(el("button", {
+        class: "plan-pick" + (mine ? " is-on" : ""), type: "button",
+        "data-plan": plan.id, "data-testid": "plan-pick",
+        on: { click: () => { closeModal(); openArticle("pattern-" + plan.id); } }
+      },
+        el("div", { class: "plan-pick-main" },
+          el("div", { class: "plan-pick-name" }, plan.name,
+            mine ? el("span", { class: "learn-card-flag" }, "Yours") : null),
+          el("div", { class: "plan-pick-sub" }, plan.oneLiner),
+          el("div", { class: "plan-pick-checks" }, `Checked against: ${plan.checks.toLowerCase()}`)),
+        el("span", { class: "plan-pick-chev", html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>' })
+      ));
+    }
+    body.appendChild(list);
+    body.appendChild(el("p", { class: "text-xs text-faint", style: "margin-top:12px" },
+      "Each one opens its guide. You choose a guideline from there, after reading what it asks of you."));
+    const footer = el("div", {},
+      el("button", { class: "btn", on: { click: closeModal } }, "Close"),
+      state.prefs.dietPlanId ? el("button", {
+        class: "btn btn-ghost", "data-testid": "plan-picker-clear", on: { click: async () => {
+          await setDietPlan(null);
+          closeModal();
+          toast("No guideline set");
+          afterNutritionChange();
+        } }
+      }, "Stop using one") : null
+    );
+    openModal("Eating patterns", body, footer);
+  }
+
+  /** Today against the guideline, for the Nutrition overview. Returns the
+      quiet one-line prompt when no pattern is set, and nothing at all once
+      that has been dismissed — an unasked-for feature should not nag. */
+  function buildDietPlanCard(allMeals, dateIso) {
+    if (!window.DietPlan) return null;
+    const plan = activePlan();
+    if (!plan) {
+      if (state.prefs.dietPlanPromptSeen) return null;
+      return el("div", { class: "plan-prompt", "data-testid": "plan-prompt" },
+        el("button", {
+          class: "plan-prompt-main", type: "button", "data-testid": "plan-prompt-open",
+          on: { click: () => openDietPlanPicker() }
+        },
+          el("span", { class: "plan-prompt-text" }, "Following an eating pattern? Pick one and this screen will report against it."),
+          el("span", { class: "plan-prompt-go" }, "Browse")),
+        el("button", {
+          class: "plan-prompt-x", type: "button", "aria-label": "Hide this", html: icons.x,
+          "data-testid": "plan-prompt-dismiss",
+          on: { click: async () => {
+            state.prefs.dietPlanPromptSeen = true;
+            await Storage.setPref("dietPlanPromptSeen", true);
+            afterNutritionChange();
+          } }
+        })
+      );
+    }
+
+    const cfg = activePlanConfig(plan);
+    const day = DietPlan.checkDay(plan, cfg, allMeals, dateIso);
+    const card = el("div", { class: "plan-card", "data-testid": "plan-card", "data-plan": plan.id });
+    card.appendChild(el("div", { class: "plan-card-head" },
+      el("div", { class: "plan-card-head-text" },
+        el("div", { class: "nsection-label" }, "YOUR GUIDELINE"),
+        el("div", { class: "plan-card-name", "data-testid": "plan-card-name" }, plan.name),
+        el("div", { class: "plan-card-rule", "data-testid": "plan-card-rule" }, DietPlan.summaryLine(plan, cfg))),
+      el("button", {
+        class: "plan-card-edit", type: "button", "data-testid": "plan-card-edit",
+        title: "Eating patterns", "aria-label": "Eating patterns",
+        on: { click: () => openDietPlanPicker() }
+      }, "Change")
+    ));
+    card.appendChild(el("div", {
+      class: "plan-card-headline" + (day.measurable ? "" : " is-quiet"),
+      "data-testid": "plan-card-headline"
+    }, day.headline));
+    for (const f of day.facts) {
+      card.appendChild(el("div", { class: "plan-card-fact" }, f));
+    }
+    if (day.items.length) {
+      const list = el("div", { class: "plan-card-items", "data-testid": "plan-card-items" });
+      for (const it of day.items) {
+        list.appendChild(el("div", { class: "plan-item" },
+          el("span", { class: "plan-item-when" }, it.time),
+          el("span", { class: "plan-item-name" }, it.name),
+          el("span", { class: "plan-item-text" }, it.text)));
+      }
+      card.appendChild(list);
+    }
+    card.appendChild(el("button", {
+      class: "plan-card-read", type: "button", "data-testid": "plan-card-read",
+      on: { click: () => openArticle("pattern-" + plan.id) }
+    }, "Read the guide"));
+    return card;
   }
 
   // ============ EXERCISE LIBRARY ============
@@ -10695,7 +11031,7 @@
       await Storage.saveMealTemplate({ ...tpl, lastUsedAt: Date.now(), updatedAt: tpl.updatedAt || Date.now() });
     } catch (_) {}
     toast(date === U.todayISO()
-      ? `Logged ${tpl.name}`
+      ? withPlanNotice(`Logged ${tpl.name}`, meal)
       : `Logged ${tpl.name} to ${U.formatDate(date, { weekday: "short", day: "numeric", month: "short" })}`);
     renderMain();
     // Backdated: drop the user back into the day they were editing.
@@ -11336,10 +11672,16 @@
         for (const m of items) {
           const hasMac = (m.protein || m.carbs || m.fat);
           const mtime = U.normalizeMealTime(m.time);
+          // Only the window pattern says anything about a single item, and
+          // only when that item fell outside it. Everything already inside the
+          // window gets no mark — a row of green ticks is a score.
+          const planHit = window.DietPlan ? DietPlan.checkMeal(activePlan(), activePlanConfig(), m) : null;
+          const outside = planHit && planHit.state === "outside" ? planHit : null;
           list.appendChild(el("div", { class: "nfood" },
             el("button", { class: "nfood-main", type: "button", title: "Edit", on: { click: () => openMealForm(m) } },
               el("div", { class: "nfood-name" }, m.name),
-              hasMac ? el("div", { class: "nfood-meta" }, `${Math.round(m.protein || 0)}P ${Math.round(m.carbs || 0)}C ${Math.round(m.fat || 0)}F`) : null
+              hasMac ? el("div", { class: "nfood-meta" }, `${Math.round(m.protein || 0)}P ${Math.round(m.carbs || 0)}C ${Math.round(m.fat || 0)}F`) : null,
+              outside ? el("div", { class: "nfood-plan", "data-testid": "meal-plan-chip", title: outside.detail }, outside.label) : null
             ),
             // Sibling of nfood-main, not a child — a button can't nest in a button.
             mtime ? el("button", {
@@ -11545,6 +11887,14 @@
         }, needsProfile ? "Set up" : "Log bodyweight")
       ));
     }
+    // Today against the eating pattern chosen as a guideline, if there is one.
+    // Below the macro tiles because the app's own targets come first — this
+    // reports a rule the user set, it does not replace anything.
+    {
+      const planCard = buildDietPlanCard(meals, today);
+      if (planCard) ov.appendChild(planCard);
+    }
+
     const mealsWrap = el("div", { class: "nmeals-today" });
     mealsWrap.appendChild(el("div", { class: "nmeals-head" },
       el("div", { class: "nsection-label" }, "MEALS TODAY")
@@ -11982,7 +12332,7 @@
       savedAt: Date.now()
     };
     await Storage.saveMeal(meal);
-    toast(`Logged ${name} · about ${meal.kcal} kcal`);
+    toast(withPlanNotice(`Logged ${name} · about ${meal.kcal} kcal`, meal));
     afterNutritionChange();
   }
 
@@ -14999,9 +15349,15 @@
     });
   }
 
-  function openModal(title, body, footer) {
+  /**
+   * `opts.raised` lifts the modal above the full-screen layers — the article
+   * reader sits at 2600, so a modal it opens at the default 100 renders
+   * underneath it and cannot be seen or tapped. Same reasoning as
+   * .dialog-overlay, which has needed it since the weekly planner.
+   */
+  function openModal(title, body, footer, opts = {}) {
     closeModal();
-    const overlay = el("div", { class: "modal-overlay", id: "modal-overlay", on: { click: (e) => { if (e.target === overlay) closeModal(); } } });
+    const overlay = el("div", { class: "modal-overlay" + (opts.raised ? " is-raised" : ""), id: "modal-overlay", on: { click: (e) => { if (e.target === overlay) closeModal(); } } });
     const modal = el("div", { class: "modal" });
     modal.appendChild(el("div", { class: "modal-header" },
       el("div", { class: "modal-title" }, title),
