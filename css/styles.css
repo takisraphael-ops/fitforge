@@ -6216,3 +6216,108 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
 .wd-add-ex { margin: 4px 0 12px; }
 .day-supp-row.is-taken .meal-item-name { color: var(--text-muted); }
 .day-supp-row .supp-take { flex: none; }
+
+/* ============ Learning Centre ============
+   Articles above the exercise library in the same tab. The reading view is a
+   full-screen overlay rather than an in-place swap so the library keeps its
+   scroll position — coming back to the top of a long grid after reading one
+   article is how you stop opening a second. */
+.learn-section { margin-bottom: 18px; }
+.learn-head { margin-bottom: 12px; }
+.learn-title { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }
+.learn-sub { font-size: 13px; color: var(--text-muted); margin-top: 3px; }
+
+.learn-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+.learn-tab {
+  flex: 1; padding: 9px 10px; font-size: 13px; font-weight: 700;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-elev); color: var(--text-muted); cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.learn-tab.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+.learn-note, .article-note {
+  font-size: 12px; line-height: 1.5; color: var(--text-muted);
+  background: var(--bg-sunken); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 12px;
+}
+
+.learn-list { display: flex; flex-direction: column; gap: 8px; }
+.learn-card {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  padding: 13px 14px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-elev); transition: border-color 140ms ease, transform 140ms ease;
+}
+.learn-card:active { transform: scale(0.995); }
+.learn-card:hover { border-color: var(--border-strong); }
+.learn-card-title { font-size: 15px; font-weight: 700; color: var(--text); }
+.learn-card-sub { font-size: 13px; color: var(--text-muted); margin-top: 3px; line-height: 1.45; }
+
+.learn-divider {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--text-faint); margin: 22px 0 14px;
+}
+.learn-divider::before, .learn-divider::after {
+  content: ""; flex: 1; height: 1px; background: var(--border);
+}
+
+/* ---- reading view ---- */
+.learn-overlay {
+  position: fixed; inset: 0; z-index: 2600; overflow-y: auto;
+  background: var(--bg); -webkit-overflow-scrolling: touch;
+  animation: learn-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes learn-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.learn-overlay-top {
+  position: sticky; top: 0; z-index: 2;
+  padding: 10px 14px; background: var(--bg); border-bottom: 1px solid var(--border);
+}
+.learn-back {
+  display: inline-flex; align-items: center; gap: 4px;
+  min-height: 44px; padding: 0 10px 0 4px; cursor: pointer;
+  background: none; border: 0; color: var(--accent); font-size: 15px; font-weight: 600;
+}
+.learn-back svg { width: 20px; height: 20px; }
+.learn-overlay-body { padding: 16px 18px 64px; max-width: 680px; margin: 0 auto; }
+
+.article-eyebrow {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--accent);
+}
+.article-title { font-size: 27px; font-weight: 800; line-height: 1.2; margin-top: 8px; letter-spacing: -0.015em; }
+.article-oneliner { font-size: 15px; color: var(--text-muted); margin: 8px 0 18px; line-height: 1.5; }
+.article-body { font-size: 16px; line-height: 1.65; }
+.article-h { font-size: 17px; font-weight: 700; margin: 26px 0 8px; letter-spacing: -0.01em; }
+.article-p { margin: 0 0 14px; color: var(--text); }
+.article-list { margin: 0 0 14px; padding-left: 20px; }
+.article-list li { margin-bottom: 9px; }
+
+/* ---- tap to explain ---- */
+.term-link {
+  display: inline; padding: 0; border: 0; background: none; cursor: pointer;
+  font: inherit; color: inherit;
+  border-bottom: 1px dashed var(--accent);
+  text-underline-offset: 2px;
+}
+.term-link:active { background: var(--accent-soft); }
+.term-popover {
+  position: fixed; z-index: 2700; width: min(300px, calc(100vw - 20px));
+  padding: 12px 14px; border-radius: var(--radius);
+  background: var(--bg-elev); border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-md);
+  animation: term-pop 140ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+@keyframes term-pop { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
+.term-popover-label { font-size: 14px; font-weight: 800; }
+.term-popover-short { font-size: 13px; line-height: 1.5; color: var(--text-muted); margin-top: 4px; }
+.term-popover-more {
+  margin-top: 9px; padding: 0; border: 0; background: none; cursor: pointer;
+  color: var(--accent); font-size: 13px; font-weight: 700;
+}
+@media (prefers-reduced-motion: reduce) {
+  .learn-overlay, .term-popover { animation: none; }
+}
+.watch-btn { display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; }
+.watch-btn svg { width: 20px; height: 20px; }
+.watch-note { font-size: 12px; color: var(--text-faint); margin-top: 6px; text-align: center; line-height: 1.45; }

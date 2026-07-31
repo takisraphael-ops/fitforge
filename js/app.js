@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=223").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=224").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1667,7 +1667,9 @@
       { id: "nutrition", icon: dockIcons.utensils, label: "Nutrition" },
       { id: "__fab", icon: icons.plus, label: "Quick actions" },
       { id: "stats", icon: dockIcons.person, label: "You" },
-      { id: "library", icon: icons.dumbbell, label: "Exercises" }
+      // "Learn" rather than "Learning Centre": the dock gives a label about
+      // eight characters before it wraps under the icon.
+      { id: "library", icon: icons.dumbbell, label: "Learn" }
     ];
     const dock = el("nav", { class: "dock", "data-testid": "dock" });
     for (const it of items) {
@@ -8815,6 +8817,247 @@
     openIntervalRunner(ex, { resume: run });
   }
 
+  // ============ LEARNING CENTRE ============
+  //
+  // Articles and a glossary, sitting above the exercise library in the same
+  // tab. They share a tab because they answer the same question from two
+  // directions: the library tells you how to do a movement, the articles tell
+  // you why the session is shaped the way it is.
+  //
+  // The glossary is not a page so much as a mechanism. Every term is tappable
+  // wherever it appears in prose, which is the difference between a Learning
+  // Centre you visit and one that is simply there when a word stops you. The
+  // page at the end is generated from the same list, so a definition is
+  // written once and cannot drift between the two.
+
+  const LEARN_TOPICS = [
+    { id: "training", label: "Training" },
+    { id: "nutrition", label: "Nutrition" },
+    { id: "reference", label: "Reference" }
+  ];
+
+  const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  /** Terms that may be linked automatically, longest label first so "reps in
+      reserve" wins over "rep" at the same position. Ordinary words are
+      excluded upstream by the `auto` flag — linking every "set" would turn a
+      paragraph into a minefield. */
+  const AUTO_TERMS = (() => {
+    const terms = (window.LEARN_TERMS || []).filter((t) => t.auto);
+    return terms
+      .map((t) => {
+        const forms = [t.label, ...(t.aliases || [])].sort((a, b) => b.length - a.length);
+        return { term: t, re: new RegExp(`\\b(${forms.map(escapeRe).join("|")})\\b`, "i") };
+      })
+      .sort((a, b) => b.term.label.length - a.term.label.length);
+  })();
+
+  /** Where the Watch button points for an exercise: the curated clip if one
+      has been picked, otherwise a search. Both callers go through here so they
+      cannot disagree about which. `curated` is what the caption keys off —
+      promising "the form video" and delivering a search results page is worse
+      than saying which you are getting. */
+  function learnDemoUrl(ex) {
+    const v = (window.EXERCISE_VIDEOS || {})[ex.id];
+    if (v && v.url) return { url: v.url, label: v.label || "Form and setup", curated: true };
+    const q = `${ex.name} proper form technique`;
+    return {
+      url: `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`,
+      label: null,
+      curated: false
+    };
+  }
+
+  const termById = (id) => (window.LEARN_TERMS || []).find((t) => t.id === id) || null;
+  const articleBySlug = (slug) => (window.LEARN_ARTICLES || []).find((a) => a.slug === slug) || null;
+
+  function closeTermPopover() {
+    const p = document.getElementById("term-popover");
+    if (p) p.remove();
+  }
+
+  /** Definition in place, anchored to the word, without leaving the article.
+      Navigating away to a glossary and back is how you lose your place in a
+      paragraph you were already struggling with. */
+  function openTermPopover(term, anchor) {
+    closeTermPopover();
+    // "Read more" pointing at the article you are already reading is a button
+    // that appears to do nothing.
+    const openSlug = (document.getElementById("learn-overlay") || {}).dataset?.slug || null;
+    const showMore = term.more && term.more !== openSlug && !!articleBySlug(term.more);
+    const pop = el("div", { class: "term-popover", id: "term-popover", "data-testid": "term-popover", role: "dialog" },
+      el("div", { class: "term-popover-label" }, term.label),
+      el("div", { class: "term-popover-short" }, term.short),
+      showMore
+        ? el("button", {
+            class: "term-popover-more", type: "button", "data-testid": "term-popover-more",
+            on: { click: (e) => { e.stopPropagation(); closeTermPopover(); openArticle(term.more); } }
+          }, "Read more")
+        : null
+    );
+    document.body.appendChild(pop);
+    // Anchor under the word, then pull back inside the viewport. A popover
+    // half off the right edge is the common case on a phone.
+    const r = anchor.getBoundingClientRect();
+    const pw = pop.offsetWidth;
+    let left = r.left + r.width / 2 - pw / 2;
+    left = Math.max(10, Math.min(left, window.innerWidth - pw - 10));
+    const below = r.bottom + 8;
+    const fitsBelow = below + pop.offsetHeight < window.innerHeight - 10;
+    pop.style.left = `${left}px`;
+    pop.style.top = fitsBelow ? `${below}px` : `${Math.max(10, r.top - pop.offsetHeight - 8)}px`;
+    setTimeout(() => {
+      document.addEventListener("click", closeTermPopover, { once: true });
+    }, 0);
+  }
+
+  /** Text with its jargon made tappable. `used` spans the whole article so a
+      term is linked the first time it appears and left alone after — the point
+      is to catch the word where you first meet it, not to decorate every
+      instance of it. */
+  function linkifyText(text, used) {
+    const frag = document.createDocumentFragment();
+    let rest = text;
+    for (;;) {
+      let best = null;
+      for (const c of AUTO_TERMS) {
+        if (used.has(c.term.id)) continue;
+        const m = c.re.exec(rest);
+        if (m && (!best || m.index < best.index)) best = { c, index: m.index, matched: m[0] };
+      }
+      if (!best) break;
+      if (best.index) frag.appendChild(document.createTextNode(rest.slice(0, best.index)));
+      const t = best.c.term;
+      frag.appendChild(el("button", {
+        class: "term-link", type: "button", "data-term": t.id, "data-testid": "term-link",
+        on: { click: (e) => { e.preventDefault(); e.stopPropagation(); openTermPopover(t, e.currentTarget); } }
+      }, best.matched));
+      used.add(t.id);
+      rest = rest.slice(best.index + best.matched.length);
+    }
+    if (rest) frag.appendChild(document.createTextNode(rest));
+    return frag;
+  }
+
+  function articleBodyEl(article) {
+    const used = new Set();
+    const wrap = el("div", { class: "article-body" });
+    for (const sec of article.body || []) {
+      if (sec.h) wrap.appendChild(el("h3", { class: "article-h" }, sec.h));
+      for (const p of sec.p || []) {
+        const node = el("p", { class: "article-p" });
+        node.appendChild(linkifyText(p, used));
+        wrap.appendChild(node);
+      }
+      if (sec.list) {
+        const ul = el("ul", { class: "article-list" });
+        for (const item of sec.list) {
+          const li = el("li", {});
+          li.appendChild(linkifyText(item, used));
+          ul.appendChild(li);
+        }
+        wrap.appendChild(ul);
+      }
+    }
+    return wrap;
+  }
+
+  let learnOverlayKeyHandler = null;
+  function closeArticle() {
+    closeTermPopover();
+    const o = document.getElementById("learn-overlay");
+    if (o) o.remove();
+    if (learnOverlayKeyHandler) {
+      document.removeEventListener("keydown", learnOverlayKeyHandler, true);
+      learnOverlayKeyHandler = null;
+    }
+  }
+
+  function openArticle(slug) {
+    const a = articleBySlug(slug);
+    if (!a) return;
+    closeArticle();
+    const overlay = el("div", {
+      class: "learn-overlay", id: "learn-overlay", "data-testid": "learn-overlay",
+      "data-slug": a.slug,
+      role: "dialog", "aria-modal": "true", "aria-label": a.title
+    },
+      el("div", { class: "learn-overlay-top" },
+        el("button", {
+          class: "learn-back", type: "button", "data-testid": "learn-back",
+          "aria-label": "Back to the Learning Centre", on: { click: closeArticle }
+        }, el("span", { html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>' }), "Back")
+      ),
+      el("div", { class: "learn-overlay-body" },
+        el("div", { class: "article-eyebrow" }, (LEARN_TOPICS.find((t) => t.id === a.topic) || {}).label || "Learn"),
+        el("h2", { class: "article-title", "data-testid": "article-title" }, a.title),
+        el("div", { class: "article-oneliner" }, a.oneLiner),
+        a.topic === "nutrition"
+          ? el("div", { class: "article-note", "data-testid": "article-note" }, window.LEARN_NUTRITION_NOTE || "")
+          : null,
+        articleBodyEl(a)
+      )
+    );
+    learnOverlayKeyHandler = (e) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault(); e.stopPropagation();
+      if (document.getElementById("term-popover")) closeTermPopover();
+      else closeArticle();
+    };
+    document.addEventListener("keydown", learnOverlayKeyHandler, true);
+    document.body.appendChild(overlay);
+    overlay.scrollTop = 0;
+  }
+
+  /** The Learning Centre block that sits at the top of the tab. */
+  function renderLearnSection() {
+    const articles = window.LEARN_ARTICLES || [];
+    const section = el("div", { class: "learn-section", "data-testid": "learn-section" });
+    if (!articles.length) return section;
+
+    section.appendChild(el("div", { class: "learn-head" },
+      el("h2", { class: "learn-title" }, "Learning Centre"),
+      el("div", { class: "learn-sub" }, "Why the training works, and what the numbers mean.")));
+
+    const listHost = el("div", { class: "learn-list", "data-testid": "learn-list" });
+    const noteHost = el("div", { class: "learn-note-host" });
+    let topic = state.prefs.learnTopic && LEARN_TOPICS.some((t) => t.id === state.prefs.learnTopic)
+      ? state.prefs.learnTopic
+      : "training";
+
+    const tabs = el("div", { class: "learn-tabs", "data-testid": "learn-tabs" });
+    function paint() {
+      clear(listHost);
+      clear(noteHost);
+      for (const b of tabs.querySelectorAll(".learn-tab")) {
+        b.classList.toggle("active", b.getAttribute("data-topic") === topic);
+      }
+      if (topic === "nutrition" && window.LEARN_NUTRITION_NOTE) {
+        noteHost.appendChild(el("div", { class: "learn-note", "data-testid": "learn-note" },
+          window.LEARN_NUTRITION_NOTE));
+      }
+      for (const a of articles.filter((x) => x.topic === topic)) {
+        listHost.appendChild(el("button", {
+          class: "learn-card", type: "button", "data-slug": a.slug, "data-testid": "learn-card",
+          on: { click: () => openArticle(a.slug) }
+        },
+          el("div", { class: "learn-card-title" }, a.title),
+          el("div", { class: "learn-card-sub" }, a.oneLiner)));
+      }
+    }
+    for (const t of LEARN_TOPICS) {
+      tabs.appendChild(el("button", {
+        class: "learn-tab", type: "button", "data-topic": t.id, "data-testid": `learn-tab-${t.id}`,
+        on: { click: async () => { topic = t.id; state.prefs.learnTopic = t.id; await Storage.setPref("learnTopic", t.id); paint(); } }
+      }, t.label));
+    }
+    section.appendChild(tabs);
+    section.appendChild(noteHost);
+    section.appendChild(listHost);
+    paint();
+    return section;
+  }
+
   // ============ EXERCISE LIBRARY ============
   async function renderLibrary(view) {
     const all = await getAllExercises();
@@ -8943,6 +9186,13 @@
       if (bodyMapApi) bodyMapApi.setActive(activeZone);
       refresh(true);
     }
+
+    // Articles first, library below. The tab is the Learning Centre now: the
+    // map and the exercise grid are one section of it rather than the whole
+    // thing, and nothing that was here has moved somewhere else.
+    view.appendChild(renderLearnSection());
+    view.appendChild(el("div", { class: "learn-divider" },
+      el("span", {}, "Exercise library")));
 
     // Interactive body map (front / back SVG, fine zones + heat)
     if (window.BodyMap && typeof window.BodyMap.create === "function") {
@@ -9360,6 +9610,22 @@
           })
         )
       ) : null,
+      // Watch — always offered. A curated clip when one has been picked for
+      // this movement, otherwise a search, which cannot 404 the way a fixed
+      // video id can once an upload is pulled.
+      (() => {
+        const v = learnDemoUrl(ex);
+        return el("div", { class: "detail-section mt-16" },
+          el("a", {
+            class: "btn btn-block watch-btn", href: v.url, target: "_blank", rel: "noopener noreferrer",
+            "data-testid": "watch-form", "data-curated": v.curated ? "1" : "0"
+          },
+            el("span", { html: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21.6 7.2a2.7 2.7 0 0 0-1.9-1.9C18 4.8 12 4.8 12 4.8s-6 0-7.7.5a2.7 2.7 0 0 0-1.9 1.9A28 28 0 0 0 1.9 12a28 28 0 0 0 .5 4.8 2.7 2.7 0 0 0 1.9 1.9c1.7.5 7.7.5 7.7.5s6 0 7.7-.5a2.7 2.7 0 0 0 1.9-1.9 28 28 0 0 0 .5-4.8 28 28 0 0 0-.5-4.8zM10 15.2V8.8l5.2 3.2z"/></svg>' }),
+            v.curated ? "Watch the form" : "Find a form video"),
+          el("div", { class: "watch-note" },
+            v.curated ? v.label : "Opens a YouTube search — no clip has been picked for this one yet.")
+        );
+      })(),
       // Technique
       ex.technique?.length ? el("div", { class: "detail-section mt-16" },
         el("h3", {}, "Technique"),
