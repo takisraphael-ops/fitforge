@@ -56,35 +56,15 @@ const area = (pts) => {
 // Zones that legitimately straddle the midline rather than coming in pairs.
 const CENTRE_ZONES = new Set(['abs', 'core', 'chest_centre']);
 
-// Artwork that was already lopsided when this check was written, recorded so
-// the suite can go green on the two zones that have been fixed without
-// pretending the rest are fine. These are NOT acceptable — the male back is
-// the worst of it, with a full left lat against a 96-unit stub on the right,
-// and mismatched traps, shoulders and triceps besides. They are listed rather
-// than fixed because straightening them means redrawing roughly fifteen zones
-// across both figures, which is a bigger change than the one that uncovered
-// them and wants its own look.
+// Empty, and meant to stay that way. Fifteen zones were listed here when this
+// check was written — every one has since been redrawn by mirroring its fuller
+// side, so each figure's two halves are identical by construction rather than
+// by a steady hand. A new entry means somebody drew a zone on one side only.
 //
-// The recorded number is the skew at the time of listing. The check fails if a
-// zone gets WORSE, and also fails if it gets better — a fixed zone has to be
-// taken off this list or the list quietly becomes a lie.
-const KNOWN_ASYMMETRIC = {
-  'male front traps': 12.2,
-  'male back shoulders': 42.5,
-  'male back traps': 41.2,
-  'male back lats': 96.0,
-  'male back triceps': 32.1,
-  'male back forearms': 28.2,
-  'male back glutes': 11.5,
-  'male back hams': 10.5,
-  'female front traps': 73.3,
-  'female front adductors': 12.9,
-  'female front calves': 23.6,
-  'female back midback': 58.5,
-  'female back lats': 88.3,
-  'female back forearms': 27.9,
-  'female back glutes': 9.4
-};
+// The recorded number would be the skew at the time of listing. The check
+// fails if a listed zone gets worse, and also fails if it gets better — a
+// fixed zone has to come off this list or the list quietly becomes a lie.
+const KNOWN_ASYMMETRIC = {};
 /** How far a listed zone may drift before the entry is treated as stale. */
 const DRIFT = 1.5;
 
