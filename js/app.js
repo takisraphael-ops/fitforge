@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=229").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=231").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -72,6 +72,7 @@
     // Best-effort: ask browser not to evict workout data under storage pressure.
     try { await Storage.requestPersistent(); } catch (_) {}
     state.prefs = await loadPrefs();
+    initA11yRegions();
     applyAccent(state.prefs.accent);
     applyTheme(state.prefs.theme);
     // Resume active workout if any
@@ -2260,9 +2261,14 @@
    * which is what "toward the side you want" means with two or with three.
    */
   function openForkSheet({ label, testid, panels, tip }) {
-    const overlay = el("div", { class: "qa-fork-overlay", "data-testid": testid, role: "dialog", "aria-label": label });
+    const overlay = el("div", { class: "qa-fork-overlay", "data-testid": testid, role: "dialog", "aria-modal": "true", "aria-label": label });
     function onKey(e) { if (e.key === "Escape") { e.preventDefault(); close(); } }
-    const close = () => { document.removeEventListener("keydown", onKey, true); overlay.remove(); };
+    let release = null;
+    const close = () => {
+      document.removeEventListener("keydown", onKey, true);
+      overlay.remove();
+      if (release) { release(); release = null; }
+    };
     document.addEventListener("keydown", onKey, true);
 
     const CLOSE_ART = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>`;
@@ -2310,6 +2316,7 @@
     }, true));
 
     document.body.appendChild(overlay);
+    release = trapFocus(overlay);
     return { close };
   }
 
@@ -3116,6 +3123,7 @@
     // Input row
     const wI = el("input", { type: "number", step: "0.1", inputmode: "decimal",
       class: "input input-num", placeholder: latest ? String(U.toDisplayWeight(latest.kg)) : U.weightUnit(),
+      "aria-label": `Today's bodyweight in ${U.isImperial() ? "pounds" : "kilograms"}`,
       value: todayEntry?.kg ?? "", style: "max-width: 140px" });
     // Tap-first numeric keypad, same as logging reps/weight in a workout.
     attachNumPad(wI, { decimals: true, step: U.isImperial() ? 0.2 : 0.1, unit: U.weightUnit(), label: "Log bodyweight" });
@@ -7804,6 +7812,7 @@
     try { state.restCancelChime = IntervalRunner.scheduleChime(secs); } catch (_) {}
     // Light pulse so you feel the rest window start (phones that support it).
     try { if (navigator.vibrate) navigator.vibrate(40); } catch (_) {}
+    announce(`Resting ${secs} seconds`);
     state.restInterval = setInterval(() => {
       if (!state.restTimer) return;
       const remaining = Math.round((state.restTimer.endsAt - Date.now()) / 1000);
@@ -7818,6 +7827,9 @@
           if (ex) exName = ex.name;
         }
         fireRestCompleteNotification(exName);
+        // Assertive: the phone is face-down on a bench and the chime may be
+        // the only other signal. This is the one interruption the app earns.
+        announce(exName ? `Rest complete — ${exName}` : "Rest complete", { assertive: true });
         stopRestTimer();
       } else {
         updateRestTimerUI(remaining);
@@ -7854,7 +7866,9 @@
         const ex = state.activeWorkout.exercises.find(e => e.exerciseId === state.restTimer.exerciseId);
         if (ex) nextName = ex.name;
       }
-      el_ = el("div", { class: "rest-overlay", id: "rest-timer", role: "dialog", "aria-label": "Rest timer" },
+      // role=timer with the digits hidden: a live countdown re-read four times
+      // a second is unusable, and the start and finish are already announced.
+      el_ = el("div", { class: "rest-overlay", id: "rest-timer", role: "timer", "aria-label": "Rest timer" },
         el("div", { class: "rest-overlay-inner" },
           el("div", { class: "rest-eyebrow" }, "Rest"),
           el("div", { class: "rest-ring-wrap" },
@@ -7874,7 +7888,7 @@
               return svg;
             })(),
             el("div", { class: "rest-ring-center" },
-              el("div", { class: "rest-value", id: "rest-value" }, "—"),
+              el("div", { class: "rest-value", id: "rest-value", "aria-hidden": "true" }, "—"),
               nextName ? el("div", { class: "rest-next" }, nextName) : null
             )
           ),
@@ -7963,6 +7977,7 @@
     const o = runnerState;
     runnerState = null;
     document.removeEventListener("keydown", o.onKey, true);
+    if (o.releaseFocus) o.releaseFocus();
     o.overlay.remove();
     if (dismiss) guidedDismissed = true;
     // A rest window that was running inside the runner needs its standalone
@@ -8038,6 +8053,8 @@
     });
     const body = el("div", { class: "srun-body" });
     overlay.appendChild(body);
+    // Focus lands on LOG SET, which is the only thing this screen is for.
+    let releaseRunnerFocus = null;
 
     // True only while commitStrengthSet is in flight. Committing starts the
     // rest timer, which calls renderRestTimer, which asks us to repaint — with
@@ -8210,6 +8227,9 @@
             ok = await commitStrengthSet(ex, step.s, { weight: isBw ? 0 : curW, reps: curR, exType, def, bwKg });
           } finally { committing = false; }
           if (!ok) { render(); return; }
+          announce(isBw
+            ? `Logged ${curR} reps of ${ex.name}`
+            : `Logged ${U.formatWeight(U.fromDisplayWeight(curW))} for ${curR} reps of ${ex.name}`);
           markExerciseFinished(ex);
           steps = guidedSteps(w);
           const nxt = nextCursor(cursor);
@@ -8368,6 +8388,9 @@
     // screen never shows the set that is in the middle of being logged.
     runnerState = { overlay, onKey, paint: () => { if (!committing) render(); } };
     render();
+    // After the first render, so there is a LOG SET button to land on.
+    releaseRunnerFocus = trapFocus(overlay, { initial: overlay.querySelector('[data-testid="srun-log"]') });
+    runnerState.releaseFocus = () => { if (releaseRunnerFocus) { releaseRunnerFocus(); releaseRunnerFocus = null; } };
   }
 
   // ---- circuits ---------------------------------------------------------
@@ -8574,7 +8597,7 @@
     const overlay = el("div", { class: "ivr", "data-testid": "interval-runner", role: "dialog",
       "aria-label": `${cfg.title} — ${cfg.noun || "guided run"}` });
     const label = el("div", { class: "ivr-label", "data-testid": "ivr-label" }, "—");
-    const clock = el("div", { class: "ivr-clock", "data-testid": "ivr-clock" }, "—");
+    const clock = el("div", { class: "ivr-clock", "data-testid": "ivr-clock", "aria-hidden": "true" }, "—");
     const sideTag = el("div", { class: "ivr-side", "data-testid": "ivr-side" }, "");
     const nextUp = el("div", { class: "ivr-next", "data-testid": "ivr-next" }, "");
     const totals = el("div", { class: "ivr-totals", "data-testid": "ivr-totals" }, "");
@@ -8626,11 +8649,22 @@
         sg.classList.toggle("is-now", i === st.stepIndex && !st.done);
       });
       pauseBtn.textContent = st.paused ? "Resume" : "Pause";
+      // A guided run exists so you do not have to watch the screen, which is
+      // exactly the case where a reader needs telling. Once per step, not once
+      // per frame — paint runs continuously.
+      if (st.step && st.stepIndex !== spokenStep) {
+        spokenStep = st.stepIndex;
+        announce(`${st.step.label || (st.step.work ? "Work" : "Rest")} — ${Math.round(st.step.sec)} seconds`);
+      }
     }
+    let spokenStep = -1;
 
+    // NOTE: the `announce` option below shadows the global announce() inside
+    // this function. Do not try to speak from in here — say it from paint().
     async function finish(summary, { announce = true } = {}) {
       if (closed) return;
       closed = true;
+      releaseIvr();
       overlay.remove();
       await cfg.onFinish(summary);
       if (!announce) return;
@@ -8681,6 +8715,14 @@
     overlay.appendChild(strip);
     overlay.appendChild(el("div", { class: "rest-actions ivr-actions" }, pauseBtn, skipBtn, endBtn));
     document.body.appendChild(overlay);
+    overlay.setAttribute("aria-modal", "true");
+    // Escape ends the run the same way the End button does — with the same
+    // confirmation, so a stray keypress cannot bin a set of efforts. This was
+    // the only full-screen surface in the app with no keyboard way out.
+    const onEsc = (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); endBtn.click(); } };
+    document.addEventListener("keydown", onEsc, true);
+    const releaseIvrFocus = trapFocus(overlay, { initial: pauseBtn });
+    const releaseIvr = () => { document.removeEventListener("keydown", onEsc, true); releaseIvrFocus(); };
 
     runner = IntervalRunner.create({
       steps,
@@ -9086,6 +9128,7 @@
   }
 
   let learnOverlayKeyHandler = null;
+  let releaseArticleFocus = null;
   function closeArticle() {
     closeTermPopover();
     const o = document.getElementById("learn-overlay");
@@ -9094,6 +9137,7 @@
       document.removeEventListener("keydown", learnOverlayKeyHandler, true);
       learnOverlayKeyHandler = null;
     }
+    if (releaseArticleFocus) { releaseArticleFocus(); releaseArticleFocus = null; }
   }
 
   function openArticle(slug) {
@@ -9131,6 +9175,11 @@
     document.addEventListener("keydown", learnOverlayKeyHandler, true);
     document.body.appendChild(overlay);
     overlay.scrollTop = 0;
+    // Land on the title, not the Back button: a reader should hear what it has
+    // opened before it hears the way out of it.
+    releaseArticleFocus = trapFocus(overlay, { initial: overlay.querySelector(".article-title") });
+    const t = overlay.querySelector(".article-title");
+    if (t) t.setAttribute("tabindex", "-1");
   }
 
   /** The Learning Centre block that sits at the top of the tab. */
@@ -9631,6 +9680,7 @@
     // Articles first, library below. The tab is the Learning Centre now: the
     // map and the exercise grid are one section of it rather than the whole
     // thing, and nothing that was here has moved somewhere else.
+    view.appendChild(el("h1", { class: "sr-only" }, "Learn"));
     view.appendChild(renderLearnSection());
     view.appendChild(el("div", { class: "learn-divider" },
       el("span", {}, "Exercise library")));
@@ -9702,7 +9752,8 @@
     })();
 
     const controls = el("div", { class: "library-controls" });
-    const searchInput = el("input", { class: "input", placeholder: "Search exercises…", id: "lib-search" });
+    const searchInput = el("input", { class: "input", placeholder: "Search exercises…", id: "lib-search",
+      type: "search", "aria-label": "Search the exercise library" });
     controls.appendChild(searchInput);
     view.appendChild(controls);
 
@@ -10322,7 +10373,8 @@
     const existing = opts.existingIds instanceof Set ? opts.existingIds : new Set(opts.existingIds || []);
     const selected = new Map(); // id -> { id, name }
 
-    const searchI = el("input", { class: "input", placeholder: "Search exercises…" });
+    const searchI = el("input", { class: "input", placeholder: "Search exercises…",
+      type: "search", "aria-label": "Search exercises to add" });
     // Body-map figure that lights up the active category's muscle group.
     const catFigure = el("div", { class: "xpick-figure", "data-testid": "xpick-figure" });
     function updateFigure() {
@@ -11619,6 +11671,10 @@
     }
 
     const screen = el("div", { class: "npager-screen" });
+    // Every screen needs one top-level heading. This tab had none: the dock
+    // tells a sighted user where they are, and told a reader nothing. Hidden
+    // because the layout already says it — the panels carry their own h2s.
+    screen.appendChild(el("h1", { class: "sr-only" }, "Nutrition"));
     const pager = el("div", { class: "npager", "data-testid": "npager" });
     const dots = el("div", { class: "npager-dots" });
     screen.appendChild(pager);
@@ -12488,90 +12544,32 @@
   // Full-screen "fork in the road" for logging a meal — mirrors the + button.
   // Two paths: Quick Meal (search common meals) or Create meal (custom entry).
   function openMealFork(sectionHint = null, dateHint = null) {
-    const overlay = el("div", {
-      class: "qa-fork-overlay", "data-testid": "meal-fork",
-      role: "dialog", "aria-label": "Log a meal"
-    });
-    function onKey(e) { if (e.key === "Escape") { e.preventDefault(); close(); } }
-    const close = () => { document.removeEventListener("keydown", onKey, true); overlay.remove(); };
-    document.addEventListener("keydown", onKey, true);
-
-    // Lightning bolt (fast) for Quick; bowl + plus (build your own) for Create.
+    // The third copy of the fork, folded into the shared one. It had drifted
+    // already — no focus handling at all, where the + at least had a dialog
+    // role — which is exactly the argument for there being one of these.
     const BOLT_ART = `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><path class="qa2-bolt" d="M28 5 13 27h9l-3 16 16-23H25z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/></svg>`;
     const CREATE_ART = `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><g class="qa2-plus"><path d="M9 28h30a15 15 0 0 1-30 0z" fill="currentColor" fill-opacity="0.16"/><path d="M9 28h30a15 15 0 0 1-30 0z" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><line x1="7" y1="28" x2="41" y2="28" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></g><g class="qa2-plusmark" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><line x1="24" y1="7" x2="24" y2="19"/><line x1="18" y1="13" x2="30" y2="13"/></g></svg>`;
-    const CLOSE_ART = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>`;
-    // Bookmark for Saved — the third way to log, which used to live on a
-    // different screen entirely.
     const SAVED_ART = `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="M13 6h22a3 3 0 0 1 3 3v33l-14-9-14 9V9a3 3 0 0 1 3-3z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/></svg>`;
-
-    const quickPanel = el("button", {
-      class: "qa-fork-panel qa2-workout", "data-testid": "meal-fork-quick",
-      on: { click: () => { close(); openQuickAdd(sectionHint, dateHint); } }
-    },
-      el("span", { class: "qa2-art", html: BOLT_ART }),
-      el("span", { class: "qa2-label" }, "Quick Meal"),
-      el("span", { class: "qa2-sub" }, "Search common meals and log fast")
-    );
-    const createPanel = el("button", {
-      class: "qa-fork-panel qa2-meal", "data-testid": "meal-fork-create",
-      on: { click: () => { close(); openMealForm(null, sectionHint || qaSectionForNow(), dateHint); } }
-    },
-      el("span", { class: "qa2-art", html: CREATE_ART }),
-      el("span", { class: "qa2-label" }, "Create meal"),
-      el("span", { class: "qa2-sub" }, "Enter your own calories and macros")
-    );
-    // Saved meals used to be a separate button on a separate screen, so
-    // "log a meal" meant learning two vocabularies. It is a third route to the
-    // same outcome, so it belongs in the same sheet as the other two.
-    const savedPanel = el("button", {
-      class: "qa-fork-panel qa2-saved", "data-testid": "meal-fork-saved",
-      on: { click: () => { close(); openSavedMealsSheet(sectionHint, dateHint); } }
-    },
-      el("span", { class: "qa2-art", html: SAVED_ART }),
-      el("span", { class: "qa2-label" }, "Saved meals"),
-      el("span", { class: "qa2-sub" }, "Re-log something you eat often")
-    );
-    overlay.appendChild(quickPanel);
-    overlay.appendChild(savedPanel);
-    overlay.appendChild(createPanel);
-    overlay.appendChild(el("button", {
-      class: "qa-fork-close", "aria-label": "Close", title: "Close",
-      html: CLOSE_ART, on: { click: close }
-    }));
-
-    // Same gesture as the + fork: swipe toward the side you want, with the
-    // middle route reached by tapping it.
-    const CHEV_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
-    const CHEV_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
-    overlay.appendChild(el("div", { class: "qa-fork-hint", "aria-hidden": "true" },
-      el("span", { class: "qa-fork-chev qa-fork-chev-l", html: CHEV_L }),
-      el("span", { class: "qa-fork-hint-text" }, "Swipe or tap"),
-      el("span", { class: "qa-fork-chev qa-fork-chev-r", html: CHEV_R })
-    ));
-
-    let sx = 0, sy = 0, swiping = false, didSwipe = false;
-    overlay.addEventListener("touchstart", (e) => {
-      if (e.touches.length !== 1) { swiping = false; return; }
-      sx = e.touches[0].clientX; sy = e.touches[0].clientY; swiping = true; didSwipe = false;
-    }, { passive: true });
-    overlay.addEventListener("touchend", (e) => {
-      if (!swiping) return; swiping = false;
-      const t = e.changedTouches[0];
-      const dx = t.clientX - sx, dy = t.clientY - sy;
-      if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-      didSwipe = true;
-      const panel = dx < 0 ? quickPanel : createPanel;
-      panel.classList.add("qa2-chosen");
-      setTimeout(() => {
-        close();
-        if (dx < 0) openQuickAdd(sectionHint, dateHint);
-        else openMealForm(null, sectionHint || qaSectionForNow(), dateHint);
-      }, 140);
-    }, { passive: true });
-    [quickPanel, savedPanel, createPanel].forEach(p =>
-      p.addEventListener("click", (e) => { if (didSwipe) { e.preventDefault(); e.stopPropagation(); } }, true));
-
-    document.body.appendChild(overlay);
+    openForkSheet({
+      label: "Log a meal", testid: "meal-fork",
+      panels: [
+        {
+          cls: "qa2-workout", testid: "meal-fork-quick", art: BOLT_ART,
+          label: "Quick Meal", sub: "Search common meals and log fast",
+          onPick: () => openQuickAdd(sectionHint, dateHint)
+        },
+        {
+          cls: "qa2-saved", testid: "meal-fork-saved", art: SAVED_ART,
+          label: "Saved meals", sub: "Re-log something you eat often",
+          onPick: () => openSavedMealsSheet(sectionHint, dateHint)
+        },
+        {
+          cls: "qa2-meal", testid: "meal-fork-create", art: CREATE_ART,
+          label: "Create meal", sub: "Enter your own calories and macros",
+          onPick: () => openMealForm(null, sectionHint || qaSectionForNow(), dateHint)
+        }
+      ]
+    });
   }
 
   function openQuickAdd(sectionHint = null, dateHint = null) {
@@ -15521,11 +15519,109 @@
     modal.appendChild(el("div", { class: "modal-body" }, body));
     if (footer) modal.appendChild(el("div", { class: "modal-footer" }, footer));
     overlay.appendChild(modal);
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    modal.setAttribute("aria-label", title);
     document.body.appendChild(overlay);
+    releaseModalFocus = trapFocus(modal);
+    // Every other overlay in the app closed on Escape; the plain modal — which
+    // is most of them, including Settings and every editor — did not.
+    modalKeyHandler = (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeModal(); } };
+    document.addEventListener("keydown", modalKeyHandler, true);
   }
+  let releaseModalFocus = null;
+  let modalKeyHandler = null;
   function closeModal() {
     const o = document.getElementById("modal-overlay");
     if (o) o.remove();
+    if (modalKeyHandler) { document.removeEventListener("keydown", modalKeyHandler, true); modalKeyHandler = null; }
+    if (releaseModalFocus) { releaseModalFocus(); releaseModalFocus = null; }
+  }
+
+  // ============ Announcements & focus ============
+  //
+  // The app talks to sighted users constantly — a toast, a ring filling, a set
+  // row turning into "Logged" — and said none of it out loud. A screen-reader
+  // user could log a set and get no confirmation that anything had happened,
+  // which on a screen whose entire job is one-tap logging is the difference
+  // between usable and not.
+  //
+  // Two regions, because the distinction matters more here than usual. Polite
+  // waits for a gap: right for "Logged 80 kg × 8". Assertive interrupts: right
+  // for the rest timer finishing, which is the one thing in the app that is
+  // time-critical and happens while the phone is face-down on a bench.
+
+  function a11yRegion(id, live) {
+    let n = document.getElementById(id);
+    if (!n) {
+      n = el("div", { id, class: "sr-only", role: "status", "aria-live": live, "aria-atomic": "true" });
+      document.body.appendChild(n);
+    }
+    return n;
+  }
+
+  /** Both regions, mounted empty at boot.
+      A live region created and filled in the same tick is frequently not
+      announced at all — the AT never saw an empty region to diff against. They
+      have to be sitting there first, which means creating them before anything
+      has happened rather than on the first thing that does. */
+  function initA11yRegions() {
+    a11yRegion("a11y-status", "polite");
+    a11yRegion("a11y-alert", "assertive");
+  }
+
+  /** Say something to a screen reader. Identical consecutive text is ignored by
+      every AT, so a set logged at the same weight twice would be silent —
+      hence the alternating hair space. */
+  let announceFlip = false;
+  function announce(msg, { assertive = false } = {}) {
+    if (!msg) return;
+    const n = a11yRegion(assertive ? "a11y-alert" : "a11y-status", assertive ? "assertive" : "polite");
+    announceFlip = !announceFlip;
+    n.textContent = msg + (announceFlip ? "\u200a" : "");
+  }
+
+  /**
+   * Hold keyboard focus inside a dialog until it closes, then put it back
+   * where it came from.
+   *
+   * Without this a dialog opens and focus is still on the button behind it, so
+   * Tab walks the page underneath something that visually covers the screen —
+   * measured across the meal fork, the modals and the article reader, none of
+   * which moved focus in. Returns a release function; every caller must invoke
+   * it on close or focus is stranded on a node that no longer exists.
+   */
+  const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  function trapFocus(container, opts = {}) {
+    const previous = document.activeElement;
+    const items = () => [...container.querySelectorAll(FOCUSABLE)]
+      .filter((n) => n.offsetParent !== null || getComputedStyle(n).position === "fixed");
+
+    const first = opts.initial || items()[0] || container;
+    if (first === container && !container.hasAttribute("tabindex")) container.setAttribute("tabindex", "-1");
+    // After paint: a dialog appended and focused in the same frame sometimes
+    // loses it to the click that opened it.
+    requestAnimationFrame(() => { try { first.focus({ preventScroll: true }); } catch (_) {} });
+
+    const onKey = (e) => {
+      if (e.key !== "Tab") return;
+      const list = items();
+      if (!list.length) { e.preventDefault(); return; }
+      const i = list.indexOf(document.activeElement);
+      // Focus outside the dialog entirely (it started on the trigger, or the
+      // dialog re-rendered) — pull it back rather than letting Tab escape.
+      if (i < 0) { e.preventDefault(); list[e.shiftKey ? list.length - 1 : 0].focus(); return; }
+      if (!e.shiftKey && i === list.length - 1) { e.preventDefault(); list[0].focus(); }
+      else if (e.shiftKey && i === 0) { e.preventDefault(); list[list.length - 1].focus(); }
+    };
+    document.addEventListener("keydown", onKey, true);
+
+    return function release() {
+      document.removeEventListener("keydown", onKey, true);
+      if (previous && document.contains(previous)) {
+        try { previous.focus({ preventScroll: true }); } catch (_) {}
+      }
+    };
   }
 
   // ============ Toast ============
@@ -15533,13 +15629,17 @@
   function toast(msg) {
     let t = document.getElementById("toast");
     if (!t) {
-      t = el("div", { id: "toast", style: "position:fixed; top: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 20px; border-radius: 100px; z-index: 200; font-size: 14px; box-shadow: var(--shadow-md); pointer-events: none; opacity: 0; transition: opacity 200ms ease;" });
+      t = el("div", { id: "toast", "aria-hidden": "true", style: "position:fixed; top: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 20px; border-radius: 100px; z-index: 200; font-size: 14px; box-shadow: var(--shadow-md); pointer-events: none; opacity: 0; transition: opacity 200ms ease;" });
       document.body.appendChild(t);
     }
     t.textContent = msg;
     t.style.opacity = "1";
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { t.style.opacity = "0"; }, 2200);
+    // Anything worth a toast is worth saying. The toast itself cannot be the
+    // live region: it is aria-hidden decoration that appears and vanishes,
+    // and its text is often set again with the same string.
+    announce(msg);
   }
 
   // ============ Kickoff ============
