@@ -9,26 +9,8 @@
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" href="./icons/icon-192.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="./icons/icon-192.svg" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <!--
-    Loaded asynchronously — media="print" means it never blocks, and onload
-    promotes it once it has arrived. It used to be an ordinary stylesheet, and
-    a pending stylesheet blocks every script after it: the inline splash script
-    below could not even start its own timer until Google answered. So an
-    offline-first app spent every cold launch waiting on a third-party CDN
-    before running a line of its own code, and offline it waited for the
-    request to fail. Measured here at 12.7s to DOMContentLoaded against 122ms
-    with the request blocked.
-
-    Safe to defer because every --font-* var in styles.css already carries a
-    full system stack: text renders in the system font and upgrades to Inter
-    if and when it turns up.
-  -->
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-        media="print" onload="this.media='all'" />
-  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" /></noscript>
-  <link rel="stylesheet" href="./css/styles.css?v=228" />
+  <!-- Inter is self-hosted; the @font-face rules live at the top of styles.css. -->
+  <link rel="stylesheet" href="./css/styles.css?v=229" />
 </head>
 <body>
   <!-- Launch splash — orbit mark, plays once per load then fades into the app -->
@@ -69,18 +51,18 @@
     <main id="main"></main>
   </div>
   <!-- Cache-bust query so PWA clients cannot stick on old JS -->
-  <script src="./data/exercises.js?v=228"></script>
-  <script src="./data/meals.js?v=228"></script>
-  <script src="./data/sessions.js?v=228"></script>
-  <script src="./data/learn.js?v=228"></script>
+  <script src="./data/exercises.js?v=229"></script>
+  <script src="./data/meals.js?v=229"></script>
+  <script src="./data/sessions.js?v=229"></script>
+  <script src="./data/learn.js?v=229"></script>
   <!-- After learn.js: the pattern guides are appended to LEARN_ARTICLES. -->
-  <script src="./data/diet-plans.js?v=228"></script>
-  <script src="./js/meal-search.js?v=228"></script>
-  <script src="./js/diet-plan.js?v=228"></script>
-  <script src="./js/utils.js?v=228"></script>
-  <script src="./js/storage.js?v=228"></script>
-  <script src="./js/body-map.js?v=228"></script>
-  <script src="./js/interval-runner.js?v=228"></script>
-  <script src="./js/app.js?v=228"></script>
+  <script src="./data/diet-plans.js?v=229"></script>
+  <script src="./js/meal-search.js?v=229"></script>
+  <script src="./js/diet-plan.js?v=229"></script>
+  <script src="./js/utils.js?v=229"></script>
+  <script src="./js/storage.js?v=229"></script>
+  <script src="./js/body-map.js?v=229"></script>
+  <script src="./js/interval-runner.js?v=229"></script>
+  <script src="./js/app.js?v=229"></script>
 </body>
 </html>

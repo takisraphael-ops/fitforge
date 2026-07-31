@@ -60,5 +60,32 @@ check('every JS/CSS asset in index.html is in the precache list',
 const gone = indexAssets.filter(f => !fs.existsSync(path.join(ROOT, f)));
 check('every referenced asset exists on disk', gone.length === 0, gone.join(', '));
 
+// --- nothing may reach off-origin on the critical path ---
+//
+// An offline-first app cannot depend on a third party to boot. Inter used to
+// arrive from fonts.googleapis.com as a render-blocking stylesheet, which held
+// every script behind it (12.7s to DOMContentLoaded, against 122ms without it)
+// and never arrived at all offline. It is self-hosted now, and the service
+// worker deliberately passes cross-origin requests straight through — so
+// anything added here in future would be uncacheable and unavailable offline.
+const offOrigin = [...index.matchAll(/(?:src|href)="(https?:\/\/[^"]+)"/g)].map(m => m[1]);
+check('index.html requests nothing from another origin',
+  offOrigin.length === 0, offOrigin.join(', '));
+
+const cssUrls = [...fs.readFileSync(path.join(ROOT, 'css/styles.css'), 'utf8')
+  .matchAll(/url\(\s*["']?(https?:\/\/[^)"']+)/g)].map(m => m[1]);
+check('styles.css loads no remote fonts or images',
+  cssUrls.length === 0, cssUrls.join(', '));
+
+// The font files themselves have to exist and be precached, or the first
+// offline launch renders in the fallback stack.
+const fontRefs = [...fs.readFileSync(path.join(ROOT, 'css/styles.css'), 'utf8')
+  .matchAll(/url\(\s*["']?\.\.\/(fonts\/[^)"']+)/g)].map(m => m[1]);
+check('the self-hosted fonts are referenced', fontRefs.length > 0, `${fontRefs.length} face(s)`);
+const missingFonts = fontRefs.filter(f => !fs.existsSync(path.join(ROOT, f)));
+check('every font file exists on disk', missingFonts.length === 0, missingFonts.join(', '));
+const unprecached = fontRefs.filter(f => !sw.includes(f));
+check('every font file is in the precache list', unprecached.length === 0, unprecached.join(', '));
+
 console.log(`\n${fails} failing check${fails === 1 ? '' : 's'}`);
 process.exit(fails ? 1 : 0);
