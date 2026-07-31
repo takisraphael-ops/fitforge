@@ -21,6 +21,7 @@ const NODE_PATH = process.env.NODE_PATH || '/opt/node22/lib/node_modules';
 const SUITES = [
   { name: 'version-check', file: 'version-check.js', needsServer: false },
   { name: 'existence-sweep', file: 'existence-sweep.js', args: [__dirname], needsServer: false },
+  { name: 'body-symmetry', file: 'body-symmetry.js', needsServer: false },
   { name: 'reach-audit', file: 'reach-audit.js', needsServer: true },
   { name: 'quiz', file: 'quiz.js', needsServer: true },
   { name: 'numpad', file: 'numpad.js', needsServer: true },
