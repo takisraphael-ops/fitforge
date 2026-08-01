@@ -285,6 +285,49 @@ console.log('\n=== 2. Hyrox: all eight stations, or say so ===');
     });
   };
 
+  // ---- the length on the card ----
+  // The card is how you decide whether you have time for a session, so the
+  // number on it is the one that has to be right. The estimator guesses 3.5
+  // minutes per set, which is fine for a strength session and meaningless for
+  // a scored one, where the clock is the format rather than a consequence of
+  // it: Cindy is twenty minutes by definition and the card said "~10 min".
+  console.log('\n=== 2b. the length shown on the card ===');
+  {
+    const cardMeta = async (id) => {
+      await page.evaluate(async (kit) => {
+        await Storage.clearAll();
+        await Storage.setPref('onboarded', true);
+        await Storage.setPref('myKit', kit);
+      }, ['band', 'dumbbell', 'kettlebell', 'barbell', 'pullup-bar', 'dip-bars', 'jump-rope',
+        'ab-wheel', 'machine', 'cable', 'cardio-machine', 'sled', 'sandbag', 'med-ball',
+        'heavy-bag', 'focus-pads']);
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(1500);
+      await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"],.splash').forEach((n) => n.remove()));
+      await page.evaluate(() => document.querySelector('[data-testid="dock-fab"]').click());
+      await page.waitForTimeout(600);
+      await page.evaluate(() => document.querySelector('[data-testid="quick-sessions"]').click());
+      await page.waitForTimeout(1700);
+      return page.evaluate((x) =>
+        document.querySelector(`[data-testid="preset-${x}"] .sess-card-meta`)?.textContent || '', id);
+    };
+
+    // An AMRAP runs exactly its cap. Not "about" — exactly.
+    const cindyMeta = await cardMeta('preset-amrap-20');
+    check('Cindy is advertised as the twenty minutes it actually is',
+      /(^|\s)20 min/.test(cindyMeta) && !/~/.test(cindyMeta), cindyMeta);
+    // For Time ends when the work does, so the cap is a ceiling, not a guess.
+    const hyroxMeta = await cardMeta('preset-hyrox-sim');
+    check('the Hyrox sim says "up to", not a number below its own description',
+      /up to 120 min/.test(hyroxMeta), hyroxMeta);
+    const murphMeta = await cardMeta('preset-murph');
+    check('Murph does not advertise a 45-minute workout as 20 minutes',
+      /up to 75 min/.test(murphMeta), murphMeta);
+    // And the unscored sessions keep the estimate they always had.
+    const carryMeta = await cardMeta('preset-sled-carry');
+    check('an ordinary circuit still shows an estimate', /~\d+ min/.test(carryMeta), carryMeta);
+  }
+
   console.log('\n=== 3. rep ladders and cardio set counts ===');
   {
     const fran = await startPreset('preset-fran');

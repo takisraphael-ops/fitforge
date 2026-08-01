@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=237").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=238").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -4073,9 +4073,8 @@
     // Planned training day with a valid template.
     if (tpl) {
       const focus = templateFocus(tpl, exById);
-      const est = templateEstMin(tpl);
       const exCount = (tpl.exercises || []).length;
-      const meta = `${exCount} exercise${exCount === 1 ? "" : "s"} · ~${est} min`;
+      const meta = `${exCount} exercise${exCount === 1 ? "" : "s"} · ${templateLengthLabel(tpl)}`;
       const names = (tpl.exercises || []).map(e => e.name);
       const chipRow = el("div", { class: "today-hero-chips" });
       names.slice(0, 3).forEach(n => chipRow.appendChild(el("span", { class: "today-hero-chip" }, n)));
@@ -4735,9 +4734,33 @@
       // Interval protocols carry their own prescribed length.
       if (te.intervals) min += intervalTotalSec(te.intervals) / 60;
       else if (te.targetDurationMin != null) min += te.targetDurationMin;
+      // A timed hold states its own seconds. Counting it as 3.5 minutes of
+      // strength set is a guess standing in front of an exact number.
+      else if (te.targetSeconds != null) min += (Math.max(1, te.targetSets || 1) * te.targetSeconds) / 60;
       else min += (te.targetSets || 3) * 3.5;
     }
     return Math.max(5, Math.round(min / 5) * 5);
+  }
+
+  /** How long a session takes, in the terms that session actually has.
+   *
+   *  The per-set estimate above is a reasonable guess for a strength session
+   *  and nonsense for a scored one, where the clock is the format rather than
+   *  a consequence of it. Cindy is twenty minutes by definition and was
+   *  advertised as "~10 min" — three exercises at one set each — which is the
+   *  wrong number in the one place you use to decide whether you have time.
+   *
+   *  An AMRAP runs exactly its cap, so it is stated flat. For Time ends when
+   *  the work does, so the cap is an upper bound and says so: "up to 75 min"
+   *  is true of Murph in a way "~75 min" and "~20 min" both are not. */
+  function templateLengthLabel(template) {
+    const cap = template && template.circuit && template.circuit.capSec;
+    if (cap > 0) {
+      const mins = Math.round(cap / 60);
+      if (template.circuit.mode === "amrap") return `${mins} min`;
+      if (template.circuit.mode === "fortime") return `up to ${mins} min`;
+    }
+    return `~${templateEstMin(template)} min`;
   }
 
   function renderHeatmap(completed) {
@@ -5785,7 +5808,7 @@
       const isCardioEntry = e => e.targetDurationMin != null || looksLikeCardio({ id: e.exerciseId, name: e.name });
       const setsTotal = t.exercises.reduce((s2, e) => s2 + (e.intervals || isCardioEntry(e) ? 0 : (e.targetSets || 3)), 0);
       const meta = ivl ? intervalSummary(ivl)
-        : `${t.exercises.length} exercise${t.exercises.length === 1 ? "" : "s"}` + (setsTotal > 0 ? ` · ${setsTotal} sets` : "") + ` · ~${templateEstMin(t)} min`;
+        : `${t.exercises.length} exercise${t.exercises.length === 1 ? "" : "s"}` + (setsTotal > 0 ? ` · ${setsTotal} sets` : "") + ` · ${templateLengthLabel(t)}`;
       return el("div", { class: "sess-card", "data-testid": preset ? `preset-${t.id}` : `tpl-${t.id}` },
         el("div", { class: "sess-card-top" },
           el("div", { class: "sess-card-name" }, t.name),
@@ -6182,7 +6205,7 @@
       for (const t of templates) {
         const n = (t.exercises || []).length;
         const h = t.preset
-          ? `${(t.pillar || "preset").replace(/^./, c => c.toUpperCase())} · ${t.desc || templateEstMin(t) + " min"}`
+          ? `${(t.pillar || "preset").replace(/^./, c => c.toUpperCase())} · ${t.desc || templateLengthLabel(t)}`
           : `${n} exercise${n === 1 ? "" : "s"} · template`;
         items.push({ value: t.id, label: t.name, hint: h, icon: TEMPLATE_ICON, testid: `wplan-pick-${t.id}` });
       }
