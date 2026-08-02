@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=238").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=239").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -4742,6 +4742,30 @@
     return Math.max(5, Math.round(min / 5) * 5);
   }
 
+  /** What a template entry actually prescribes, in whatever terms it uses.
+   *
+   *  The details sheet rendered every entry as `targetSets || 3` × `targetReps
+   *  || 8`, which is right for the 185 preset entries prescribed in reps and
+   *  invented a number for the other 58. A farmer's carry of 5 × 45 seconds
+   *  read "5 × 8". Fran read "3 × 8" directly underneath prose saying
+   *  twenty-one, fifteen and nine, and Murph's two one-mile runs read "2 × 8".
+   *
+   *  Nothing in the library states no prescription at all, so the invented
+   *  defaults were never load-bearing — they only ever fired where the entry
+   *  was measured in something other than reps. */
+  function templateEntryPrescription(e) {
+    if (!e) return "—";
+    const sets = Math.max(1, e.targetSets || 1);
+    const times = (v) => (sets > 1 ? `${sets} × ${v}` : String(v));
+    // A ladder is the prescription; a set count alongside it would be noise.
+    if (Array.isArray(e.repScheme) && e.repScheme.length) return e.repScheme.join("-");
+    if (e.targetReps != null) return `${e.targetSets || 3} × ${e.targetReps}`;
+    if (e.targetSeconds != null) return times(`${e.targetSeconds}s`);
+    if (e.targetDistanceKm != null) return times(U.formatDistance(e.targetDistanceKm));
+    if (e.targetDurationMin != null) return times(`${e.targetDurationMin} min`);
+    return e.targetSets ? `${e.targetSets} set${e.targetSets === 1 ? "" : "s"}` : "—";
+  }
+
   /** How long a session takes, in the terms that session actually has.
    *
    *  The per-set estimate above is a reasonable guess for a strength session
@@ -5730,7 +5754,7 @@
       for (const e of (t.exercises || [])) {
         list.appendChild(el("div", { class: "ivl-detail-row" },
           el("span", { class: "ivl-detail-label" }, e.name),
-          el("span", { class: "ivl-detail-time" }, `${e.targetSets || 3} × ${e.targetReps || 8}`)
+          el("span", { class: "ivl-detail-time" }, templateEntryPrescription(e))
         ));
       }
       body.appendChild(list);

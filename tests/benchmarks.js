@@ -328,6 +328,61 @@ console.log('\n=== 2. Hyrox: all eight stations, or say so ===');
     check('an ordinary circuit still shows an estimate', /~\d+ min/.test(carryMeta), carryMeta);
   }
 
+  // ---- the details sheet ----
+  // Every entry was rendered as `targetSets || 3` × `targetReps || 8`, which
+  // is right for the 185 preset entries prescribed in reps and invents a
+  // number for the other 58. Fran read "3 × 8" directly beneath prose saying
+  // twenty-one, fifteen and nine — the sheet contradicting itself on screen.
+  console.log('\n=== 2c. the details sheet states the real prescription ===');
+  {
+    const rows = async (id) => {
+      await page.evaluate(async (kit) => {
+        await Storage.clearAll();
+        await Storage.setPref('onboarded', true);
+        await Storage.setPref('myKit', kit);
+      }, ['band', 'dumbbell', 'kettlebell', 'barbell', 'pullup-bar', 'dip-bars', 'jump-rope',
+        'ab-wheel', 'machine', 'cable', 'cardio-machine', 'sled', 'sandbag', 'med-ball',
+        'heavy-bag', 'focus-pads']);
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(1500);
+      await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"],.splash').forEach((n) => n.remove()));
+      await page.evaluate(() => document.querySelector('[data-testid="dock-fab"]').click());
+      await page.waitForTimeout(600);
+      await page.evaluate(() => document.querySelector('[data-testid="quick-sessions"]').click());
+      await page.waitForTimeout(1700);
+      await page.evaluate((x) => {
+        const card = document.querySelector(`[data-testid="preset-${x}"]`);
+        [...card.querySelectorAll('button')].find((y) => /^details$/i.test(y.textContent.trim())).click();
+      }, id);
+      await page.waitForTimeout(1300);
+      return page.evaluate(() => [...document.querySelectorAll('.ivl-detail-row')]
+        .map((r) => [r.querySelector('.ivl-detail-label')?.textContent,
+          r.querySelector('.ivl-detail-time')?.textContent]));
+    };
+
+    const franRows = await rows('preset-fran');
+    check('Fran lists the ladder, not an invented 3 × 8',
+      franRows.every(([, v]) => v === '21-15-9'), JSON.stringify(franRows));
+    const murphRows = await rows('preset-murph');
+    const runRow = murphRows.find(([n]) => /run/i.test(n));
+    check('Murph\'s runs are stated as a distance, not "2 × 8"',
+      runRow && /2 × 1\.61 km/.test(runRow[1]), JSON.stringify(runRow));
+    check('and its rep work is unchanged',
+      murphRows.filter(([n]) => !/run/i.test(n)).map(([, v]) => v).join(',') === '1 × 100,1 × 200,1 × 300',
+      JSON.stringify(murphRows));
+    // 52 preset entries are prescribed in seconds and every one of them read
+    // "N × 8". This one is pre-existing, and nothing to do with benchmarks.
+    const carryRows = await rows('preset-sled-carry');
+    const hold = carryRows.find(([n]) => /carry/i.test(n));
+    check('a timed carry states its seconds rather than phantom reps',
+      hold && /45s/.test(hold[1]), JSON.stringify(carryRows));
+    const simRows = await rows('preset-hyrox-sim');
+    check('the Hyrox sled push states its seconds',
+      /90s/.test((simRows.find(([n]) => /sled push/i.test(n)) || [])[1] || ''), JSON.stringify(simRows));
+    check('and its eight runs state the distance',
+      /8 × 1 km/.test((simRows.find(([n]) => /^run$/i.test(n)) || [])[1] || ''), JSON.stringify(simRows));
+  }
+
   console.log('\n=== 3. rep ladders and cardio set counts ===');
   {
     const fran = await startPreset('preset-fran');
