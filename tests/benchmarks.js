@@ -407,6 +407,30 @@ console.log('\n=== 2. Hyrox: all eight stations, or say so ===');
         `card ${r.shown} min vs clock ${r.totals}`);
     }
 
+    // A name that states a duration is a promise, and a scheduled session can
+    // be held to it exactly. "15-Minute Minimum" was three rounds of three
+    // 40-second stations — nine and a half minutes — which nobody could see
+    // while the card guessed "~30 min" at it.
+    console.log('\n   -- a session named for its length is that length --');
+    const named = await page.evaluate(() => (window.PRESET_SESSIONS || [])
+      .filter((s) => s.circuit && /(\d+)[- ]?(?:minute|min)\b/i.test(s.name))
+      .map((s) => ({ id: s.id, name: s.name,
+        claim: Number(s.name.match(/(\d+)[- ]?(?:minute|min)\b/i)[1]) })));
+    // Guards against the filter quietly matching nothing and the loop below
+    // passing by being empty. Two today: Cindy and the 15-Minute Minimum.
+    // The EMOMs name their format rather than their length.
+    check('there are sessions that name a duration', named.length >= 2,
+      named.map((s) => s.name).join(', '));
+    for (const s of named) {
+      const meta = await cardMeta(s.id);
+      const shown = Number((meta.match(/(\d+) min\s*$/) || [])[1]);
+      // One minute of slack: a scheduled session should land on its name, and
+      // over is the right side of a "minimum" to miss on.
+      check(`${s.name}: runs for about the ${s.claim} minutes it claims`,
+        Number.isFinite(shown) && shown >= s.claim && shown - s.claim <= 2,
+        `${meta.trim()}`);
+    }
+
     // The pin has to reach the filter, not just the chips. Someone holding two
     // dumbbells and a pull-up bar can do a thruster — but not Fran.
     console.log('\n   -- and the filter respects it --');

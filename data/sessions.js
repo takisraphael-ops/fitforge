@@ -778,13 +778,19 @@ window.PRESET_SESSIONS = (function () {
       ex("ohp-dumbbell", "Dumbbell Shoulder Press", 2, 12)
     ]);
 
+  // Five rounds, not three. At three this was 9.5 minutes of clock under a
+  // name promising fifteen — invisible while the card guessed "~30 min", and
+  // plainly wrong the moment the card started stating the real schedule. The
+  // name is the concept here (fifteen minutes is the floor), so the session
+  // was brought up to it rather than renamed down. Five rounds is 16 minutes,
+  // which is the right side of a minimum to land on.
   strength("preset-15-min", "15-Minute Minimum", ["home", "gym", "outdoors"], "Three moves, no gear, no excuse",
-    "The floor of what counts as a session. Three rounds of three bodyweight movements, straight through. It is not enough to build much, but it is enough to keep the habit intact on a bad week — which is worth more.",
+    "The floor of what counts as a session. Five rounds of three bodyweight movements, straight through. It is not enough to build much, but it is enough to keep the habit intact on a bad week — which is worth more.",
     [
-      ex("push-up", "Push-Up", 3, 15),
-      ex("bulgarian-split-squat", "Bulgarian Split Squat", 3, 12),
-      held("plank", "Plank", 3, 40)
-    ], { circuit: { rounds: 3, workSec: 40, transitionSec: 20, restSec: 45 } });
+      ex("push-up", "Push-Up", 5, 15),
+      ex("bulgarian-split-squat", "Bulgarian Split Squat", 5, 12),
+      held("plank", "Plank", 5, 40)
+    ], { circuit: { rounds: 5, workSec: 40, transitionSec: 20, restSec: 45 } });
 
   strength("preset-45-min", "45-Minute Full Body", ["gym"], "Six movements, one session",
     "A middle ground between the express session and a full split day. One squat, one hinge, one push, one pull, and two accessories — enough volume to progress on if you only train twice a week.",
