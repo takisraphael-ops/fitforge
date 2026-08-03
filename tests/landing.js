@@ -143,13 +143,20 @@ const seed = async (o) => {
       const week = new Set(Array.from({ length: 7 }, (_, i) => {
         const d = new Date(mon); d.setDate(mon.getDate() + i); return iso(d);
       }));
-      const all = (await Storage.getWorkouts()).filter(w => w.completedAt && week.has(w.date));
+      const stored = await Storage.getWorkouts();
+      const all = stored.filter(w => w.completedAt && week.has(w.date));
       let vol = 0, secs = 0;
       for (const w of all) {
         for (const ex of w.exercises || []) vol += U.volume(ex.sets);
         secs += w.durationSec || 0;
       }
-      return { sessions: all.length, volume: Math.round(vol), mins: Math.round(secs / 60) };
+      // The last-week fixture, and what it would add if the window leaked.
+      const old = stored.find(w => w.id === 'old');
+      const oldVol = old ? (old.exercises || []).reduce((s, ex) => s + U.volume(ex.sets), 0) : 0;
+      return {
+        sessions: all.length, volume: Math.round(vol), mins: Math.round(secs / 60),
+        oldExists: !!old, oldInWindow: !!old && week.has(old.date), oldVol: Math.round(oldVol)
+      };
     });
     console.log('   shown  ', JSON.stringify(got));
     console.log('   storage', JSON.stringify(want));
@@ -163,8 +170,23 @@ const seed = async (o) => {
         : `${Math.floor(want.mins / 60)}h ${String(want.mins % 60).padStart(2, '0')}`;
       check('time matches storage', got[2].value === expTime, `${got[2].value} vs ${expTime}`);
       // The fixture puts a 200kg x 10 session in the previous week on purpose.
-      check('last week is not counted', !/\b(2|20)\.?\dk\b/.test(got[1].value) && want.sessions < 5,
-        `${got[1].value}, ${want.sessions} sessions`);
+      //
+      // This used to pattern-match the rendered string for "2.0k" and reject
+      // anything shaped like it. On a Monday the fixture can only place one
+      // session in the current week — the loop stops at today — and one
+      // session is 3 x 90 x 8 = 2160 kg, which renders "2.2k" and matched the
+      // guard. The suite failed one day in seven, on a day nobody had run it,
+      // and the thing it flagged was correct behaviour.
+      //
+      // Compare numbers instead: the old session must exist, must fall outside
+      // the window, and its volume must not be in the total.
+      check('the last-week fixture is actually there', want.oldExists);
+      check('and falls outside this week\'s window', !want.oldInWindow);
+      const leaked = want.volume + want.oldVol;
+      const asShown = (v) => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v));
+      check('last week is not counted',
+        want.oldVol > 0 && got[1].value !== asShown(leaked),
+        `shown ${got[1].value}; would be ${asShown(leaked)} if it leaked`);
     }
     await page.screenshot({ path: `${SS}/landing_rest.png` });
   }
