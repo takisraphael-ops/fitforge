@@ -6639,3 +6639,31 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
   font-variant-numeric: tabular-nums; margin-top: 2px;
 }
 .score-sub { font-size: 12.5px; color: var(--text-muted); margin-top: 3px; }
+
+/* ============ Complexes ============ */
+/* The sequence is the content of a complex, so it reads as a numbered list of
+   destinations rather than a paragraph. Same rung idiom as the ladder. */
+.cplx { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.cplx-step {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 10px 12px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-sunken); color: inherit;
+  transition: border-color .16s ease, background .16s ease;
+}
+.cplx-step:hover:not(:disabled), .cplx-step:focus-visible { border-color: var(--accent); }
+.cplx-step.is-dead { cursor: default; opacity: .6; }
+.cplx-num {
+  flex: none; width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums;
+  background: var(--accent-soft, var(--bg)); color: var(--accent);
+}
+.cplx-name { flex: 1 1 auto; font-size: 14px; font-weight: 700; }
+.cplx-reps {
+  flex: none; font-size: 13px; font-weight: 700; color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.cplx-note { margin-top: 10px; font-size: 13px; color: var(--text-muted); }
+/* The rule the app cannot enforce, said plainly rather than left implied. */
+.cplx-caveat { margin-top: 6px; font-size: 12.5px; color: var(--text-faint); }

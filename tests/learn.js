@@ -122,8 +122,17 @@ console.log('=== 0. shipped content makes no claims FitForge cannot keep ===');
   check('the exercise library is still on the same tab', !!(await page.$('.exercise-card, .library-grid, [data-testid="body-map"]')));
   check('training is the topic it opens on',
     await page.evaluate(() => document.querySelector('[data-testid="learn-tab-training"]').classList.contains('active')));
+  // Counted from the data, not pinned to a literal. This said `=== 13` and
+  // broke the moment a fourteenth training article was written — a failure
+  // that says nothing except that the number moved, which is the opposite of
+  // what it was for. The property is that the tab lists every training
+  // article there is, whatever that number happens to be.
   const trainingCards = (await page.$$(T('learn-card'))).length;
-  check('training articles are listed', trainingCards === 13, String(trainingCards));
+  const trainingInData = await page.evaluate(() =>
+    (window.LEARN_ARTICLES || []).filter((a) => a.topic === 'training').length);
+  check('every training article is listed', trainingCards === trainingInData,
+    `${trainingCards} shown, ${trainingInData} in the data`);
+  check('and there are some to list', trainingInData >= 10, String(trainingInData));
   await page.screenshot({ path: `${SS}/learn_list.png` });
 
   // ================= 2. topics =================

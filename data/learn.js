@@ -1161,6 +1161,53 @@ window.LEARN_ARTICLES = [
         ]
       }
     ]
+  },
+
+  {
+    "slug": "barbell-cycling",
+    "title": "Barbell cycling, and how to break a set",
+    "oneLiner": "Thirty reps is one number. How you split it is the whole workout.",
+    "topic": "training",
+    "body": [
+      {
+        "p": [
+          "Grace is thirty clean and jerks. Everyone does the same thirty reps at the same weight, so the only thing separating a four-minute Grace from a nine-minute one is how the thirty were broken up and how long the gaps were.",
+          "That is barbell cycling: doing repeated reps of a lift efficiently enough that the next one is still available. It is a pacing skill and a technique skill, and it is trained separately from getting stronger."
+        ]
+      },
+      {
+        "h": "Touch-and-go, or singles",
+        "p": [
+          "Touch-and-go means the bar taps the floor and comes straight back up without a reset. It is faster per rep and much more expensive per rep, because you never get to put the weight down.",
+          "Singles means every rep starts from a dead stop. Slower on paper, but the cost per rep barely rises, so a set of singles at a steady rhythm often beats a fast start followed by standing around.",
+          "The useful version of this decision is not \"which is better\" but \"which one can I still be doing at rep twenty-five\"."
+        ]
+      },
+      {
+        "h": "Breaking the set before it breaks you",
+        "list": [
+          "Pick the split before you start. \"10-8-7-5\" is a plan; \"until I have to stop\" is not.",
+          "The first set should feel like you had two or three more in you. If it does not, the split is too big.",
+          "Short rests, held to. Ten seconds counted is worth more than thirty seconds of standing there deciding.",
+          "Grip fails before the legs do on cleans, and the shoulders fail before either on snatches. Break before the thing that is going to fail, not after."
+        ]
+      },
+      {
+        "h": "Complexes",
+        "p": [
+          "A complex is a fixed sequence of lifts on one bar, done without setting it down — a power clean into a front squat into a jerk, over and over. It trains the same thing from the other direction: not thirty of one lift, but a handful of different lifts with no chance to reset between them.",
+          "The library has the Bear Complex, the Clean Complex and the Snatch Complex, and each one lists its sequence with every movement in it tappable, so you can go and read what a push jerk is without leaving the page.",
+          "Load them by the weakest movement in the sequence. A bar you can clean but cannot front squat is not a complex, it is a clean followed by a decision."
+        ]
+      },
+      {
+        "h": "What to write down",
+        "p": [
+          "Log the sets you actually did, not the prescription. If Grace says thirty and you did 10-8-7-5, that is four rows, and next time you can see whether the split held up.",
+          "The app records loads, reps and the clock. It cannot see whether the bar stayed off the floor, so if going unbroken mattered to you, put it in the session notes — nothing else in the record will show it."
+        ]
+      }
+    ]
   }
 ];
 

@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=240").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=241").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -10255,6 +10255,49 @@
 
   const ladderStateClass = { cleared: "is-cleared", current: "is-current", blocked: "is-blocked", locked: "is-locked" };
 
+  /** The movements in a complex, in order, each one tappable.
+   *
+   *  A complex is the one kind of exercise whose name tells you nothing about
+   *  what you do — "Bear Complex" is five lifts, and knowing which five is the
+   *  whole content. So the sequence sits above Technique, and each step opens
+   *  its own page, because "what is a push jerk" is the question someone
+   *  reading this actually has.
+   *
+   *  What is deliberately absent: any claim about the bar staying off the
+   *  floor. That is the rule that makes a complex a complex, and it is the one
+   *  thing the app cannot see, so the note says so instead of letting a logged
+   *  round imply it. */
+  function buildComplexSection(ex) {
+    const steps = Array.isArray(ex.complex) ? ex.complex : null;
+    if (!steps || !steps.length) return null;
+    const db = window.EXERCISE_DB || [];
+    const wrap = el("div", { class: "detail-section mt-16", "data-testid": "complex-section" });
+    wrap.appendChild(el("h3", {}, "The sequence"));
+
+    const list = el("div", { class: "cplx", "data-testid": "complex-list" });
+    steps.forEach((st, i) => {
+      const def = db.find((e) => e.id === st.exerciseId);
+      const name = def ? def.name : st.exerciseId;
+      list.appendChild(el("button", {
+        class: "cplx-step" + (def ? "" : " is-dead"),
+        type: "button", "data-testid": "complex-step", "data-step-id": st.exerciseId,
+        disabled: def ? null : "disabled",
+        title: def ? `Open ${name}` : "Not in the library",
+        on: { click: () => { if (def) { closeModal(); openExerciseDetail(def.id); } } }
+      },
+        el("span", { class: "cplx-num" }, String(i + 1)),
+        el("span", { class: "cplx-name" }, name),
+        el("span", { class: "cplx-reps" }, `×${st.reps || 1}`)
+      ));
+    });
+    wrap.appendChild(list);
+
+    if (ex.complexNote) wrap.appendChild(el("div", { class: "cplx-note" }, ex.complexNote));
+    wrap.appendChild(el("div", { class: "cplx-caveat", "data-testid": "complex-caveat" },
+      "One bar, one load. The app records the weight and the reps — it cannot tell whether you set the bar down, so going unbroken is on you."));
+    return wrap;
+  }
+
   async function buildLadderSection(ex) {
     if (!window.Progression || !window.PROGRESSIONS) return null;
     const found = Progression.chainsFor(ex.id);
@@ -10504,6 +10547,10 @@
       // for. Above Technique because "am I ready for this" comes before "how
       // do I do it" for anything on a chain.
       await buildLadderSection(ex),
+      // What a complex actually consists of. Above Technique for the same
+      // reason the ladder is: you cannot follow the cues for "Bear Complex"
+      // without first knowing it is five lifts.
+      buildComplexSection(ex),
       // Technique
       ex.technique?.length ? el("div", { class: "detail-section mt-16" },
         el("h3", {}, "Technique"),

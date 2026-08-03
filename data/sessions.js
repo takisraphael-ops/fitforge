@@ -256,6 +256,80 @@ window.PRESET_SESSIONS = (function () {
     ]
   });
 
+  // ---- barbell cycling ----------------------------------------------------
+  // Grace and Isabel are thirty reps of one lift at a fixed load, for time.
+  // There is no pacing puzzle and no second movement to hide in: the only
+  // variable is how you break the thirty up, which is what barbell cycling
+  // means. Log the sets you actually did — 10/8/7/5 is a different workout
+  // from 30 unbroken and the record should show which one happened.
+  //
+  // Both are pinned to the barbell. A dumbbell version is a fine workout and
+  // is not Grace, and the whole point of a named benchmark is that the number
+  // compares.
+  S.push({
+    id: "preset-grace",
+    name: "Grace",
+    preset: true, pillar: "conditioning", venue: ["gym"],
+    circuit: { mode: "fortime", capSec: 12 * 60 },
+    desc: "30 clean & jerks · for time",
+    detail: "Thirty clean and jerks. Rx is 61 kg for men, 43 kg for women. Under three minutes is quick, and most people land between four and eight. Singles on a running clock beat a big first set you cannot repeat — pick a pace you can hold from rep one and do not let the bar rest on the floor.",
+    exercises: [
+      { exerciseId: "clean-and-jerk", name: "Clean and Jerk", targetSets: 1, targetReps: 30, gear: ["barbell"] }
+    ]
+  });
+
+  S.push({
+    id: "preset-isabel",
+    name: "Isabel",
+    preset: true, pillar: "conditioning", venue: ["gym"],
+    circuit: { mode: "fortime", capSec: 12 * 60 },
+    desc: "30 snatches · for time",
+    detail: "Thirty snatches, same loads as Grace — 61 kg and 43 kg. Technically the harder of the two, because a tired snatch is a missed snatch rather than a slow one. Drop the bar from overhead between reps if that keeps the positions honest; the clock does not care how it gets back down.",
+    exercises: [
+      { exerciseId: "snatch", name: "Barbell Snatch", targetSets: 1, targetReps: 30, gear: ["barbell"] }
+    ]
+  });
+
+  S.push({
+    id: "preset-dt",
+    name: "DT",
+    preset: true, pillar: "conditioning", venue: ["gym"],
+    circuit: { mode: "fortime", capSec: 20 * 60 },
+    desc: "5 rounds · 12-9-6 on one bar",
+    detail: "Five rounds of twelve deadlifts, nine hang power cleans and six push jerks, at 70 kg for men and 47.5 kg for women. The bar should not need to touch the floor between the cleans and the jerks — that transition is the workout. A hero WOD, named for a fallen airman.",
+    exercises: [
+      { exerciseId: "deadlift-conventional", name: "Conventional Deadlift", targetSets: 5, targetReps: 12, gear: ["barbell"] },
+      { exerciseId: "hang-clean-power", name: "Hang Power Clean", targetSets: 5, targetReps: 9 },
+      { exerciseId: "push-jerk", name: "Push Jerk", targetSets: 5, targetReps: 6 }
+    ]
+  });
+
+  // ---- complexes ----------------------------------------------------------
+  // One bar, one load, a fixed sequence. The complex is a single exercise as
+  // far as the log is concerned — the sequence lives on the exercise itself —
+  // so these sessions only have to say how many rounds and how to load them.
+  S.push({
+    id: "preset-bear-complex",
+    name: "The Bear Complex",
+    preset: true, pillar: "strength", venue: ["gym"],
+    desc: "5 rounds of 7 · going up",
+    detail: "Seven unbroken reps is one round; five rounds, adding weight each time, and the fifth should be the heaviest you can complete. Rest as long as you need between rounds — the round itself is the hard part. Log the load you finished each round with; the app counts the reps but cannot see whether the bar stayed off the floor.",
+    exercises: [
+      { exerciseId: "bear-complex", name: "Bear Complex", targetSets: 5, targetReps: 7 }
+    ]
+  });
+
+  S.push({
+    id: "preset-clean-emom",
+    name: "Clean Complex EMOM",
+    preset: true, pillar: "strength", venue: ["gym"],
+    desc: "10 min · one complex a minute",
+    detail: "Every minute on the minute for ten minutes: one power clean, one front squat, one push jerk, without putting the bar down. Start around 60% of your clean and add a little every couple of minutes. Stop adding the moment the front squat stops being easy to stand up — the clock keeps running either way.",
+    exercises: [
+      { exerciseId: "clean-complex", name: "Clean Complex", targetSets: 10, targetReps: 1 }
+    ]
+  });
+
   // ---- the Hyrox race -----------------------------------------------------
   // Eight kilometres of running and eight stations, run alternately: 1 km,
   // station, 1 km, station, and so on. The list below cannot interleave them —

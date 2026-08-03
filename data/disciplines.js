@@ -68,9 +68,15 @@ window.DISCIPLINES = [
     id: "crossfit",
     label: "CrossFit",
     blurb: "Olympic lifts, gymnastics and the conditioning movements benchmark workouts are built from.",
-    missing: "Fran, Cindy and Murph are in Sessions now. The Olympic lifts are here as single movements, but the complexes and the barbell cycling that benchmark workouts are really built on are not.",
+    // The complexes and the cycling benchmarks are in now — Grace, Isabel, DT
+    // and the Bear Complex — so what is left absent is the gymnastics tail
+    // rather than the barbell work.
+    missing: "The named workouts are in Sessions. What the library still has no movement for is the harder gymnastics — handstand walks, ring muscle-ups, pistols under load and rope climbs.",
     exercises: [
-      "clean-power", "snatch", "clean-and-press", "thruster", "kettlebell-swing",
+      "clean-power", "snatch", "clean-and-press", "clean-and-jerk", "hang-clean-power",
+      "push-press", "push-jerk", "overhead-squat",
+      "bear-complex", "clean-complex", "snatch-complex",
+      "thruster", "kettlebell-swing",
       "burpee", "burpee-broad-jump", "pull-up", "chin-up", "chest-to-bar-pull-up", "muscle-up",
       "push-up", "wall-ball",
       "dips-chest", "box-squat-bodyweight", "squat-front", "squat-back",

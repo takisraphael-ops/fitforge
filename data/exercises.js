@@ -1674,6 +1674,133 @@ window.EXERCISE_DB = [
   ], mistakes: ["Pressing the ball with the arms", "Cutting the squat short", "Catching with straight arms", "Standing too far from the wall"],
     variations: ["Lighter ball, higher target", "Squat clean thruster", "Wall ball to a partner"],
     alternatives: ["Thruster", "Front Squat", "Push Press"] },
+
+  // ---- the overhead lifts the complexes are built from ---------------------
+  // The library had the power clean and the snatch as single movements and
+  // nothing to put on the end of them. A complex is a sequence on one bar, and
+  // every sequence worth naming finishes overhead.
+
+  { id: "push-press", name: "Push Press", category: "shoulders", met: 6.0, muscles: ["Shoulders", "Triceps", "Legs", "Core"], equipment: "Barbell / dumbbells", gear: ["barbell", "dumbbell"], technique: [
+    "Start in the front rack, elbows slightly in front of the bar, feet under the hips.",
+    "Dip by bending the knees a few inches — torso stays vertical, this is not a squat.",
+    "Reverse hard and drive the bar off the shoulders with the legs.",
+    "Punch the head through as the bar passes the face; finish with the arms locked and the bar over the middle of the foot.",
+    "Lower to the rack under control and reset the dip before the next rep.",
+    "The dip is short and sharp. A slow dip leaks the drive you are trying to use."
+  ], mistakes: ["Dipping too deep and turning it into a thruster", "Leaning back instead of dipping straight down", "Pressing before the legs finish", "Head not moving through at lockout"],
+    variations: ["Push jerk", "Strict press", "Single-arm dumbbell push press"],
+    alternatives: ["Overhead Press (Barbell)", "Push Jerk", "Thruster"] },
+
+  { id: "push-jerk", name: "Push Jerk", category: "full_body", met: 6.0, muscles: ["Shoulders", "Triceps", "Legs", "Core"], equipment: "Barbell", gear: ["barbell"], technique: [
+    "Front rack, feet under the hips, same dip and drive as a push press.",
+    "As the bar leaves the shoulders, drop back under it rather than pressing it up.",
+    "Catch with the arms locked and the knees bent in a quarter squat.",
+    "Stand to full extension — the rep is not finished until the hips and knees are straight.",
+    "Return the bar to the rack and absorb it with the legs.",
+    "The difference from a push press is the second dip. If your legs stay straight after the drive, you pressed it."
+  ], mistakes: ["Pressing out instead of dropping under", "Catching with soft arms", "Feet jumping wide on the catch", "Standing up before the arms are locked"],
+    variations: ["Split jerk", "Push press", "Behind-the-neck jerk"],
+    alternatives: ["Push Press", "Clean and Jerk", "Overhead Press (Barbell)"] },
+
+  { id: "hang-clean-power", name: "Hang Power Clean", category: "full_body", met: 6.5, muscles: ["Hamstrings", "Glutes", "Traps", "Shoulders", "Core"], equipment: "Barbell", gear: ["barbell"], technique: [
+    "Start standing with the bar at the hip, then hinge to just above the knee. That is the hang.",
+    "Shoulders stay over the bar, back flat, arms long and relaxed.",
+    "Drive the hips through and shrug — the bar travels up the thighs, close to the body.",
+    "Pull yourself under and catch in the front rack with the hips above parallel. That is the power position.",
+    "Stand tall, then lower back to the hang for the next rep.",
+    "Starting from the hang removes the floor, which is exactly why it is the version used for volume."
+  ], mistakes: ["Pulling early with the arms", "Bar swinging away from the body", "Catching in a full squat (that is a squat clean)", "Rounding the back at the hang"],
+    variations: ["Hang squat clean", "Power clean from the floor", "Hang clean pull"],
+    alternatives: ["Power Clean", "Kettlebell Swing", "Romanian Deadlift (RDL)"] },
+
+  { id: "overhead-squat", name: "Overhead Squat", category: "legs", met: 5.5, muscles: ["Quadriceps", "Glutes", "Shoulders", "Core", "Upper Back"], equipment: "Barbell", gear: ["barbell"], technique: [
+    "Take a wide snatch grip and press or jerk the bar to full lockout overhead.",
+    "Bar sits behind the ears, over the middle of the foot, armpits turned forward.",
+    "Squat to depth keeping the bar in that line — the torso stays as upright as your mobility allows.",
+    "Actively push up into the bar the whole way down and the whole way up.",
+    "Stand fully before the next rep. If the bar drifts forward, stop the set.",
+    "This is a mobility test as much as a lift. Start with a broomstick and be honest about it."
+  ], mistakes: ["Bar drifting in front of the shoulders", "Heels lifting", "Loose arms", "Loading it before the position is stable"],
+    variations: ["Snatch balance", "Overhead squat with a dowel", "Front squat"],
+    alternatives: ["Barbell Front Squat", "Goblet Squat", "Barbell Snatch"] },
+
+  { id: "clean-and-jerk", name: "Clean and Jerk", category: "full_body", met: 6.5, muscles: ["Legs", "Glutes", "Back", "Traps", "Shoulders"], equipment: "Barbell", gear: ["barbell"], technique: [
+    "Clean: set up over the bar with a hook grip, shins close, back flat.",
+    "Pull off the floor with the legs, keeping the bar against the body, then extend the hips hard.",
+    "Pull under and catch in the front rack, then stand up out of it.",
+    "Jerk: dip a few inches with a vertical torso, drive, and drop under the bar.",
+    "Catch overhead with locked arms — split or push jerk, whichever you own — and recover to standing.",
+    "Two lifts, one breath. Most missed reps are a clean that was not stood up before the jerk started."
+  ], mistakes: ["Bar swinging away on the pull", "Jerking before recovering from the clean", "Pressing out the jerk", "Rushing the dip"],
+    variations: ["Power clean and push jerk", "Split jerk", "Squat clean and jerk"],
+    alternatives: ["Clean and Press", "Power Clean", "Push Jerk"] },
+
+  // ---- complexes -----------------------------------------------------------
+  // A complex is a fixed sequence of lifts on one bar, done without setting it
+  // down. `complex` is the sequence; the app renders it and links each movement
+  // to its own page. One load and one rep count cover the whole thing, which is
+  // why these are ordinary weighted exercises rather than a new shape.
+  //
+  // What the app does NOT know is whether the bar stayed off the floor, and it
+  // says so rather than implying the record means more than it does.
+
+  { id: "bear-complex", name: "Bear Complex", category: "full_body", met: 9.0, muscles: ["Legs", "Glutes", "Back", "Shoulders", "Core"], equipment: "Barbell", gear: ["barbell"],
+    complex: [
+      { exerciseId: "clean-power", reps: 1 },
+      { exerciseId: "squat-front", reps: 1 },
+      { exerciseId: "push-press", reps: 1 },
+      { exerciseId: "squat-back", reps: 1 },
+      { exerciseId: "push-press", reps: 1 }
+    ],
+    complexNote: "Five movements is one rep. Seven reps without setting the bar down is one round; the classic session is five rounds, going up in weight each time.",
+    technique: [
+      "Power clean the bar to the front rack.",
+      "Front squat it.",
+      "Push press it overhead, then bring it down behind the neck.",
+      "Back squat it from there.",
+      "Push press it from behind the neck and return it to the front rack — that is one rep.",
+      "The bar does not touch the floor inside a round. If you drop it, the round is over."
+    ],
+    mistakes: ["Going too heavy on round one", "Resting the bar on the floor mid-round", "Sloppy behind-the-neck press when tired", "Treating it as five separate lifts instead of one flow"],
+    variations: ["Dumbbell bear complex", "Fewer reps per round", "Fixed load across all rounds"],
+    alternatives: ["Thruster", "Clean and Jerk", "Clean and Press"] },
+
+  { id: "clean-complex", name: "Clean Complex", category: "full_body", met: 7.0, muscles: ["Legs", "Glutes", "Traps", "Shoulders", "Core"], equipment: "Barbell", gear: ["barbell"],
+    complex: [
+      { exerciseId: "clean-power", reps: 1 },
+      { exerciseId: "squat-front", reps: 1 },
+      { exerciseId: "push-jerk", reps: 1 }
+    ],
+    complexNote: "One rep of each, in order, on one bar. Usually run as an EMOM so the rest is fixed and the load can climb.",
+    technique: [
+      "Power clean the bar to the front rack.",
+      "Ride it straight into a front squat — no reset.",
+      "Stand out of the squat and jerk it overhead.",
+      "Return to the rack, then to the floor, and wait for the clock.",
+      "Build the load across the sets and stop when the sequence stops being clean.",
+      "The front squat is the honest part: if you cannot stand it up, the clean was too heavy."
+    ],
+    mistakes: ["Resetting between the clean and the squat", "Jerking from a collapsed rack position", "Adding weight after a bad rep", "Skipping the stand-up out of the squat"],
+    variations: ["Squat clean version", "Add a second front squat", "Clean + jerk only"],
+    alternatives: ["Clean and Jerk", "Thruster", "Bear Complex"] },
+
+  { id: "snatch-complex", name: "Snatch Complex", category: "full_body", met: 6.5, muscles: ["Legs", "Glutes", "Back", "Shoulders", "Core"], equipment: "Barbell", gear: ["barbell"],
+    complex: [
+      { exerciseId: "snatch", reps: 1 },
+      { exerciseId: "overhead-squat", reps: 1 }
+    ],
+    complexNote: "Snatch it, then squat it, without lowering the bar in between. The overhead squat is what proves the catch position was real.",
+    technique: [
+      "Wide grip, bar over the middle of the foot, back flat.",
+      "Pull and extend, then punch under and catch the bar locked out overhead.",
+      "Stand up out of the catch.",
+      "Without lowering the bar, squat it to full depth and stand again.",
+      "Lower to the floor under control and reset.",
+      "Go light. This is a position drill that happens to be a lift, not the other way round."
+    ],
+    mistakes: ["Pressing the bar out at the catch", "Bar drifting forward in the squat", "Loading it past the position you can hold", "Lowering the bar between the two lifts"],
+    variations: ["Power snatch + overhead squat", "Add a snatch balance", "Dowel version"],
+    alternatives: ["Barbell Snatch", "Overhead Squat", "Clean Complex"] },
 ];
 
 // Group by category for quick access
