@@ -371,9 +371,41 @@ console.log('\n=== 2. Hyrox: all eight stations, or say so ===');
     const murphMeta = await cardMeta('preset-murph');
     check('Murph does not advertise a 45-minute workout as 20 minutes',
       /up to 75 min/.test(murphMeta), murphMeta);
-    // And the unscored sessions keep the estimate they always had.
+    // A circuit runs to a schedule the app wrote itself, so its length is a
+    // fact. Estimating it anyway was badly wrong — the Carry & Swing Circuit
+    // is five rounds of three 45-second stations with transitions and a
+    // minute's rest, and the per-set guess called that 40 minutes.
     const carryMeta = await cardMeta('preset-sled-carry');
-    check('an ordinary circuit still shows an estimate', /~\d+ min/.test(carryMeta), carryMeta);
+    check('a timed circuit states its length rather than guessing',
+      /·\s*\d+ min$/.test(carryMeta) && !/~/.test(carryMeta), carryMeta);
+    const emomMeta = await cardMeta('preset-bodyweight-emom');
+    check('an EMOM states its length too', !/~/.test(emomMeta), emomMeta);
+
+    // The strongest version of that: whatever the card promises, the runner's
+    // own clock has to agree. Two numbers for one schedule is exactly the kind
+    // of thing that drifts once and never gets noticed.
+    const cardVsClock = async (id) => {
+      const meta = await cardMeta(id);
+      await page.evaluate((x) => {
+        const card = document.querySelector(`[data-testid="preset-${x}"]`);
+        [...card.querySelectorAll('button')].find((y) => /^start$/i.test(y.textContent.trim())).click();
+      }, id);
+      await page.waitForTimeout(2200);
+      await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"]').forEach((n) => n.remove()));
+      await page.evaluate(() => document.querySelector('[data-testid="start-circuit"]').click());
+      await page.waitForTimeout(1600);
+      const totals = await page.textContent('[data-testid="ivr-totals"]').catch(() => '');
+      await page.evaluate(() => document.querySelector('[data-testid="interval-runner"]')?.remove());
+      const shown = Number((meta.match(/(\d+) min\s*$/) || [])[1]);
+      const clock = (totals.match(/of (\d+):(\d\d)/) || []).slice(1).map(Number);
+      return { shown, clockMin: clock.length ? clock[0] + clock[1] / 60 : null, meta, totals };
+    };
+    for (const id of ['preset-sled-carry', 'preset-bodyweight-emom']) {
+      const r = await cardVsClock(id);
+      check(`${id}: the card and the runner's clock agree`,
+        r.clockMin != null && Math.abs(r.shown - r.clockMin) < 0.6,
+        `card ${r.shown} min vs clock ${r.totals}`);
+    }
 
     // The pin has to reach the filter, not just the chips. Someone holding two
     // dumbbells and a pull-up bar can do a thruster — but not Fran.

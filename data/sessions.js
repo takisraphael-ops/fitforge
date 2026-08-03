@@ -323,6 +323,11 @@ window.PRESET_SESSIONS = (function () {
     id: "preset-clean-emom",
     name: "Clean Complex EMOM",
     preset: true, pillar: "strength", venue: ["gym"],
+    // An actual EMOM, not a name. Ten one-minute slots is exactly ten minutes,
+    // and the runner will call each one — which is the entire mechanism of the
+    // format. Without this the session said EMOM in its title and nothing in
+    // the data agreed, so the card estimated it at 35 minutes.
+    circuit: { mode: "emom", rounds: 10, slotSec: 60 },
     desc: "10 min · one complex a minute",
     detail: "Every minute on the minute for ten minutes: one power clean, one front squat, one push jerk, without putting the bar down. Start around 60% of your clean and add a little every couple of minutes. Stop adding the moment the front squat stops being easy to stand up — the clock keeps running either way.",
     exercises: [

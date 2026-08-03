@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=241").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=242").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -4734,18 +4734,63 @@
   }
 
   // Rough session length: ~3.5 min per strength set (incl rest) + cardio minutes.
+  const SET_MIN = 3.5;          // a normal working set, rest included
+  const LIFT_SEC = 4;           // one barbell movement inside a complex
+  const COMPLEX_REST_SEC = 150; // a complex round earns a real rest
+
   function templateEstMin(template) {
+    const defs = gearDefs();
     let min = 0;
     for (const te of (template.exercises || [])) {
+      const sets = Math.max(1, te.targetSets || 1);
       // Interval protocols carry their own prescribed length.
       if (te.intervals) min += intervalTotalSec(te.intervals) / 60;
       else if (te.targetDurationMin != null) min += te.targetDurationMin;
       // A timed hold states its own seconds. Counting it as 3.5 minutes of
       // strength set is a guess standing in front of an exact number.
-      else if (te.targetSeconds != null) min += (Math.max(1, te.targetSets || 1) * te.targetSeconds) / 60;
-      else min += (te.targetSets || 3) * 3.5;
+      else if (te.targetSeconds != null) min += (sets * te.targetSeconds) / 60;
+      else {
+        // A set of a complex is not one lift, it is the whole sequence. Seven
+        // reps of the Bear is thirty-five barbell movements without setting
+        // the bar down, and charging that the same 3.5 minutes as a set of
+        // eight curls understates both the work and the rest it earns.
+        const seq = (defs.get(te.exerciseId) || {}).complex;
+        if (seq && seq.length) {
+          const lifts = Math.max(1, te.targetReps || 1) * seq.reduce((a, s) => a + (s.reps || 1), 0);
+          min += sets * (lifts * LIFT_SEC + COMPLEX_REST_SEC) / 60;
+        } else {
+          min += (te.targetSets || 3) * SET_MIN;
+        }
+      }
     }
     return Math.max(5, Math.round(min / 5) * 5);
+  }
+
+  /** The exact planned length of a circuit, in seconds.
+   *
+   *  Every circuit's timeline is fully determined by its spec and its station
+   *  count, so there is nothing to estimate — and estimating anyway was badly
+   *  wrong. The Carry & Swing Circuit is five rounds of three 45-second
+   *  stations with transitions and a minute's rest, which is 21 minutes; the
+   *  per-set guess called it 40.
+   *
+   *  Computed by the step builder itself rather than by arithmetic repeated
+   *  here, so the number on the card and the clock in the runner cannot
+   *  disagree. Template entries hold `targetSeconds` where workout entries
+   *  hold `sets[r].seconds`, so they are shimmed into that shape. */
+  function circuitPlannedSec(t) {
+    const spec = t && t.circuit;
+    if (!spec) return 0;
+    const defs = gearDefs();
+    const rounds = Math.max(1, spec.rounds || 1);
+    const shim = (t.exercises || []).map(e => ({
+      exerciseId: e.exerciseId,
+      name: e.name,
+      type: (defs.get(e.exerciseId) || {}).type,
+      sets: Array.from({ length: rounds },
+        () => ({ seconds: e.targetSeconds != null ? e.targetSeconds : null }))
+    }));
+    return buildCircuitSteps(shim, spec, defs).reduce((a, s) => a + s.sec, 0);
   }
 
   /** What a template entry actually prescribes, in whatever terms it uses.
@@ -4789,6 +4834,12 @@
       const mins = Math.round(cap / 60);
       if (template.circuit.mode === "amrap") return `${mins} min`;
       if (template.circuit.mode === "fortime") return `up to ${mins} min`;
+    }
+    // An EMOM or a timed circuit runs to a schedule the app wrote itself, so
+    // its length is a fact rather than a guess and is stated without a tilde.
+    if (template && template.circuit) {
+      const sec = circuitPlannedSec(template);
+      if (sec > 0) return `${Math.round(sec / 60)} min`;
     }
     return `~${templateEstMin(template)} min`;
   }

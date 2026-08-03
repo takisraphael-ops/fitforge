@@ -253,6 +253,45 @@ console.log('\n=== 2. the lifts that had to exist first ===');
       JSON.stringify(await page.$$eval('.modal-overlay .detail-section h3', (ns) => ns.map((n) => n.textContent))));
   }
 
+  console.log('\n=== 3b. how long a complex takes ===');
+  {
+    const cardMeta = async (id) => {
+      await page.evaluate(() => document.querySelectorAll('.modal-overlay').forEach((n) => n.remove()));
+      await page.evaluate(async (kit) => {
+        await Storage.clearAll();
+        await Storage.setPref('onboarded', true);
+        await Storage.setPref('myKit', kit);
+      }, ['band', 'dumbbell', 'kettlebell', 'barbell', 'pullup-bar', 'dip-bars', 'jump-rope',
+        'ab-wheel', 'machine', 'cable', 'cardio-machine', 'sled', 'sandbag', 'med-ball',
+        'heavy-bag', 'focus-pads']);
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(1500);
+      await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"],.splash').forEach((n) => n.remove()));
+      await page.evaluate(() => document.querySelector('[data-testid="dock-fab"]').click());
+      await page.waitForTimeout(600);
+      await page.evaluate(() => document.querySelector('[data-testid="quick-sessions"]').click());
+      await page.waitForTimeout(1700);
+      return page.evaluate((x) =>
+        document.querySelector(`[data-testid="preset-${x}"] .sess-card-meta`)?.textContent || '', id);
+    };
+
+    // Seven reps of the Bear is thirty-five barbell movements without setting
+    // the bar down. Charging that the same 3.5 minutes as a set of eight curls
+    // understates both the work and the rest it earns.
+    const bear = await cardMeta('preset-bear-complex');
+    const bearMin = Number((bear.match(/(\d+) min/) || [])[1]);
+    check('the Bear is costed as five rounds of a sequence, not five sets',
+      bearMin >= 22, bear);
+    check('and still reads as an estimate, because nothing schedules it',
+      /~/.test(bear), bear);
+
+    // The one that was properly wrong: a ten-minute EMOM advertised at 35.
+    const emom = await cardMeta('preset-clean-emom');
+    check('the Clean EMOM is exactly its ten minutes', /·\s*10 min/.test(emom) && !/~/.test(emom), emom);
+    check('and it is now a real EMOM the runner can call',
+      await page.evaluate(() => !!(window.PRESET_SESSIONS.find((s) => s.id === 'preset-clean-emom') || {}).circuit));
+  }
+
   console.log('\n=== 4. an ordinary lift has no sequence ===');
   {
     check('the push jerk opens', await openViaLibrary('Push Jerk'));
