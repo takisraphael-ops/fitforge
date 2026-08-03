@@ -228,7 +228,11 @@ window.PRESET_SESSIONS = (function () {
     desc: "21-15-9 · thrusters and pull-ups",
     detail: "The benchmark. Twenty-one thrusters, twenty-one pull-ups, then fifteen and fifteen, then nine and nine. Rx is 43 kg for men, 30 kg for women — scale it, and write down what you used, because the load is half of what the time means. Under five minutes is fast. It is meant to hurt in a way that is over quickly.",
     exercises: [
-      { exerciseId: "thruster", name: "Thruster", repScheme: [21, 15, 9] },
+      // Pinned to the barbell. The thruster is barbell-or-dumbbell-or-kettlebell
+      // in the library and that is correct there, but Fran is 43 kg on a bar —
+      // the load is half of what the time means, so a dumbbell version is a
+      // different workout wearing a name that refers to a specific one.
+      { exerciseId: "thruster", name: "Thruster", repScheme: [21, 15, 9], gear: ["barbell"] },
       { exerciseId: "pull-up", name: "Pull-Up", repScheme: [21, 15, 9] }
     ]
   });
@@ -242,8 +246,10 @@ window.PRESET_SESSIONS = (function () {
     detail: "A mile, then a hundred pull-ups, two hundred push-ups, three hundred squats, then another mile. Almost everyone partitions the middle into twenty rounds of five, ten and fifteen — that is standard, not scaling. Rx adds a 20 lb vest; the app has no vest field, so note it in the session notes if you wore one. Expect 45 to 60 minutes without a vest.",
     exercises: [
       // Two sets of one mile, not one row of two: the runs bookend the session
-      // and are logged as the two separate efforts they are.
-      { exerciseId: "run", name: "Run", targetSets: 2, targetDistanceKm: 1.61, targetIntensity: "hard" },
+      // and are logged as the two separate efforts they are. Pinned to no gear
+      // because Murph is a road mile — leaving the exercise's cardio-machine
+      // option in put a "Cardio machine" chip on a session tagged Outdoors.
+      { exerciseId: "run", name: "Run", targetSets: 2, targetDistanceKm: 1.61, targetIntensity: "hard", gear: ["none"] },
       { exerciseId: "pull-up", name: "Pull-Up", targetSets: 1, targetReps: 100 },
       { exerciseId: "push-up", name: "Push-Up", targetSets: 1, targetReps: 200 },
       { exerciseId: "box-squat-bodyweight", name: "Air Squat", targetSets: 1, targetReps: 300 }
@@ -269,7 +275,9 @@ window.PRESET_SESSIONS = (function () {
     // written out here, in the units the race uses.
     detail: "The full race. Run 1 km, then a station, and repeat until all eight are done. In order: ski erg 1000 m, sled push 50 m, sled pull 50 m, burpee broad jumps 80 m, row 1000 m, farmer's carry 200 m, sandbag lunges 100 m, wall balls 100 reps. The station targets on the rows are rough estimates of what those distances take — the distances above are the actual standard, so log what you really did. The runs appear as eight one-kilometre efforts because a session lists each exercise once; do them where they belong. Ninety minutes is a respectable first attempt and the clock does not stop between stations.",
     exercises: [
-      { exerciseId: "run", name: "Run", targetSets: 8, targetDistanceKm: 1, targetIntensity: "hard" },
+      // Same as Murph: the race is run on a course, not a treadmill, so the
+      // machine option does not belong on the card.
+      { exerciseId: "run", name: "Run", targetSets: 8, targetDistanceKm: 1, targetIntensity: "hard", gear: ["none"] },
       { exerciseId: "ski-erg", name: "Ski Erg", targetSets: 1, targetDistanceKm: 1 },
       { exerciseId: "sled-push", name: "Sled Push", targetSets: 1, targetSeconds: 90 },
       { exerciseId: "sled-pull", name: "Sled Pull", targetSets: 1, targetSeconds: 120 },
@@ -995,7 +1003,12 @@ window.PRESET_SESSIONS = (function () {
     const all = new Set();
     for (const e of (s.exercises || [])) {
       const def = defsById.get(e.exerciseId);
-      const g = (def && def.gear && def.gear.length) ? def.gear : ["none"];
+      // Mirrors sessionMeta in app.js. An entry may narrow the exercise's gear
+      // options — never widen them — so a session whose prescription names a
+      // specific implement asks for that one. Kept in step with app.js; the
+      // suite fails if the two derivations disagree.
+      const g = (e.gear && e.gear.length) ? e.gear
+        : ((def && def.gear && def.gear.length) ? def.gear : ["none"]);
       needs.push(g);
       for (const x of g) all.add(x);
     }

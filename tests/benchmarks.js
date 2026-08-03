@@ -195,6 +195,54 @@ console.log('\n=== 2. Hyrox: all eight stations, or say so ===');
   check('no session names a sled it does not contain', liars.length === 0,
     liars.map((s) => s.name).join(', '));
 
+  // ---- pinned equipment ----
+  // A thruster is barbell OR dumbbell OR kettlebell, which is right in the
+  // library and wrong on Fran: it is 43 kg on a bar, the load is half of what
+  // the time means, and a dumbbell version is a different workout under a name
+  // that refers to a specific one. An entry may therefore narrow the
+  // exercise's options — and only narrow them, or the card would claim kit
+  // that does not do the movement.
+  console.log('\n   -- pinned equipment --');
+  {
+    const widened = [];
+    for (const s of G.PRESET_SESSIONS) {
+      for (const e of (s.exercises || [])) {
+        if (!e.gear) continue;
+        const own = (byId(e.exerciseId) || {}).gear || ['none'];
+        const extra = e.gear.filter((g) => !own.includes(g));
+        if (extra.length) widened.push(`${s.id}/${e.exerciseId} invents ${extra.join('+')}`);
+      }
+    }
+    check('a pinned entry narrows the exercise\'s gear, never invents any',
+      widened.length === 0, widened.join(', '));
+
+    const fran = preset('preset-fran');
+    check('Fran asks for a barbell and a bar, and nothing looser',
+      JSON.stringify(fran.gear) === JSON.stringify(['barbell', 'pullup-bar']), JSON.stringify(fran.gear));
+    check('and the kit filter will actually require the barbell',
+      fran.needs.some((or) => or.length === 1 && or[0] === 'barbell'), JSON.stringify(fran.needs));
+    // Murph and the Hyrox race are run on a road and a course. Leaving the
+    // exercise's treadmill option in put a "Cardio machine" chip on a session
+    // tagged Outdoors.
+    check('Murph does not claim to need a cardio machine',
+      !preset('preset-murph').gear.includes('cardio-machine'),
+      JSON.stringify(preset('preset-murph').gear));
+    check('and neither does the Hyrox running',
+      preset('preset-hyrox-sim').needs[0].join() === 'none',
+      JSON.stringify(preset('preset-hyrox-sim').needs[0]));
+    // The ski erg and the rower genuinely are machines, so that chip stays.
+    check('but the Hyrox ergs still declare a machine',
+      preset('preset-hyrox-sim').gear.includes('cardio-machine'));
+
+    // The narrowing is implemented twice — sessions.js for presets, app.js
+    // sessionMeta for user templates — with a comment promising they match.
+    const appSrc = fs.readFileSync(path.join(ROOT, 'js/app.js'), 'utf8');
+    const sesSrc = fs.readFileSync(path.join(ROOT, 'data/sessions.js'), 'utf8');
+    const narrows = (src) => /\(e\.gear && e\.gear\.length\) \? e\.gear/.test(src);
+    check('both gear derivations honour the override', narrows(appSrc) && narrows(sesSrc),
+      `app ${narrows(appSrc)} / sessions ${narrows(sesSrc)}`);
+  }
+
   const sim = preset('preset-hyrox-sim');
   check('there is a session that runs the race', !!sim);
   check('it is scored for time', sim.circuit.mode === 'fortime');
@@ -326,6 +374,38 @@ console.log('\n=== 2. Hyrox: all eight stations, or say so ===');
     // And the unscored sessions keep the estimate they always had.
     const carryMeta = await cardMeta('preset-sled-carry');
     check('an ordinary circuit still shows an estimate', /~\d+ min/.test(carryMeta), carryMeta);
+
+    // The pin has to reach the filter, not just the chips. Someone holding two
+    // dumbbells and a pull-up bar can do a thruster — but not Fran.
+    console.log('\n   -- and the filter respects it --');
+    const withKit = async (kit) => {
+      await page.evaluate(async (k) => {
+        await Storage.clearAll();
+        await Storage.setPref('onboarded', true);
+        await Storage.setPref('myKit', k);
+      }, kit);
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(1500);
+      await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"],.splash').forEach((n) => n.remove()));
+      await page.evaluate(() => document.querySelector('[data-testid="dock-fab"]').click());
+      await page.waitForTimeout(600);
+      await page.evaluate(() => document.querySelector('[data-testid="quick-sessions"]').click());
+      await page.waitForTimeout(1700);
+      return page.evaluate(() => ({
+        fran: !!document.querySelector('[data-testid="preset-preset-fran"]'),
+        cindy: !!document.querySelector('[data-testid="preset-preset-amrap-20"]'),
+        murph: !!document.querySelector('[data-testid="preset-preset-murph"]'),
+        escape: !!document.querySelector('[data-testid="sess-show-all"]')
+      }));
+    };
+    const noBar = await withKit(['dumbbell', 'kettlebell', 'pullup-bar', 'cardio-machine']);
+    check('dumbbells and a bar do not get you Fran', noBar.fran === false, JSON.stringify(noBar));
+    check('but the bodyweight benchmarks are still offered',
+      noBar.cindy && noBar.murph, JSON.stringify(noBar));
+    // Hidden, not vanished — the sheet says so and offers a way through.
+    check('and the sheet admits something is hidden', noBar.escape === true);
+    const withBar = await withKit(['dumbbell', 'kettlebell', 'pullup-bar', 'barbell']);
+    check('add a barbell and Fran appears', withBar.fran === true, JSON.stringify(withBar));
   }
 
   // ---- the details sheet ----

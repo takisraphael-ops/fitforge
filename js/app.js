@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=239").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=240").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -4657,7 +4657,13 @@
     const all = new Set();
     for (const e of (t.exercises || [])) {
       const def = byId.get(e.exerciseId);
-      const g = (def && def.gear && def.gear.length) ? def.gear : ["none"];
+      // An entry may narrow the exercise's options. A thruster is barbell OR
+      // dumbbell OR kettlebell, and that is right in the library — but Fran is
+      // a barbell at 43 kg, and offering it to someone holding two dumbbells
+      // is offering them a different workout under a name that means a
+      // specific one. Narrowing only: see the subset check in the suite.
+      const g = (e.gear && e.gear.length) ? e.gear
+        : ((def && def.gear && def.gear.length) ? def.gear : ["none"]);
       needs.push(g);
       for (const x of g) all.add(x);
     }

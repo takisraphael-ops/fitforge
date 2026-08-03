@@ -51,10 +51,17 @@ console.log('=== 0. the presets ===');
   // one by hand looks authoritative in the source and is silently discarded —
   // the version here claimed a 500-rep session was bodyweight-only when it
   // needs a pull-up bar for the leg raises, and nothing would ever have said so.
+  //
+  // Anchored to exactly four spaces, which is session level. An entry-level
+  // `gear` is a different thing and a legitimate one — it narrows the
+  // exercise's options so Fran asks for a barbell rather than any of the three
+  // implements a thruster accepts — and the derivation reads it rather than
+  // overwriting it. It lives inside the exercises array, so it never sits at
+  // this indentation.
   const src = fs.readFileSync(path.join(ROOT, 'data/sessions.js'), 'utf8');
   const handSet = ['gear', 'needs', 'bodyweightOnly']
-    .filter((f) => new RegExp(`^\\s{4}${f}:`, 'm').test(src));
-  check('no preset hand-writes a field the derivation overwrites',
+    .filter((f) => new RegExp(`^ {4}${f}:`, 'm').test(src));
+  check('no preset hand-writes a session-level field the derivation overwrites',
     handSet.length === 0, handSet.join(', '));
 
   check('both scored formats ship a preset', scored.length >= 2,
