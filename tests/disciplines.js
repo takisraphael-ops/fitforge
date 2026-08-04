@@ -121,12 +121,25 @@ try { fs.mkdirSync(SS, { recursive: true }); } catch (_) {}
   console.log('\n=== 2. filtering ===');
   const total = await shown();
   check('the library starts unfiltered', total === DB.length, `${total} of ${DB.length}`);
-  check('a chip exists for each discipline',
-    (await page.$$('[data-testid="discipline-row"] .disc-chip')).length === D.length);
   check('the note is hidden until one is picked',
     await page.evaluate(() => document.querySelector('[data-testid="discipline-note"]').style.display === 'none'));
 
+  // The chips used to be a row on the page. They live behind the Refine line
+  // now, alongside equipment — two rows of chips became one button when the
+  // body-part row was retired. The note they drive still sits on the page,
+  // because it explains what the grid behind the sheet is showing.
+  const openRefine = async () => {
+    if (await page.$('[data-testid="refine-sheet"]')) return;
+    await page.evaluate(() => document.querySelector('[data-testid="refine-open"]').click());
+    await page.waitForTimeout(800);
+  };
+  await openRefine();
+  check('a chip exists for each discipline',
+    (await page.$$('[data-testid="refine-sheet"] .disc-chip')).length === D.length,
+    String((await page.$$('[data-testid="refine-sheet"] .disc-chip')).length));
+
   for (const d of D) {
+    await openRefine();
     await page.click(`[data-testid="disc-${d.id}"]`);
     await page.waitForTimeout(700);
     const got = await shownIds();
@@ -137,6 +150,7 @@ try { fs.mkdirSync(SS, { recursive: true }); } catch (_) {}
       const note = await page.$eval('[data-testid="discipline-note"]', (e) => e.textContent);
       check(`${d.id}: says what the library is missing`, note.includes(d.missing.slice(0, 25)), note.slice(0, 70));
     }
+    await openRefine();
     await page.click(`[data-testid="disc-${d.id}"]`);   // toggle off
     await page.waitForTimeout(500);
   }
@@ -144,16 +158,37 @@ try { fs.mkdirSync(SS, { recursive: true }); } catch (_) {}
 
   console.log('\n=== 3. it composes with the muscle filter ===');
   // The whole reason this is a second axis rather than more categories.
+  await openRefine();
   await page.click('[data-testid="disc-calisthenics"]');
   await page.waitForTimeout(600);
-  await page.evaluate(() => [...document.querySelectorAll('.filter-chip')].find((c) => c.dataset.cat === 'back')?.click());
-  await page.waitForTimeout(800);
+  await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => /^done$/i.test(b.textContent.trim()))?.click());
+  await page.waitForTimeout(700);
+  // The body-part chip row is retired; the figure is the body-part control
+  // now. Two consequences for driving it: the back zones are not in the DOM
+  // until the figure is flipped, and an SVG group is not an HTMLElement, so
+  // it has no .click() — dispatch the event its listener is waiting for.
+  await page.click('[data-testid="body-map-back"]');
+  await page.waitForTimeout(700);
+  // `lats`, not `back`. The coarse zones arms/back/core/legs carry views: []
+  // — they are never drawn on the figure, and the retired chips were the only
+  // way to pick them. What replaces a coarse "back" is either a fine zone like
+  // this one or Browse › Strength › Back, and both are more specific than the
+  // chip was.
+  const picked = await page.evaluate(() => {
+    const z = document.querySelector('.body-map-region[data-zone="lats"]');
+    if (!z) return false;
+    z.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    return true;
+  });
+  check('a back zone is reachable once the figure is flipped', picked);
+  await page.waitForTimeout(1000);
   const both = await shownIds();
-  check('calisthenics + back narrows to the pull movements',
+  check('calisthenics + lats narrows to the pull movements',
     both.length > 0 && both.length < 15 && both.includes('pull-up') && both.includes('muscle-up'),
     both.join(', '));
   check('and excludes barbell back work', !both.includes('row-barbell') && !both.includes('deadlift-conventional'));
-  check('and excludes calisthenics from other body parts', !both.includes('pistol-squat'));
+  check('and excludes calisthenics from other body parts',
+    !both.includes('pistol-squat') && !both.includes('push-up'), both.join(', '));
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForTimeout(300);
   await page.screenshot({ path: `${SS}/disciplines.png` });

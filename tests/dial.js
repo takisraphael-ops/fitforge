@@ -390,6 +390,120 @@ const check = (label, ok, detail = '') => {
     await page.waitForTimeout(400);
   }
 
+  // =============== 8. the ring ==============================================
+  //
+  // An arc has to fit every slice into the angle above the trigger, and seven
+  // do not fit in 390px — the reason this menu asks for compact slices and a
+  // 78-degree sweep in the first place. A ring has the whole turn to spend.
+  console.log('\n=== 8. seven spokes in a ring, not an arc ===');
+  {
+    await dismiss();
+    const d = await dialAt();
+    await page.mouse.move(d.x, d.y); await page.mouse.down();
+    await page.waitForTimeout(500);
+
+    const g = await page.evaluate(() => {
+      const o = document.querySelector('[data-testid="radial-overlay"]');
+      const hub = o && o.querySelector('[data-testid="radial-hub"]');
+      const hr = hub && hub.getBoundingClientRect();
+      const c = hr ? { x: hr.left + hr.width / 2, y: hr.top + hr.height / 2 } : null;
+      const sl = [...document.querySelectorAll('.radial-slice')];
+      return {
+        ring: !!o && o.classList.contains('radial-ring'),
+        hub: hub ? hub.textContent.trim() : null,
+        n: sl.length,
+        vw: window.innerWidth, vh: window.innerHeight,
+        centre: c,
+        // The slice element, not the icon inside it. A slice is translated by
+        // -50%,-50% so its own centre is the point the layout placed; the icon
+        // sits above that, with the label below, so measuring the icon reads a
+        // constant upward offset as a wobble in the radius.
+        radii: c ? sl.map((e) => {
+          const r = e.getBoundingClientRect();
+          return Math.round(Math.hypot(r.left + r.width / 2 - c.x, r.top + r.height / 2 - c.y));
+        }) : [],
+        angles: c ? sl.map((e) => {
+          const r = e.getBoundingClientRect();
+          return Math.atan2(r.top + r.height / 2 - c.y, r.left + r.width / 2 - c.x) * 180 / Math.PI;
+        }) : [],
+        offscreen: sl.filter((e) => {
+          const r = e.getBoundingClientRect();
+          return r.left < 0 || r.top < 0 || r.right > window.innerWidth || r.bottom > window.innerHeight;
+        }).map((e) => e.textContent.trim())
+      };
+    });
+
+    check('it opens as a ring', g.ring);
+    check('with a word in the middle saying what to do', g.hub === 'CHOOSE' || /choose/i.test(g.hub || ''), g.hub);
+    check('all seven spokes are on it', g.n === 7, String(g.n));
+    // Every spoke the same reach from the middle is the whole point of a ring:
+    // no slice is further away than another.
+    const spread = Math.max(...g.radii) - Math.min(...g.radii);
+    check('every spoke is the same distance from the centre', spread <= 2, `${spread}px spread`);
+    // Evenly spaced, which is what buys the room an arc did not have.
+    const sorted = g.angles.slice().sort((a, b) => a - b);
+    const gaps = sorted.map((a, i) => (i ? a - sorted[i - 1] : a + 360 - sorted[sorted.length - 1]));
+    const off = Math.max(...gaps.map((x) => Math.abs(x - 360 / g.n)));
+    check('and evenly spaced around it', off < 2, `worst gap is ${off.toFixed(1)}° off ${(360 / g.n).toFixed(0)}°`);
+    check('nothing is pushed off screen', g.offscreen.length === 0, g.offscreen.join(', '));
+
+    // Centred on the screen, not hung off the trigger. The dial sits near the
+    // top; a ring hung off it would sit high with half of it over the list.
+    check('the ring is centred on the screen, not on the dial',
+      Math.abs(g.centre.x - g.vw / 2) < 3 && Math.abs(g.centre.y - d.y) > 120,
+      `ring at ${Math.round(g.centre.x)},${Math.round(g.centre.y)}; dial at ${Math.round(d.x)},${Math.round(d.y)}`);
+    check('and clear of the dock', g.centre.y + Math.max(...g.radii) < g.vh - 60,
+      `lowest spoke at ${Math.round(g.centre.y + Math.max(...g.radii))} of ${g.vh}`);
+
+    // Which is why aiming has to wait for the thumb to move: the centre is
+    // nowhere near where the press landed, so the very first pointermove
+    // already sits at a real angle and would otherwise pre-select.
+    await page.mouse.move(d.x + 3, d.y + 3);
+    await page.waitForTimeout(120);
+    check('a twitch aims at nothing', (await page.$$('.radial-slice.is-aimed')).length === 0);
+    // A real move does aim.
+    await page.mouse.move(g.centre.x, g.centre.y - 130, { steps: 8 });
+    await page.waitForTimeout(200);
+    const aimed = await page.$$eval('.radial-slice.is-aimed', (n) => n.map((e) => e.textContent.trim()));
+    check('a deliberate move aims at the spoke it points to',
+      aimed.length === 1 && /chest/i.test(aimed[0]), JSON.stringify(aimed));
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+    check('and releasing on it picks that one',
+      /Chest/.test(await page.textContent('[data-testid="xdial-label"]')),
+      await page.textContent('[data-testid="xdial-label"]'));
+    await dismiss();
+  }
+
+  // =============== 9. a small menu stays a fan ==============================
+  console.log('\n=== 9. three items do not become a ring ===');
+  {
+    // Three points of a triangle with a hole in the middle is worse than the
+    // fan, so the ring only takes over once an arc gets cramped.
+    await page.evaluate(() => document.querySelectorAll('[data-testid="radial-overlay"]').forEach((n) => n.remove()));
+    const fab = await page.$('[data-testid="dock-fab"]');
+    const fb = fab && await fab.boundingBox();
+    if (fb) {
+      await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2);
+      await page.mouse.down();
+      // RADIAL_HOLD_MS in js/app.js is 420; this one is a hold, not a press.
+      await page.waitForTimeout(760);
+    }
+    const small = await page.evaluate(() => {
+      const o = document.querySelector('[data-testid="radial-overlay"]');
+      return o ? { ring: o.classList.contains('radial-ring'), hub: !!o.querySelector('[data-testid="radial-hub"]'),
+        n: o.querySelectorAll('.radial-slice').length } : null;
+    });
+    if (small && small.n) {
+      check('a three-item menu is still an arc', !small.ring, JSON.stringify(small));
+      check('and has no hub', !small.hub);
+    } else {
+      check('the small menu opened', false, 'could not open the FAB radial');
+    }
+    await page.mouse.up();
+    await dismiss();
+  }
+
   console.log('\nERRORS:', errs.length ? errs : 'none');
   console.log(`\n${fails} failing check${fails === 1 ? '' : 's'}`);
   await b.close();

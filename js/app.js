@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=246").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=248").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -2399,6 +2399,7 @@
   // keyboard equivalent and fights VoiceOver, so the tap path is the one that
   // has to reach everything.
   const RADIAL_HOLD_MS = 420;   // under ~300 and ordinary taps start firing it
+  const HUB_R = 40;             // the centre disc on a ring menu
   const RADIAL_HINT_MS = 130;   // a crisp tap is over before the hint appears
   const RADIAL_SLOP = 10;       // px of movement that means "this was a scroll"
   const RADIAL_DEAD = 42;       // px around the centre that selects nothing
@@ -2513,6 +2514,72 @@
     // on a 390px screen at any radius, so the fan silently degraded into a row
     // of overlapping circles.
     const MAX_PHI = Number.isFinite(opts.sweep) ? opts.sweep : 52;
+
+    /** A full ring instead of an arc.
+     *
+     *  An arc has to fit every slice into the angle the screen leaves above
+     *  the trigger, and seven of them do not fit in 390px: the comment on
+     *  MAX_PHI is the scar from finding that out. A ring has the whole 360° to
+     *  spend, so seven spokes sit 51 degrees apart instead of thirty, and the
+     *  radius can come in rather than being pushed out until the labels stop
+     *  colliding.
+     *
+     *  Which leaves the middle empty, so it says what the menu is for.
+     *
+     *  Centred on the screen, not on the trigger. An arc hangs off whatever
+     *  you pressed because it has a direction; a ring does not, and one hung
+     *  off a control near the top of the screen sits high with its lower half
+     *  over the content it came from. Centred, it reads as a thing in its own
+     *  right and every spoke is the same reach from the middle.
+     *
+     *  Which does mean the centre is nowhere near the thumb, so aiming waits
+     *  for real movement — see the guard in aim(). */
+    function ringLayout(_cx, _cy, items) {
+      const n = items.length;
+      const vw = window.innerWidth || 390;
+      const vh = window.innerHeight || 844;
+      const ICON = opts.compact ? 48 : 64;
+      const PAD = ICON / 2 + 22;           // half a slice, plus its label
+      // Enough circumference for every slice, and never so tight that the
+      // centre disc touches the ring.
+      const rMin = Math.max(84, (n * (ICON + 16)) / (2 * Math.PI), HUB_R + ICON / 2 + 10);
+      const rMax = Math.max(rMin, Math.min(vw / 2 - EDGE - PAD, (vh - 84) / 2 - EDGE - PAD));
+      const at = (r, rx, ry) => items.map((it, i) => {
+        // First slice at twelve o'clock, then clockwise — the order they were
+        // written in reads top-down, the way a list would.
+        const phi = -Math.PI / 2 + (2 * Math.PI / n) * i;
+        return { item: it, x: rx + Math.cos(phi) * r, y: ry + Math.sin(phi) * r };
+      });
+      // Middle of the screen, lifted clear of the dock so the lowest spoke's
+      // label is not sitting on the tab bar.
+      const DOCK = 84;
+      const cx = vw / 2;
+      const cy = (vh - DOCK) / 2;
+      const place = (r) => ({
+        rx: Math.max(EDGE + PAD + r, Math.min(vw - EDGE - PAD - r, cx)),
+        ry: Math.max(EDGE + PAD + r, Math.min(vh - DOCK - EDGE - PAD - r, cy))
+      });
+      for (let r = rMin; r <= rMax + 0.01; r += 6) {
+        const { rx, ry } = place(r);
+        const pts = at(r, rx, ry);
+        if (legibleRing(pts, ICON)) return { pts, cx: rx, cy: ry, r };
+      }
+      const r = rMax;
+      const { rx, ry } = place(r);
+      return { pts: at(r, rx, ry), cx: rx, cy: ry, r };
+    }
+    // Same failure the arc guards against, minus the label-under-icon case:
+    // on a ring the slices are evenly spread, so circles touching is the
+    // constraint that binds first.
+    function legibleRing(pts, ICON) {
+      for (let i = 0; i < pts.length; i++) {
+        for (let j = i + 1; j < pts.length; j++) {
+          if (Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) < ICON + 14) return false;
+        }
+      }
+      return true;
+    }
+
     function layout(cx, cy, items) {
       const n = items.length;
       const natural = n === 1 ? 0 : Math.min(150, 44 * (n - 1));
@@ -2626,7 +2693,23 @@
       const slices = [];
       const items = itemsOf();
       if (!items.length) return;
-      layout(cx, cy, items).forEach(({ item: it, x, y }) => {
+      // A ring once there are enough spokes to make an arc cramped, or when a
+      // menu asks for one. Three items in a full circle would be three points
+      // of a triangle with a hole in the middle — worse than the fan.
+      const asRing = opts.ring === true || (opts.ring !== false && items.length >= 6);
+      const ring = asRing ? ringLayout(cx, cy, items) : null;
+      const pts = ring ? ring.pts : layout(cx, cy, items);
+      const ax = ring ? ring.cx : cx, ay = ring ? ring.cy : cy;
+      if (ring) {
+        overlay.classList.add("radial-ring");
+        // The empty middle, saying what the menu is for. Not a button: the
+        // dead zone was always there, and this only makes it visible.
+        overlay.appendChild(el("div", {
+          class: "radial-hub", "data-testid": "radial-hub", "aria-hidden": "true",
+          style: `left:${ax}px; top:${ay}px; width:${HUB_R * 2}px; height:${HUB_R * 2}px`
+        }, el("span", {}, opts.centre || "Choose")));
+      }
+      pts.forEach(({ item: it, x, y }) => {
         const btn = el("button", {
           class: "radial-slice", type: "button", role: "menuitem",
           "data-testid": `radial-${it.key}`,
@@ -2658,7 +2741,11 @@
       scrim.addEventListener("pointerdown", () => close());
 
       document.body.appendChild(overlay);
-      open = { overlay, slices, cx, cy, onKey, onMove, active: null };
+      // Aim from the ring's centre, which clamping may have moved away from
+      // the thumb — and record where the press began, so aiming can wait for
+      // the thumb to actually go somewhere.
+      open = { overlay, slices, cx: ax, cy: ay, onKey, onMove, active: null,
+        ring: !!ring, fromX: startX, fromY: startY };
       buzz(12);
     }
 
@@ -2666,6 +2753,17 @@
     // point is that a direction is enough and the distance stops mattering.
     function aim(px, py) {
       if (!open) return;
+      // On a ring the centre is wherever the ring fitted, not where the thumb
+      // is, so the very first pointermove can already sit at a real angle from
+      // it and pre-select a slice nobody aimed at. Aiming only starts once the
+      // thumb has left where the press began.
+      if (open.ring && Math.hypot(px - open.fromX, py - open.fromY) < RADIAL_DEAD) {
+        if (open.active) {
+          open.active = null;
+          for (const s of open.slices) s.btn.classList.remove("is-aimed");
+        }
+        return;
+      }
       const dx = px - open.cx, dy = py - open.cy;
       let pick = null;
       if (Math.hypot(dx, dy) >= RADIAL_DEAD) {
@@ -9831,6 +9929,7 @@
   }
 
   // ============ EXERCISE LIBRARY ============
+  const REFINE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>';
   const BROWSE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h6M4 12h10M4 18h7"/><path d="M17 9l3 3-3 3"/></svg>';
 
   /** The three pillars, in the order they are offered.
@@ -10070,6 +10169,9 @@
     function setFromMap(sel) {
       if (sel && sel.heatOnly) return; // heat toggle only — no filter change
       activeZone = (sel && sel.zoneId) || "all";
+      // Same rule as the retired chips: the figure and the browse tree are one
+      // axis, so choosing on the figure clears the tree.
+      if (activeZone !== "all" && browsePath) { browsePath = null; renderBrowseBar(); }
       syncChips();
       refresh(true);
     }
@@ -10239,61 +10341,157 @@
     renderBrowseBar();
     view.appendChild(browseBar);
 
-    // Muscle group filter chips (fallback + cardio / full body)
-    const filterRow = el("div", { class: "filter-row" });
-    const cats = ["all", ...Object.keys(EXERCISE_CATEGORIES)];
-    for (const c of cats) {
-      const chip = el("button", {
-        class: "filter-chip" + (c === "all" ? " active" : ""),
-        "data-cat": c,
-        on: { click: () => setFromChip(c) }
-      }, c === "all" ? "All" : EXERCISE_CATEGORIES[c]);
-      filterRow.appendChild(chip);
+    // Body-part chips — the fallback, not a fixture.
+    //
+    // Retired from the normal page. The figure above does the same job better:
+    // both set `activeZone`, and the map can say "lats" where a chip could only
+    // say "back". Keeping both meant two controls for one filter and a fourth
+    // row to scroll past, which is the thing this rework set out to remove.
+    // Cardio and boxing moved to Browse › Conditioning, which covers them
+    // exactly; full_body is gone on purpose, since a bucket for everything the
+    // body-part axis could not describe is what started all this.
+    //
+    // But the map is not guaranteed: body-map.js can fail to load, and then
+    // the library would have no body-part filter at all. So the row still
+    // renders in that case, and only in that case.
+    const filterRow = el("div", { class: "filter-row", "data-testid": "cat-chip-row" });
+    const canDrawMap = !!(window.BodyMap && typeof window.BodyMap.create === "function");
+    if (!canDrawMap) {
+      const cats = ["all", ...Object.keys(EXERCISE_CATEGORIES)];
+      for (const c of cats) {
+        const chip = el("button", {
+          class: "filter-chip" + (c === "all" ? " active" : ""),
+          "data-cat": c,
+          on: { click: () => setFromChip(c) }
+        }, c === "all" ? "All" : EXERCISE_CATEGORIES[c]);
+        filterRow.appendChild(chip);
+      }
+      view.appendChild(filterRow);
     }
-    view.appendChild(filterRow);
 
-    // Discipline filter — a second axis, not a replacement. Muscle group is a
-    // body part and this is a way of training, so the two compose: "back" and
-    // "calisthenics" together is pull-ups and rows, which is a question the
-    // muscle chips alone cannot ask. Off by default; it narrows nothing until
-    // you pick one.
+    // ---- refine: gear and discipline -------------------------------------
+    // Both cut across the browse tree rather than sitting inside it, which is
+    // the point. A back squat lives at Strength › Legs › Squat and is also
+    // half of CrossFit; 26 exercises are used by conditioning workouts while
+    // being strength movements. The tree can only give each of them one home,
+    // so these two make them findable from the other direction.
+    //
+    // Behind one line rather than two rows of chips, for the same reason the
+    // browse is: the page had four rows and the complaint was that there is
+    // too much to wade through.
     let activeDiscipline = null;
-    const discRow = el("div", { class: "filter-row disc-row", "data-testid": "discipline-row" });
+    let activeGear = null;
+    const refineBar = el("div", { class: "refine-bar", "data-testid": "refine-bar" });
     const discNote = el("div", { class: "disc-note text-xs text-faint", "data-testid": "discipline-note" });
     discNote.style.display = "none";
-    for (const d of (window.DISCIPLINES || [])) {
-      discRow.appendChild(el("button", {
-        class: "filter-chip disc-chip", type: "button",
-        "data-disc": d.id, "data-testid": "disc-" + d.id,
-        title: d.blurb, "aria-pressed": "false",
-        on: { click: (e) => {
-          activeDiscipline = activeDiscipline === d.id ? null : d.id;
-          for (const b of discRow.children) {
-            const on = b.getAttribute("data-disc") === activeDiscipline;
-            b.classList.toggle("active", on);
-            b.setAttribute("aria-pressed", on ? "true" : "false");
-          }
-          const sel = (window.DISCIPLINES || []).find((x) => x.id === activeDiscipline);
-          // The honest bit: say what the library does not cover, rather than
-          // letting nine Hyrox exercises imply Hyrox is nine exercises.
-          clear(discNote);
-          if (sel) {
-            discNote.appendChild(el("span", {}, sel.blurb));
-            if (sel.missing) discNote.appendChild(el("span", { class: "disc-missing" }, " " + sel.missing));
-          }
-          discNote.style.display = sel ? "" : "none";
-          refresh(true);
-        } }
-      }, d.label));
-    }
-    if ((window.DISCIPLINES || []).length) {
-      view.appendChild(discRow);
-      view.appendChild(discNote);
-    }
+
     const disciplineIds = (id) => {
       const d = (window.DISCIPLINES || []).find((x) => x.id === id);
       return d ? new Set(d.exercises) : null;
     };
+    // Only offer kit the library actually has more than a token amount of.
+    // A chip that narrows 165 exercises to one is a chip that wastes a tap.
+    const gearCounts = {};
+    for (const ex of all) for (const g of (ex.gear || [])) {
+      if (g !== "none") gearCounts[g] = (gearCounts[g] || 0) + 1;
+    }
+    const gearOptions = GEAR_ORDER.filter((g) => (gearCounts[g] || 0) >= 3);
+
+    const refineCount = () => (activeDiscipline ? 1 : 0) + (activeGear ? 1 : 0);
+
+    function renderRefineBar() {
+      clear(refineBar);
+      const n = refineCount();
+      refineBar.appendChild(el("button", {
+        class: "refine-open" + (n ? " is-on" : ""), type: "button", "data-testid": "refine-open",
+        on: { click: openRefineSheet }
+      },
+        el("span", { class: "refine-ic", html: REFINE_ICON }),
+        el("span", {}, "Equipment & discipline"),
+        n ? el("span", { class: "refine-n", "data-testid": "refine-count" }, String(n))
+          : el("span", { class: "refine-hint" }, `${gearOptions.length} kinds of kit`)));
+      if (n) {
+        refineBar.appendChild(el("button", {
+          class: "browse-clear", type: "button", "data-testid": "refine-clear",
+          "aria-label": "Clear equipment and discipline", title: "Clear equipment and discipline",
+          html: icons.x,
+          on: { click: () => { activeDiscipline = null; activeGear = null; syncDiscNote(); renderRefineBar(); refresh(true); } }
+        }));
+      }
+    }
+
+    function syncDiscNote() {
+      const sel = (window.DISCIPLINES || []).find((x) => x.id === activeDiscipline);
+      clear(discNote);
+      if (sel) {
+        discNote.appendChild(el("span", {}, sel.blurb));
+        // The honest bit: say what the library does not cover, rather than
+        // letting fifteen Hyrox exercises imply Hyrox is fifteen exercises.
+        if (sel.missing) discNote.appendChild(el("span", { class: "disc-missing" }, " " + sel.missing));
+      }
+      discNote.style.display = sel ? "" : "none";
+    }
+
+    function openRefineSheet() {
+      const body = el("div", { "data-testid": "refine-sheet" });
+      const section = (label, hint) => {
+        body.appendChild(el("div", { class: "refine-head" },
+          el("span", {}, label), hint ? el("span", { class: "refine-head-hint" }, hint) : null));
+        const row = el("div", { class: "filter-row refine-row" });
+        body.appendChild(row);
+        return row;
+      };
+
+      const gearRow = section("Equipment", "what you have to hand");
+      const paintGear = () => gearRow.querySelectorAll(".filter-chip").forEach((c) => {
+        const on = c.getAttribute("data-gear") === (activeGear || "");
+        c.classList.toggle("active", on);
+        c.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+      for (const g of gearOptions) {
+        gearRow.appendChild(el("button", {
+          class: "filter-chip", type: "button", "data-gear": g, "data-testid": "refine-gear-" + g,
+          "aria-pressed": "false",
+          on: { click: () => {
+            activeGear = activeGear === g ? null : g;
+            paintGear(); renderRefineBar(); refresh(true);
+          } }
+        }, `${GEAR_META[g] || g} · ${gearCounts[g]}`));
+      }
+      paintGear();
+
+      if ((window.DISCIPLINES || []).length) {
+        const discRow = section("Discipline", "how it is trained");
+        const paintDisc = () => discRow.querySelectorAll(".filter-chip").forEach((c) => {
+          const on = c.getAttribute("data-disc") === (activeDiscipline || "");
+          c.classList.toggle("active", on);
+          c.setAttribute("aria-pressed", on ? "true" : "false");
+        });
+        for (const d of window.DISCIPLINES) {
+          discRow.appendChild(el("button", {
+            class: "filter-chip disc-chip", type: "button",
+            "data-disc": d.id, "data-testid": "disc-" + d.id, title: d.blurb,
+            "aria-pressed": "false",
+            on: { click: () => {
+              activeDiscipline = activeDiscipline === d.id ? null : d.id;
+              paintDisc(); syncDiscNote(); renderRefineBar(); refresh(true);
+            } }
+          }, `${d.label} · ${d.exercises.length}`));
+        }
+        paintDisc();
+      }
+
+      openModal("Refine", body, el("div", {},
+        el("button", {
+          class: "btn", "data-testid": "refine-sheet-clear",
+          on: { click: () => { activeDiscipline = null; activeGear = null; syncDiscNote(); renderRefineBar(); refresh(true); closeModal(); } }
+        }, "Clear"),
+        el("button", { class: "btn btn-primary", on: { click: closeModal } }, "Done")), { raised: true });
+    }
+
+    renderRefineBar();
+    view.appendChild(refineBar);
+    view.appendChild(discNote);
 
     // Sort control — order the library by your training relationship.
     const SORTS = [
@@ -10374,6 +10572,7 @@
         if (!inPath(ex)) return false;
         if (!matchesActiveZone(ex)) return false;
         if (discSet && !discSet.has(ex.id)) return false;
+        if (activeGear && !(ex.gear || []).includes(activeGear)) return false;
         if (!q) return true;
         return ex.name.toLowerCase().includes(q) ||
                (ex.muscles || []).some(m => m.toLowerCase().includes(q)) ||
@@ -11137,7 +11336,10 @@
       dialBtn.appendChild(el("span", { class: "xdial-caret" }, "▾"));
     }
     const dialCtl = dialBtn ? attachRadial(dialBtn, {
-      press: true, label: "Choose a body part", sweep: 78, compact: true,
+      // The menu that made the ring worth building: seven spokes, and its own
+      // label already says what belongs in the middle.
+      press: true, label: "Choose a body part", ring: true, centre: "Choose",
+      sweep: 78, compact: true,
       items: () => dialItems()
     }) : null;
 

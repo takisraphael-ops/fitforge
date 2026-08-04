@@ -3258,9 +3258,18 @@ input:disabled.input,
    eye reads them as a set rather than a flash. This is a transient surface
    summoned by a deliberate gesture, not a screen you glance at five times a
    day — the motion confirms the hold registered, which is worth its cost. */
+/* Staggered by position among the slices, not among the overlay's children.
+   Counting children broke the moment a hub was inserted before them: the
+   scrim was child 1, so slices started at 2, and adding the hub pushed every
+   delay one slice along. `of .radial-slice` counts only the things being
+   animated, so it survives anything else the overlay gains. */
 .radial-slice { animation: radialIn 170ms cubic-bezier(.2, .9, .3, 1) both; }
-.radial-slice:nth-child(3) { animation-delay: 24ms; }
-.radial-slice:nth-child(4) { animation-delay: 48ms; }
+.radial-slice:nth-child(2 of .radial-slice) { animation-delay: 24ms; }
+.radial-slice:nth-child(3 of .radial-slice) { animation-delay: 48ms; }
+.radial-slice:nth-child(4 of .radial-slice) { animation-delay: 68ms; }
+.radial-slice:nth-child(5 of .radial-slice) { animation-delay: 86ms; }
+.radial-slice:nth-child(6 of .radial-slice) { animation-delay: 102ms; }
+.radial-slice:nth-child(7 of .radial-slice) { animation-delay: 116ms; }
 @keyframes radialIn {
   from { opacity: 0; transform: translate(-50%, -50%) scale(0.68); }
   to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
@@ -6813,3 +6822,68 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
   font-size: 13px; font-weight: 700; cursor: pointer;
 }
 .browse-all:hover, .browse-all:focus-visible { border-color: var(--accent); color: var(--accent); }
+
+/* ============ Refine: equipment and discipline ============ */
+/* Same shape as the browse line, one below it. Two rows of chips became two
+   buttons; the page went from four control rows to three while gaining a
+   filter it never had. */
+.refine-bar { display: flex; align-items: stretch; gap: 8px; margin: 0 0 10px; }
+.refine-open {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: 9px;
+  padding: 11px 13px; text-align: left; cursor: pointer;
+  border: 1px dashed var(--border); border-radius: var(--radius);
+  background: transparent; color: inherit;
+  font-size: 14px; font-weight: 700;
+  transition: border-color .16s ease, background .16s ease, color .16s ease;
+}
+.refine-open:hover, .refine-open:focus-visible { border-color: var(--accent); color: var(--accent); }
+.refine-open.is-on { border-style: solid; border-color: var(--accent); background: var(--accent-soft, transparent); }
+.refine-ic { flex: none; width: 17px; height: 17px; color: var(--accent); }
+.refine-ic svg { width: 100%; height: 100%; }
+.refine-hint {
+  margin-left: auto; flex: none;
+  font-size: 11px; font-weight: 600; color: var(--text-faint);
+}
+/* The count, when something is on — the one thing you need to see from here. */
+.refine-n {
+  margin-left: auto; flex: none;
+  min-width: 21px; height: 21px; padding: 0 6px; border-radius: 11px;
+  display: grid; place-items: center;
+  background: var(--accent); color: var(--bg);
+  font-size: 11.5px; font-weight: 800; font-variant-numeric: tabular-nums;
+}
+.refine-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  margin: 16px 0 8px; font-size: 12px; font-weight: 800;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--text-faint);
+}
+.refine-head:first-child { margin-top: 2px; }
+.refine-head-hint { font-size: 11px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+.refine-row { flex-wrap: wrap; gap: 7px; }
+
+/* ============ Ring menu ============ */
+/* The hub. Purely a label — the dead zone in the middle of a radial has always
+   been there, and this only makes it visible and says what it is for. */
+.radial-hub {
+  position: absolute; transform: translate(-50%, -50%);
+  display: grid; place-items: center; pointer-events: none;
+  border-radius: 50%;
+  border: 1px dashed var(--border);
+  background: color-mix(in srgb, var(--bg-elev) 82%, transparent);
+  animation: radialHubIn .22s var(--ease-spring) both;
+}
+.radial-hub span {
+  font-size: 12px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--text-faint); text-align: center; padding: 0 6px;
+}
+@keyframes radialHubIn {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(.86); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+/* On a ring the slices sit all the way round, so the label under the lowest
+   one has the screen edge below it rather than more menu. */
+.radial-ring .radial-slice-label { text-shadow: 0 1px 3px var(--bg); }
+@media (prefers-reduced-motion: reduce) {
+  .radial-hub { animation: none; }
+}
