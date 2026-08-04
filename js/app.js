@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=248").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=249").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -2538,7 +2538,11 @@
       const n = items.length;
       const vw = window.innerWidth || 390;
       const vh = window.innerHeight || 844;
-      const ICON = opts.compact ? 48 : 64;
+      // Full size, whatever the menu asked for. `compact` exists because an
+      // arc could not fit seven 64px slices into the angle above the trigger;
+      // a ring can — seven of them need a radius of about 90 and there is 135
+      // to play with — so the reason for shrinking them does not apply here.
+      const ICON = 64;
       const PAD = ICON / 2 + 22;           // half a slice, plus its label
       // Enough circumference for every slice, and never so tight that the
       // centre disc touches the ring.
@@ -2568,13 +2572,35 @@
       const { rx, ry } = place(r);
       return { pts: at(r, rx, ry), cx: rx, cy: ry, r };
     }
-    // Same failure the arc guards against, minus the label-under-icon case:
-    // on a ring the slices are evenly spread, so circles touching is the
-    // constraint that binds first.
+    /** Circles apart AND labels clear, the same two failures the arc guards.
+     *
+     *  Circles alone looked sufficient while the slices were 48px: they touch
+     *  before the labels reach anything. At 64px that reverses — "Shoulders"
+     *  is wider than the circle it belongs to and lands on its neighbour while
+     *  the circles are still comfortably apart. Checked in the same terms the
+     *  layout renders: a slice is icon, a 6px gap, then a 16px label, the lot
+     *  centred on the placed point. */
     function legibleRing(pts, ICON) {
+      const LGAP = 6, LH = 16, H = ICON + LGAP + LH;
+      const box = (p) => {
+        const w = Math.max(40, String(p.item.label || "").length * 7);
+        return {
+          icon: { l: p.x - ICON / 2, r: p.x + ICON / 2, t: p.y - H / 2, b: p.y - H / 2 + ICON },
+          label: { l: p.x - w / 2, r: p.x + w / 2, t: p.y + H / 2 - LH, b: p.y + H / 2 }
+        };
+      };
+      const hits = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+      const bs = pts.map(box);
       for (let i = 0; i < pts.length; i++) {
-        for (let j = i + 1; j < pts.length; j++) {
-          if (Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) < ICON + 14) return false;
+        for (let j = 0; j < pts.length; j++) {
+          if (i === j) continue;
+          if (hits(bs[i].label, bs[j].icon)) return false;
+          if (j > i) {
+            if (hits(bs[i].label, bs[j].label)) return false;
+            // Circles compared as circles: two slices offset diagonally have
+            // bounding boxes that clip corners while the discs are well clear.
+            if (Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) < ICON + 14) return false;
+          }
         }
       }
       return true;
@@ -2684,7 +2710,10 @@
       if (open) return;
       hideHint();
       const overlay = el("div", {
-        class: "radial-overlay" + (opts.compact ? " radial-compact" : ""), "data-testid": "radial-overlay",
+        // `radial-compact` is decided below, once we know whether this is a
+        // ring: a ring restores full-size slices even for a menu that asked
+        // to be compact, because the constraint that shrank them was the arc.
+        class: "radial-overlay", "data-testid": "radial-overlay",
         role: "menu", "aria-label": opts.label || "Quick actions"
       });
       const scrim = el("div", { class: "radial-scrim" });
@@ -2700,6 +2729,7 @@
       const ring = asRing ? ringLayout(cx, cy, items) : null;
       const pts = ring ? ring.pts : layout(cx, cy, items);
       const ax = ring ? ring.cx : cx, ay = ring ? ring.cy : cy;
+      if (opts.compact && !ring) overlay.classList.add("radial-compact");
       if (ring) {
         overlay.classList.add("radial-ring");
         // The empty middle, saying what the menu is for. Not a button: the

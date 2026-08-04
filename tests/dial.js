@@ -175,10 +175,21 @@ const check = (label, ok, detail = '') => {
       }
     }
     check('no two icons overlap', overlapping.length === 0, overlapping.join(', '));
-    // Seven at full size cannot fit; the wheel is expected to have asked for
-    // compact slices rather than degrading into a row of overlapping circles.
+    // This asked for 48px, and was right to while the menu was an arc: seven
+    // full-size slices could not fit into the angle above the trigger, so the
+    // wheel asking to be compact was the thing standing between it and a row
+    // of overlapping circles.
+    //
+    // A ring removed that constraint rather than working around it. Seven 64px
+    // slices need a radius of about 90 and there is 135 to spend, so the menu
+    // now restores full size even though it still asks for compact — which is
+    // the arc fallback's setting, and still applies there.
     const dia = Math.round(geom.out[0].icon.r - geom.out[0].icon.l);
-    check('the slices shrank to fit instead of piling up', dia === 48 && dia >= 44, `${dia}px`);
+    const isRing = await page.evaluate(() =>
+      !!document.querySelector('[data-testid="radial-overlay"].radial-ring'));
+    check('the slices are as big as the layout can afford',
+      isRing ? dia === 64 : (dia === 48 && dia >= 44),
+      `${dia}px on ${isRing ? 'a ring' : 'an arc'}`);
 
     const stolen = geom.out.filter(s => !s.mine).map(s => s.id);
     check('every spoke is hit-testable at its own centre', stolen.length === 0, stolen.join(', '));

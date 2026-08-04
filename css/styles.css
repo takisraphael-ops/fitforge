@@ -3216,6 +3216,15 @@ input:disabled.input,
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
 }
+/* A ring covers the middle of the screen rather than hanging off a control, so
+   what is behind it is directly behind the thing you are reading. At 62% the
+   exercise names showed through the menu and competed with the labels. This is
+   up for a second, by a deliberate press — it can afford to own the screen. */
+.radial-ring .radial-scrim {
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  -webkit-backdrop-filter: blur(10px) saturate(.85);
+  backdrop-filter: blur(10px) saturate(.85);
+}
 .radial-slice {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -6865,12 +6874,21 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
 /* ============ Ring menu ============ */
 /* The hub. Purely a label — the dead zone in the middle of a radial has always
    been there, and this only makes it visible and says what it is for. */
+/* Not dashed. Everywhere else in this app a dashed border means "an offer you
+   can act on" — Add set, Add interval, Browse by type — and the hub is a label
+   you cannot tap. Borrowing that signal for something inert was the one thing
+   on this menu actively saying the wrong word. A soft disc with a faint inner
+   glow instead: present, obviously not a button. */
 .radial-hub {
   position: absolute; transform: translate(-50%, -50%);
   display: grid; place-items: center; pointer-events: none;
   border-radius: 50%;
-  border: 1px dashed var(--border);
-  background: color-mix(in srgb, var(--bg-elev) 82%, transparent);
+  background:
+    radial-gradient(circle at 50% 50%,
+      color-mix(in srgb, var(--accent) 9%, transparent) 0%,
+      transparent 72%),
+    color-mix(in srgb, var(--bg-elev) 62%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 14%, transparent);
   animation: radialHubIn .22s var(--ease-spring) both;
 }
 .radial-hub span {
