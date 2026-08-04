@@ -22,6 +22,7 @@ const SUITES = [
   { name: 'version-check', file: 'version-check.js', needsServer: false },
   { name: 'existence-sweep', file: 'existence-sweep.js', args: [__dirname], needsServer: false },
   { name: 'body-symmetry', file: 'body-symmetry.js', needsServer: false },
+  { name: 'taxonomy', file: 'taxonomy.js', needsServer: false },
   { name: 'reach-audit', file: 'reach-audit.js', needsServer: true },
   { name: 'quiz', file: 'quiz.js', needsServer: true },
   { name: 'numpad', file: 'numpad.js', needsServer: true },
