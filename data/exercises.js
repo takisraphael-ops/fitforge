@@ -279,7 +279,7 @@ window.EXERCISE_DB = [
     variations: ["Cable lateral raise", "Leaning lateral raise", "Lying dumbbell lateral raise", "3-second eccentric lateral raise"],
     alternatives: ["Machine lateral raise", "Cable lateral raise", "Band lateral raise"] },
 
-  { id: "rear-delt-fly", name: "Rear Delt Fly (Bent-Over)", category: "shoulders", taxon: { pillar: "strength", group: "Chest", sub: "Fly & isolation" }, met: 4.5, muscles: ["Rear Deltoids", "Rhomboids"], equipment: "Dumbbells", gear: ["dumbbell"], technique: [
+  { id: "rear-delt-fly", name: "Rear Delt Fly (Bent-Over)", category: "shoulders", taxon: { pillar: "strength", group: "Shoulders", sub: "Rear delts & rotators" }, met: 4.5, muscles: ["Rear Deltoids", "Rhomboids"], equipment: "Dumbbells", gear: ["dumbbell"], technique: [
     "Hinge at the hips to 45–90°, back flat, holding light dumbbells with palms facing each other.",
     "Slight bend in elbows, locked for the set.",
     "Raise arms out to the sides in a wide arc until level with the shoulders.",
@@ -310,7 +310,7 @@ window.EXERCISE_DB = [
     variations: ["Standing Arnold press", "Single-arm Arnold press"],
     alternatives: ["Dumbbell shoulder press", "Barbell OHP", "Machine press"] },
 
-  { id: "upright-row", name: "Upright Row", category: "shoulders", taxon: { pillar: "strength", group: "Back", sub: "Horizontal pull" }, met: 4.5, muscles: ["Lateral Deltoids", "Traps"], equipment: "Barbell / dumbbells / cable", gear: ["dumbbell", "barbell", "cable"], technique: [
+  { id: "upright-row", name: "Upright Row", category: "shoulders", taxon: { pillar: "strength", group: "Shoulders", sub: "Lateral & front" }, met: 4.5, muscles: ["Lateral Deltoids", "Traps"], equipment: "Barbell / dumbbells / cable", gear: ["dumbbell", "barbell", "cable"], technique: [
     "Stand with feet shoulder-width apart, holding the bar at hips with a shoulder-width or slightly wider overhand grip.",
     "Pull the bar straight up along your body, leading with the elbows.",
     "Stop when the bar is at mid-chest / lower sternum height — do not go higher (impingement risk).",
@@ -428,7 +428,7 @@ window.EXERCISE_DB = [
     variations: ["Cable concentration curl", "Standing concentration curl"],
     alternatives: ["Preacher curl", "Cable curl", "Spider curl"] },
 
-  { id: "wrist-curl", name: "Wrist Curl", category: "arms", taxon: { pillar: "strength", group: "Arms", sub: "Biceps" }, met: 3.5, muscles: ["Forearm Flexors"], equipment: "Dumbbells / barbell", gear: ["dumbbell", "barbell"], technique: [
+  { id: "wrist-curl", name: "Wrist Curl", category: "arms", taxon: { pillar: "strength", group: "Arms", sub: "Forearms & grip" }, met: 3.5, muscles: ["Forearm Flexors"], equipment: "Dumbbells / barbell", gear: ["dumbbell", "barbell"], technique: [
     "Sit on a bench, forearms resting on your thighs with wrists hanging off the knees.",
     "Hold the bar or dumbbells with palms facing up.",
     "Let the wrists extend down under the weight.",
@@ -508,7 +508,7 @@ window.EXERCISE_DB = [
     variations: ["Reverse lunge", "Curtsy lunge", "Deficit lunge", "Overhead lunge"],
     alternatives: ["Split squat", "Bulgarian split squat", "Step-up"] },
 
-  { id: "bulgarian-split-squat", name: "Bulgarian Split Squat", category: "legs", taxon: { pillar: "strength", group: "Legs", sub: "Squat" }, met: 5.5, muscles: ["Quadriceps", "Glutes", "Hamstrings"], equipment: "Dumbbells / barbell / bodyweight", gear: ["none", "dumbbell", "barbell"], technique: [
+  { id: "bulgarian-split-squat", name: "Bulgarian Split Squat", category: "legs", taxon: { pillar: "strength", group: "Legs", sub: "Single leg" }, met: 5.5, muscles: ["Quadriceps", "Glutes", "Hamstrings"], equipment: "Dumbbells / barbell / bodyweight", gear: ["none", "dumbbell", "barbell"], technique: [
     "Stand about 2 feet in front of a bench, holding dumbbells at your sides.",
     "Place the top of the rear foot on the bench.",
     "Front foot flat, torso upright.",
@@ -1289,7 +1289,7 @@ window.EXERCISE_DB = [
     variations: ["Floor version (lying)", "With a band around the wrists", "Half-kneeling at the wall"],
     alternatives: ["Arm circles", "Band pull-aparts", "Thoracic rotation"] },
 
-  { id: "mob-bodyweight-squat", name: "Bodyweight Squat (Warm-up)", category: "mobility", taxon: { pillar: "mobility", group: "Spine & torso", sub: "Static stretch" }, dynamic: true, type: "hold", met: 3.5, perSide: false, muscles: ["Quadriceps", "Glutes", "Hip Flexors", "Adductors"], equipment: "Bodyweight", gear: ["none"], technique: [
+  { id: "mob-bodyweight-squat", name: "Bodyweight Squat (Warm-up)", category: "mobility", taxon: { pillar: "mobility", group: "Warm-up drills", sub: "Dynamic" }, dynamic: true, type: "hold", met: 3.5, perSide: false, muscles: ["Quadriceps", "Glutes", "Hip Flexors", "Adductors"], equipment: "Bodyweight", gear: ["none"], technique: [
     "Stand with feet about shoulder width, toes slightly out.",
     "Sit down and back, keeping the chest tall and heels planted.",
     "Descend as deep as you can control, knees tracking over the toes.",
@@ -1299,7 +1299,7 @@ window.EXERCISE_DB = [
     variations: ["Prying goblet squat", "Squat to a box", "Squat with an overhead reach"],
     alternatives: ["World's greatest stretch", "Hip circles", "Glute bridge"] },
 
-  { id: "mob-glute-bridge", name: "Glute Bridge (Warm-up)", category: "mobility", taxon: { pillar: "mobility", group: "Lower body", sub: "Static stretch" }, dynamic: true, type: "hold", met: 3.0, perSide: false, muscles: ["Glutes", "Hamstrings", "Hip Flexors"], equipment: "Bodyweight", gear: ["none"], technique: [
+  { id: "mob-glute-bridge", name: "Glute Bridge (Warm-up)", category: "mobility", taxon: { pillar: "mobility", group: "Warm-up drills", sub: "Dynamic" }, dynamic: true, type: "hold", met: 3.0, perSide: false, muscles: ["Glutes", "Hamstrings", "Hip Flexors"], equipment: "Bodyweight", gear: ["none"], technique: [
     "Lie on your back, knees bent, feet flat and hip-width apart.",
     "Tuck the pelvis slightly and brace the core.",
     "Drive through the heels and lift the hips until the body is a straight line.",
@@ -1390,7 +1390,7 @@ window.EXERCISE_DB = [
   // and has its own detail page like everything above.
 
   // ---- vertical pull, to the muscle-up ----
-  { id: "dead-hang", name: "Dead Hang", category: "back", taxon: { pillar: "strength", group: "Back", sub: "Vertical pull" }, met: 2.5, type: "hold", muscles: ["Lats", "Forearms", "Grip"], equipment: "Pull-up bar", gear: ["pullup-bar"], technique: [
+  { id: "dead-hang", name: "Dead Hang", category: "back", taxon: { pillar: "strength", group: "Back", sub: "Levers & holds" }, met: 2.5, type: "hold", muscles: ["Lats", "Forearms", "Grip"], equipment: "Pull-up bar", gear: ["pullup-bar"], technique: [
     "Take an overhand grip a little wider than your shoulders and step off.",
     "Hang with arms straight and shoulders relaxed up by your ears.",
     "Keep the ribs down and the legs still — no swinging.",
@@ -1517,7 +1517,7 @@ window.EXERCISE_DB = [
   ], mistakes: ["Dropping onto the box", "Knees caving inward", "Heels lifting"],
     variations: ["Lower box", "Tempo squat", "Paused on the box"], alternatives: ["Goblet squat", "Leg press"] },
 
-  { id: "assisted-pistol-squat", name: "Assisted Pistol Squat", category: "legs", taxon: { pillar: "strength", group: "Legs", sub: "Squat" }, met: 4.5, perSide: true, muscles: ["Quadriceps", "Glutes", "Hamstrings", "Core"], equipment: "Bodyweight + support", gear: ["none"], technique: [
+  { id: "assisted-pistol-squat", name: "Assisted Pistol Squat", category: "legs", taxon: { pillar: "strength", group: "Legs", sub: "Single leg" }, met: 4.5, perSide: true, muscles: ["Quadriceps", "Glutes", "Hamstrings", "Core"], equipment: "Bodyweight + support", gear: ["none"], technique: [
     "Hold a doorframe, TRX or upright with one or both hands.",
     "Stand on one leg with the other extended in front.",
     "Lower under control as deep as you can, using the hands only as much as you need.",
@@ -1526,7 +1526,7 @@ window.EXERCISE_DB = [
   ], mistakes: ["Pulling up with the arms instead of the leg", "Heel lifting", "Free leg touching down"],
     variations: ["Box pistol", "Counterweight pistol", "Fewer fingers on the support"], alternatives: ["Bulgarian split squat", "Step-up"] },
 
-  { id: "pistol-squat", name: "Pistol Squat", category: "legs", taxon: { pillar: "strength", group: "Legs", sub: "Squat" }, met: 5.5, perSide: true, muscles: ["Quadriceps", "Glutes", "Hamstrings", "Core"], equipment: "Bodyweight", gear: ["none"], technique: [
+  { id: "pistol-squat", name: "Pistol Squat", category: "legs", taxon: { pillar: "strength", group: "Legs", sub: "Single leg" }, met: 5.5, perSide: true, muscles: ["Quadriceps", "Glutes", "Hamstrings", "Core"], equipment: "Bodyweight", gear: ["none"], technique: [
     "Stand on one leg, other leg extended straight in front, arms forward for balance.",
     "Sit back and down under control until the hamstring meets the calf.",
     "Keep the heel planted and the extended leg off the floor throughout.",
@@ -1535,7 +1535,7 @@ window.EXERCISE_DB = [
     variations: ["Weighted pistol", "Deficit pistol", "Slow tempo"], alternatives: ["Assisted pistol squat", "Bulgarian split squat"] },
 
   // ---- the front lever ----
-  { id: "tuck-front-lever", name: "Tuck Front Lever", category: "core", taxon: { pillar: "strength", group: "Back", sub: "Vertical pull" }, met: 4, type: "hold", muscles: ["Lats", "Core", "Rhomboids", "Rear Deltoids"], equipment: "Pull-up bar", gear: ["pullup-bar"], technique: [
+  { id: "tuck-front-lever", name: "Tuck Front Lever", category: "core", taxon: { pillar: "strength", group: "Back", sub: "Levers & holds" }, met: 4, type: "hold", muscles: ["Lats", "Core", "Rhomboids", "Rear Deltoids"], equipment: "Pull-up bar", gear: ["pullup-bar"], technique: [
     "Hang from the bar and pull the shoulders down and back.",
     "Tuck the knees to the chest and lean back until the back is parallel to the floor.",
     "Keep the arms straight — bent arms make it a different exercise.",
@@ -1543,7 +1543,7 @@ window.EXERCISE_DB = [
   ], mistakes: ["Bending the arms", "Hips below the shoulders", "Holding the breath"],
     variations: ["Advanced tuck", "One-leg tuck"], alternatives: ["Hollow hold", "Straight-arm pulldown"] },
 
-  { id: "advanced-tuck-front-lever", name: "Advanced Tuck Front Lever", category: "core", taxon: { pillar: "strength", group: "Back", sub: "Vertical pull" }, met: 4.5, type: "hold", muscles: ["Lats", "Core", "Rhomboids", "Rear Deltoids"], equipment: "Pull-up bar", gear: ["pullup-bar"], technique: [
+  { id: "advanced-tuck-front-lever", name: "Advanced Tuck Front Lever", category: "core", taxon: { pillar: "strength", group: "Back", sub: "Levers & holds" }, met: 4.5, type: "hold", muscles: ["Lats", "Core", "Rhomboids", "Rear Deltoids"], equipment: "Pull-up bar", gear: ["pullup-bar"], technique: [
     "From a tuck front lever, open the hips until the back and thighs form one line.",
     "Knees stay bent, but the thighs come in line with the torso.",
     "Round the upper back slightly and keep the arms locked.",
@@ -1551,7 +1551,7 @@ window.EXERCISE_DB = [
   ], mistakes: ["Hips dropping below parallel", "Arms bending", "Opening the knees rather than the hips"],
     variations: ["One-leg extended", "Straddle"], alternatives: ["Tuck front lever", "Hanging leg raise"] },
 
-  { id: "straddle-front-lever", name: "Straddle Front Lever", category: "core", taxon: { pillar: "strength", group: "Back", sub: "Vertical pull" }, met: 5, type: "hold", muscles: ["Lats", "Core", "Rhomboids", "Glutes"], equipment: "Pull-up bar", gear: ["pullup-bar"], technique: [
+  { id: "straddle-front-lever", name: "Straddle Front Lever", category: "core", taxon: { pillar: "strength", group: "Back", sub: "Levers & holds" }, met: 5, type: "hold", muscles: ["Lats", "Core", "Rhomboids", "Glutes"], equipment: "Pull-up bar", gear: ["pullup-bar"], technique: [
     "From an advanced tuck, extend both legs out wide into a straddle.",
     "The wider the straddle, the shorter the lever and the easier the hold.",
     "Body flat and parallel to the floor, arms straight, shoulders depressed.",
@@ -1559,7 +1559,7 @@ window.EXERCISE_DB = [
   ], mistakes: ["Piking at the hips", "Legs drifting below the line", "Arms bending under fatigue"],
     variations: ["Narrower straddle", "One leg extended"], alternatives: ["Advanced tuck front lever"] },
 
-  { id: "front-lever", name: "Front Lever", category: "core", taxon: { pillar: "strength", group: "Back", sub: "Vertical pull" }, met: 6, type: "hold", muscles: ["Lats", "Core", "Rhomboids", "Glutes", "Hamstrings"], equipment: "Pull-up bar", gear: ["pullup-bar"], technique: [
+  { id: "front-lever", name: "Front Lever", category: "core", taxon: { pillar: "strength", group: "Back", sub: "Levers & holds" }, met: 6, type: "hold", muscles: ["Lats", "Core", "Rhomboids", "Glutes", "Hamstrings"], equipment: "Pull-up bar", gear: ["pullup-bar"], technique: [
     "Hang with straight arms and shoulders pulled down hard.",
     "Lift into a flat horizontal line, legs together and toes pointed.",
     "Squeeze the glutes and quads — a lever with soft legs sags.",
@@ -1568,7 +1568,7 @@ window.EXERCISE_DB = [
     variations: ["Weighted", "Front lever pull-up", "Ice cream maker"], alternatives: ["Straddle front lever"] },
 
   // ---- the handstand ----
-  { id: "pike-hold", name: "Pike Hold", category: "shoulders", taxon: { pillar: "strength", group: "Shoulders", sub: "Overhead press" }, met: 3.5, type: "hold", muscles: ["Anterior Deltoids", "Triceps", "Core", "Upper Back"], equipment: "Bodyweight", gear: ["none"], technique: [
+  { id: "pike-hold", name: "Pike Hold", category: "shoulders", taxon: { pillar: "strength", group: "Shoulders", sub: "Handstands & holds" }, met: 3.5, type: "hold", muscles: ["Anterior Deltoids", "Triceps", "Core", "Upper Back"], equipment: "Bodyweight", gear: ["none"], technique: [
     "From a push-up position, walk the feet in and lift the hips high.",
     "Straighten the arms and push the floor away, ears between the biceps.",
     "Stack the shoulders over the hands as much as your flexibility allows.",
@@ -1576,7 +1576,7 @@ window.EXERCISE_DB = [
   ], mistakes: ["Bent arms", "Head hanging below the arms", "Hips not high enough to load the shoulders"],
     variations: ["Feet elevated", "Pike push-up"], alternatives: ["Overhead press", "Wall plank"] },
 
-  { id: "wall-handstand", name: "Wall Handstand (Chest to Wall)", category: "shoulders", taxon: { pillar: "strength", group: "Shoulders", sub: "Overhead press" }, met: 4, type: "hold", muscles: ["Anterior Deltoids", "Triceps", "Core", "Upper Back"], equipment: "Bodyweight + wall", gear: ["none"], technique: [
+  { id: "wall-handstand", name: "Wall Handstand (Chest to Wall)", category: "shoulders", taxon: { pillar: "strength", group: "Shoulders", sub: "Handstands & holds" }, met: 4, type: "hold", muscles: ["Anterior Deltoids", "Triceps", "Core", "Upper Back"], equipment: "Bodyweight + wall", gear: ["none"], technique: [
     "Start in a push-up position with your feet at the wall, hands close to it.",
     "Walk the feet up the wall and the hands in until you are vertical, chest facing the wall.",
     "Squeeze the glutes and ribs down — a banana back is the usual fault.",
@@ -1584,7 +1584,7 @@ window.EXERCISE_DB = [
   ], mistakes: ["Back arching into a banana", "Hands too far from the wall", "Holding the breath"],
     variations: ["Toe pulls off the wall", "Single-leg taps"], alternatives: ["Pike hold", "Overhead press"] },
 
-  { id: "freestanding-handstand", name: "Freestanding Handstand", category: "shoulders", taxon: { pillar: "strength", group: "Shoulders", sub: "Overhead press" }, met: 4.5, type: "hold", muscles: ["Anterior Deltoids", "Triceps", "Core", "Forearms"], equipment: "Bodyweight", gear: ["none"], technique: [
+  { id: "freestanding-handstand", name: "Freestanding Handstand", category: "shoulders", taxon: { pillar: "strength", group: "Shoulders", sub: "Handstands & holds" }, met: 4.5, type: "hold", muscles: ["Anterior Deltoids", "Triceps", "Core", "Forearms"], equipment: "Bodyweight", gear: ["none"], technique: [
     "Kick up to balance with the hands shoulder width, fingers spread.",
     "Balance comes from the fingers pressing and releasing, not the shoulders.",
     "Stack wrists, shoulders and hips in one line; ribs down, glutes on.",

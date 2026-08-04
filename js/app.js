@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=245").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=246").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -9831,6 +9831,128 @@
   }
 
   // ============ EXERCISE LIBRARY ============
+  const BROWSE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h6M4 12h10M4 18h7"/><path d="M17 9l3 3-3 3"/></svg>';
+
+  /** The three pillars, in the order they are offered.
+   *
+   *  `mobility` here and `recovery` on a session template are deliberately
+   *  different words: an exercise is a stretch, a session made of stretches is
+   *  a recovery day. They describe different things and are not interchangeable
+   *  — see tests/taxonomy.js, which fails if anyone aligns them. */
+  const PILLAR_META = {
+    strength: { label: "Strength", blurb: "Lifting, by body part — plus the Olympic lifts and the complexes." },
+    conditioning: { label: "Conditioning", blurb: "Cardio, metcon, boxing, and the loaded work Hyrox is made of." },
+    mobility: { label: "Mobility", blurb: "Stretches to hold afterwards, and drills to move through before." }
+  };
+  const PILLAR_ORDER = ["strength", "conditioning", "mobility"];
+
+  /** Split a group into its leaves only when that buys something: it has to be
+   *  big enough to be worth wading through AND actually divide into more than
+   *  one kind. Ten stretches that are all static stretches is not four taps
+   *  better for being split; ten leg exercises spanning squat, hinge and calf
+   *  is. Depth follows the content rather than the diagram. */
+  const SPLIT_AT = 8;
+  function browseLeaves(rows) {
+    const subs = [...new Set(rows.map((e) => (e.taxon || {}).sub))];
+    return (rows.length > SPLIT_AT && subs.length > 1) ? subs : null;
+  }
+
+  /** Pillar → group → leaf, one level at a time, with counts at every step and
+   *  a way back. Ends by setting the library's filter and closing. */
+  function openBrowseSheet(all, current, onPick) {
+    const body = el("div", { "data-testid": "browse-sheet" });
+    const tax = (e) => e.taxon || {};
+
+    const row = ({ label, blurb, n, testid, onClick, here }) => el("button", {
+      class: "browse-row" + (here ? " is-here" : ""), type: "button", "data-testid": testid,
+      on: { click: onClick }
+    },
+      el("span", { class: "browse-row-main" },
+        el("span", { class: "browse-row-label" }, label),
+        blurb ? el("span", { class: "browse-row-blurb" }, blurb) : null),
+      el("span", { class: "browse-row-n" }, String(n)),
+      el("span", { class: "browse-row-chev", "aria-hidden": "true" }, "›")
+    );
+
+    const commit = (p) => { closeModal(); onPick(p); };
+
+    function level(path) {
+      clear(body);
+      // Where you are, and every step of it tappable so you can go back to any
+      // of them rather than only one at a time.
+      const crumbs = el("div", { class: "browse-crumbs", "data-testid": "browse-crumbs" });
+      const steps = [{ label: "All exercises", to: null }];
+      if (path) {
+        steps.push({ label: PILLAR_META[path.pillar].label, to: { pillar: path.pillar } });
+        if (path.group) steps.push({ label: path.group, to: { pillar: path.pillar, group: path.group } });
+      }
+      steps.forEach((s, i) => {
+        if (i) crumbs.appendChild(el("span", { class: "browse-sep", "aria-hidden": "true" }, "›"));
+        const last = i === steps.length - 1;
+        crumbs.appendChild(last
+          ? el("span", { class: "browse-crumb-now" }, s.label)
+          : el("button", { class: "browse-crumb-back", type: "button", on: { click: () => level(s.to) } }, s.label));
+      });
+      body.appendChild(crumbs);
+
+      if (!path) {
+        for (const p of PILLAR_ORDER) {
+          const rows = all.filter((e) => tax(e).pillar === p);
+          body.appendChild(row({
+            label: PILLAR_META[p].label, blurb: PILLAR_META[p].blurb, n: rows.length,
+            testid: "browse-pillar-" + p, onClick: () => level({ pillar: p })
+          }));
+        }
+        // The escape hatch, and the honest one: browsing is a convenience, not
+        // a gate, and search still ignores all of this.
+        body.appendChild(el("button", {
+          class: "browse-all", type: "button", "data-testid": "browse-show-all",
+          on: { click: () => commit(null) }
+        }, "Show the whole library"));
+        return;
+      }
+
+      const inPillar = all.filter((e) => tax(e).pillar === path.pillar);
+      if (!path.group) {
+        const groups = [...new Set(inPillar.map((e) => tax(e).group))];
+        for (const g of groups) {
+          const rows = inPillar.filter((e) => tax(e).group === g);
+          const leaves = browseLeaves(rows);
+          body.appendChild(row({
+            label: g, n: rows.length, testid: "browse-group",
+            // A group that does not split has nothing to drill into, so it
+            // filters immediately rather than opening a list of one thing.
+            onClick: () => (leaves ? level({ pillar: path.pillar, group: g })
+              : commit({ pillar: path.pillar, group: g }))
+          }));
+        }
+        body.appendChild(el("button", {
+          class: "browse-all", type: "button", "data-testid": "browse-whole-pillar",
+          on: { click: () => commit({ pillar: path.pillar }) }
+        }, `All ${PILLAR_META[path.pillar].label.toLowerCase()} (${inPillar.length})`));
+        return;
+      }
+
+      const inGroup = inPillar.filter((e) => tax(e).group === path.group);
+      for (const s of [...new Set(inGroup.map((e) => tax(e).sub))]) {
+        const n = inGroup.filter((e) => tax(e).sub === s).length;
+        body.appendChild(row({
+          label: s, n, testid: "browse-sub",
+          onClick: () => commit({ pillar: path.pillar, group: path.group, sub: s })
+        }));
+      }
+      body.appendChild(el("button", {
+        class: "browse-all", type: "button", "data-testid": "browse-whole-group",
+        on: { click: () => commit({ pillar: path.pillar, group: path.group }) }
+      }, `All ${path.group.toLowerCase()} (${inGroup.length})`));
+    }
+
+    // Reopening from a crumb starts where you already are, not at the top.
+    level(current ? { pillar: current.pillar, group: current.sub ? current.group : null } : null);
+    openModal("Browse", body, el("div", {},
+      el("button", { class: "btn", on: { click: closeModal } }, "Close")));
+  }
+
   async function renderLibrary(view) {
     const all = await getAllExercises();
     const bwKg = await getBodyweightKg();
@@ -9952,8 +10074,12 @@
       refresh(true);
     }
 
-    function setFromChip(cat) {
+    function setFromChip(cat, keepBrowse) {
       activeZone = cat || "all";
+      // The other half of the rule in setBrowsePath: these are two views of
+      // one axis, so choosing on either clears the other. `keepBrowse` is how
+      // setBrowsePath resets the chips without bouncing straight back.
+      if (!keepBrowse && cat && cat !== "all" && browsePath) { browsePath = null; renderBrowseBar(); }
       syncChips();
       if (bodyMapApi) bodyMapApi.setActive(activeZone);
       refresh(true);
@@ -10050,6 +10176,68 @@
       type: "search", "aria-label": "Search the exercise library" });
     controls.appendChild(searchInput);
     view.appendChild(controls);
+
+    // ---- browse by pillar ------------------------------------------------
+    // The chips below ask "which body part". This asks "what kind of training",
+    // which is the question the chips cannot ask at all: a hamstring stretch is
+    // filed under mobility and so never appears under legs, and vice versa.
+    //
+    // It is a drill-down rather than a fourth row of chips because the page
+    // already has three, and the complaint that started this was that there is
+    // too much to wade through — adding another row would have been answering
+    // it with more of the cause.
+    let browsePath = null;   // { pillar, group?, sub? }
+    const browseBar = el("div", { class: "browse-bar", "data-testid": "browse-bar" });
+
+    const taxOf = (ex) => ex.taxon || {};
+    const inPath = (ex) => {
+      if (!browsePath) return true;
+      const t = taxOf(ex);
+      if (t.pillar !== browsePath.pillar) return false;
+      if (browsePath.group && t.group !== browsePath.group) return false;
+      if (browsePath.sub && t.sub !== browsePath.sub) return false;
+      return true;
+    };
+    const pathLabel = (p) => [PILLAR_META[p.pillar].label, p.group, p.sub].filter(Boolean).join(" › ");
+
+    function setBrowsePath(p) {
+      browsePath = p;
+      // Body part and browse group are two views of one axis, so only one can
+      // be on. Left composing, "chest" plus "Legs › Squat" is an empty grid
+      // and no way to see why.
+      if (p && activeZone !== "all") setFromChip("all", true);
+      renderBrowseBar();
+      refresh(true);
+    }
+
+    function renderBrowseBar() {
+      clear(browseBar);
+      if (!browsePath) {
+        browseBar.appendChild(el("button", {
+          class: "browse-open", type: "button", "data-testid": "browse-open",
+          on: { click: () => openBrowseSheet(all, browsePath, setBrowsePath) }
+        },
+          el("span", { class: "browse-open-ic", html: BROWSE_ICON }),
+          el("span", {}, "Browse by type"),
+          el("span", { class: "browse-open-hint" }, "strength · conditioning · mobility")));
+        return;
+      }
+      browseBar.appendChild(el("button", {
+        class: "browse-crumb", type: "button", "data-testid": "browse-crumb",
+        title: "Change what you are browsing",
+        on: { click: () => openBrowseSheet(all, browsePath, setBrowsePath) }
+      },
+        el("span", { class: "browse-crumb-ic", html: BROWSE_ICON }),
+        el("span", { class: "browse-crumb-text" }, pathLabel(browsePath)),
+        el("span", { class: "browse-crumb-n" }, String(all.filter(inPath).length))));
+      browseBar.appendChild(el("button", {
+        class: "browse-clear", type: "button", "data-testid": "browse-clear",
+        "aria-label": "Show the whole library again", title: "Show the whole library again",
+        html: icons.x, on: { click: () => setBrowsePath(null) }
+      }));
+    }
+    renderBrowseBar();
+    view.appendChild(browseBar);
 
     // Muscle group filter chips (fallback + cardio / full body)
     const filterRow = el("div", { class: "filter-row" });
@@ -10183,6 +10371,7 @@
       clear(grid);
       const discSet = activeDiscipline ? disciplineIds(activeDiscipline) : null;
       const filtered = all.filter(ex => {
+        if (!inPath(ex)) return false;
         if (!matchesActiveZone(ex)) return false;
         if (discSet && !discSet.has(ex.id)) return false;
         if (!q) return true;
@@ -10207,6 +10396,11 @@
           onPrimary: () => {
             if (bodyMapApi) bodyMapApi.clear();
             searchInput.value = "";
+            // Browsing can empty the grid too — "Squat" plus a search for
+            // "curl" is nothing — so clearing has to clear that as well or
+            // the button does not do what it says.
+            browsePath = null;
+            renderBrowseBar();
             refresh(true);
           },
           primaryTestId: "empty-exercises-clear",

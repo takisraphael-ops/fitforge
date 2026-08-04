@@ -139,6 +139,25 @@ console.log('\n=== 3. the calls that were made deliberately ===');
     `${fb.length} exercises across ${new Set(fb.map((e) => tx(e).group)).size} groups`);
 }
 
+// ================= 3b. the warm-up split holds ============================
+console.log('\n=== 3b. warm-up drills stay separate from stretches ===');
+{
+  // Asked and answered: keep them apart. They serve opposite purposes — a
+  // drill before training, a stretch to hold after — and the first pass leaked
+  // two drills into the stretch leaves because their ids did not say
+  // "warm-up" in the shape the rule was looking for.
+  const mob = DB.filter((e) => tx(e).pillar === 'mobility');
+  const named = mob.filter((e) => /warm-?up/i.test(e.name));
+  check('there are exercises that name themselves warm-ups', named.length > 0, String(named.length));
+  const leaked = named.filter((e) => tx(e).group !== 'Warm-up drills');
+  check('and every one of them is filed as a drill, not a stretch',
+    leaked.length === 0, leaked.map((e) => `${e.name} → ${tx(e).group}`).join(', '));
+  const drills = mob.filter((e) => tx(e).group === 'Warm-up drills');
+  check('the drills group is worth having', drills.length >= 5, String(drills.length));
+  check('and nothing in it is filed as a stretch to hold',
+    drills.every((e) => tx(e).sub === 'Dynamic'));
+}
+
 // ================= 4. the depth rule is stable ============================
 console.log('\n=== 4. depth follows the content ===');
 {
@@ -189,10 +208,12 @@ console.log('\n=== 5. no collision with the names already in use ===');
     sessionPillars.has('recovery') && !exPillars.has('recovery') && exPillars.has('mobility'),
     `sessions: ${[...sessionPillars].join('/')}  ·  exercises: ${[...exPillars].join('/')}`);
 
-  // Step 1 ships no behaviour on purpose. When the pillar screen is built this
-  // goes in the same commit that makes it false — which is the point: it makes
-  // "data-only" a claim the suite can hold you to.
-  check('nothing reads taxon yet — this is a data-only step', !/\.taxon\b/.test(app));
+  // Step 1 shipped no behaviour, and this check asserted exactly that. Step 2
+  // built the browse screen, so it was deleted in the commit that made it
+  // false — which was the point of writing it that way. What replaces it is
+  // the opposite claim: the classification is load-bearing now.
+  check('the browse screen reads taxon', /\.taxon\b/.test(app));
+  check('and the split rule lives in one place', /const SPLIT_AT/.test(app));
 }
 
 console.log(`\n${fails} failing check${fails === 1 ? '' : 's'}`);

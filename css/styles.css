@@ -6732,3 +6732,84 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
    caption says so. Tinted because it is an explanation of an absence, not a
    reading of the figure. */
 .map-mode-caption.is-flat { color: var(--text-faint); }
+
+/* ============ Browse by pillar ============ */
+/* One row, not a fourth row of chips. The page already has search, body-part
+   chips, discipline chips and a sort — the complaint that started this was
+   that there is too much to wade through, and another chip row would have
+   been answering it with more of the cause. */
+.browse-bar { display: flex; align-items: stretch; gap: 8px; margin: 0 0 10px; }
+.browse-open, .browse-crumb {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: 9px;
+  padding: 11px 13px; text-align: left; cursor: pointer;
+  border: 1px dashed var(--border); border-radius: var(--radius);
+  background: transparent; color: inherit;
+  transition: border-color .16s ease, background .16s ease, color .16s ease;
+}
+.browse-open:hover, .browse-open:focus-visible,
+.browse-crumb:hover, .browse-crumb:focus-visible { border-color: var(--accent); color: var(--accent); }
+.browse-open-ic, .browse-crumb-ic { flex: none; width: 17px; height: 17px; color: var(--accent); }
+.browse-open-ic svg, .browse-crumb-ic svg { width: 100%; height: 100%; }
+.browse-open { font-size: 14px; font-weight: 700; }
+.browse-open-hint {
+  margin-left: auto; flex: none;
+  font-size: 11px; font-weight: 600; letter-spacing: .01em; color: var(--text-faint);
+}
+/* Active: solid rather than dashed, because it is now doing something. */
+.browse-crumb { border-style: solid; border-color: var(--accent); background: var(--accent-soft, transparent); }
+.browse-crumb-text {
+  flex: 1 1 auto; min-width: 0; font-size: 14px; font-weight: 700;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.browse-crumb-n {
+  flex: none; font-size: 12px; font-weight: 800; color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.browse-clear {
+  flex: none; width: 42px; display: grid; place-items: center; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: transparent; color: var(--text-faint);
+}
+.browse-clear svg { width: 15px; height: 15px; }
+.browse-clear:hover, .browse-clear:focus-visible { color: var(--danger); border-color: var(--danger); }
+
+/* ---- the drill-down ---- */
+.browse-crumbs {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+  font-size: 12.5px; margin: 0 0 12px; color: var(--text-faint);
+}
+.browse-crumb-back {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--accent); font: inherit; font-weight: 700;
+}
+.browse-crumb-back:hover { text-decoration: underline; }
+.browse-crumb-now { font-weight: 700; color: var(--text); }
+.browse-sep { color: var(--text-faint); }
+
+.browse-row {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 13px 14px; margin-bottom: 7px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-sunken); color: inherit;
+  transition: border-color .16s ease, transform .12s var(--ease-spring);
+}
+.browse-row:hover, .browse-row:focus-visible { border-color: var(--accent); }
+.browse-row:active { transform: scale(.99); }
+.browse-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.browse-row-label { font-size: 15px; font-weight: 700; }
+.browse-row-blurb { font-size: 12px; color: var(--text-muted); line-height: 1.45; }
+/* The count is the point: it says whether the room is worth entering. */
+.browse-row-n {
+  flex: none; font-size: 13px; font-weight: 800; color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.browse-row-chev { flex: none; color: var(--text-faint); font-size: 18px; line-height: 1; }
+
+.browse-all {
+  display: block; width: 100%; margin-top: 4px; padding: 11px;
+  border: 1px dashed var(--border); border-radius: var(--radius);
+  background: transparent; color: var(--text-muted);
+  font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.browse-all:hover, .browse-all:focus-visible { border-color: var(--accent); color: var(--accent); }
