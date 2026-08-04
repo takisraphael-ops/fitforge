@@ -6756,17 +6756,25 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
    chips, discipline chips and a sort — the complaint that started this was
    that there is too much to wade through, and another chip row would have
    been answering it with more of the cause. */
-.browse-bar { display: flex; align-items: stretch; gap: 8px; margin: 0 0 10px; }
+/* One panel, two rows, a hairline between them. Each row used to carry its own
+   dashed outline, which made a matched pair look like two unrelated leftovers
+   — and dashed means "an offer" everywhere else, which these stopped being the
+   moment one of them was on. */
+.libfilters {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: hidden; margin: 0 0 10px;
+}
+.libfilters > * + * { border-top: 1px solid var(--border); }
+.browse-bar { display: flex; align-items: stretch; gap: 8px; margin: 0; }
 .browse-open, .browse-crumb {
   flex: 1 1 auto; min-width: 0;
   display: flex; align-items: center; gap: 9px;
-  padding: 11px 13px; text-align: left; cursor: pointer;
-  border: 1px dashed var(--border); border-radius: var(--radius);
-  background: transparent; color: inherit;
-  transition: border-color .16s ease, background .16s ease, color .16s ease;
+  padding: 12px 13px; text-align: left; cursor: pointer;
+  border: 0; background: transparent; color: inherit;
+  transition: background .16s ease, color .16s ease;
 }
 .browse-open:hover, .browse-open:focus-visible,
-.browse-crumb:hover, .browse-crumb:focus-visible { border-color: var(--accent); color: var(--accent); }
+.browse-crumb:hover, .browse-crumb:focus-visible { color: var(--accent); }
 .browse-open-ic, .browse-crumb-ic { flex: none; width: 17px; height: 17px; color: var(--accent); }
 .browse-open-ic svg, .browse-crumb-ic svg { width: 100%; height: 100%; }
 .browse-open { font-size: 14px; font-weight: 700; }
@@ -6774,8 +6782,9 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
   margin-left: auto; flex: none;
   font-size: 11px; font-weight: 600; letter-spacing: .01em; color: var(--text-faint);
 }
-/* Active: solid rather than dashed, because it is now doing something. */
-.browse-crumb { border-style: solid; border-color: var(--accent); background: var(--accent-soft, transparent); }
+/* On: a rail down the leading edge and a tinted ground. Enough to say which
+   row is doing something without either of them shouting. */
+.browse-crumb { background: var(--accent-soft, transparent); box-shadow: inset 3px 0 0 var(--accent); }
 .browse-crumb-text {
   flex: 1 1 auto; min-width: 0; font-size: 14px; font-weight: 700;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -6785,12 +6794,12 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
   font-variant-numeric: tabular-nums;
 }
 .browse-clear {
-  flex: none; width: 42px; display: grid; place-items: center; cursor: pointer;
-  border: 1px solid var(--border); border-radius: var(--radius);
+  flex: none; width: 44px; display: grid; place-items: center; cursor: pointer;
+  border: 0; border-left: 1px solid var(--border);
   background: transparent; color: var(--text-faint);
 }
 .browse-clear svg { width: 15px; height: 15px; }
-.browse-clear:hover, .browse-clear:focus-visible { color: var(--danger); border-color: var(--danger); }
+.browse-clear:hover, .browse-clear:focus-visible { color: var(--danger); }
 
 /* ---- the drill-down ---- */
 .browse-crumbs {
@@ -6836,18 +6845,17 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
 /* Same shape as the browse line, one below it. Two rows of chips became two
    buttons; the page went from four control rows to three while gaining a
    filter it never had. */
-.refine-bar { display: flex; align-items: stretch; gap: 8px; margin: 0 0 10px; }
+.refine-bar { display: flex; align-items: stretch; gap: 8px; margin: 0; }
 .refine-open {
   flex: 1 1 auto; min-width: 0;
   display: flex; align-items: center; gap: 9px;
-  padding: 11px 13px; text-align: left; cursor: pointer;
-  border: 1px dashed var(--border); border-radius: var(--radius);
-  background: transparent; color: inherit;
+  padding: 12px 13px; text-align: left; cursor: pointer;
+  border: 0; background: transparent; color: inherit;
   font-size: 14px; font-weight: 700;
-  transition: border-color .16s ease, background .16s ease, color .16s ease;
+  transition: background .16s ease, color .16s ease;
 }
-.refine-open:hover, .refine-open:focus-visible { border-color: var(--accent); color: var(--accent); }
-.refine-open.is-on { border-style: solid; border-color: var(--accent); background: var(--accent-soft, transparent); }
+.refine-open:hover, .refine-open:focus-visible { color: var(--accent); }
+.refine-open.is-on { background: var(--accent-soft, transparent); box-shadow: inset 3px 0 0 var(--accent); }
 .refine-ic { flex: none; width: 17px; height: 17px; color: var(--accent); }
 .refine-ic svg { width: 100%; height: 100%; }
 .refine-hint {
@@ -6899,9 +6907,27 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
   from { opacity: 0; transform: translate(-50%, -50%) scale(.86); }
   to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
-/* On a ring the slices sit all the way round, so the label under the lowest
-   one has the screen edge below it rather than more menu. */
-.radial-ring .radial-slice-label { text-shadow: 0 1px 3px var(--bg); }
+/* The line the spokes sit on. Behind everything, and faint enough that it
+   reads as structure rather than as another element competing for attention. */
+.radial-ringline {
+  position: absolute; transform: translate(-50%, -50%);
+  border-radius: 50%; pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--text-faint) 22%, transparent);
+  animation: radialHubIn .26s var(--ease-spring) both;
+}
+/* A pill, not a text-shadow. A shadow is a way of coping with an unknown
+   background; a ring sits over whatever the screen was showing, so give the
+   label a ground of its own and stop guessing. Matches the count badges. */
+.radial-ring .radial-slice-label {
+  text-shadow: none;
+  padding: 2px 8px; border-radius: 9px;
+  background: color-mix(in srgb, var(--bg-elev) 88%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-faint) 12%, transparent);
+}
+.radial-ring .radial-slice.is-aimed .radial-slice-label {
+  background: var(--accent); color: var(--bg);
+  box-shadow: none;
+}
 @media (prefers-reduced-motion: reduce) {
-  .radial-hub { animation: none; }
+  .radial-hub, .radial-ringline { animation: none; }
 }

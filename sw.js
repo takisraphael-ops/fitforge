@@ -1,6 +1,6 @@
 // Service Worker — network-first for app code so bug fixes propagate, cache-first for icons/fonts
 // IMPORTANT: bump CACHE version whenever app JS/CSS/HTML changes materially so old clients recover.
-const CACHE = "fitforge-v249";
+const CACHE = "fitforge-v250";
 // Derived from CACHE, not hand-listed. This was pinned at ?v=156 while the app
 // shipped ?v=165 — and cache keys include the query string, so not one
 // precached script could ever serve a real request. The list and the version

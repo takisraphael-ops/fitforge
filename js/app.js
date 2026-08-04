@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=249").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=250").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -2581,9 +2581,12 @@
      *  layout renders: a slice is icon, a 6px gap, then a 16px label, the lot
      *  centred on the placed point. */
     function legibleRing(pts, ICON) {
-      const LGAP = 6, LH = 16, H = ICON + LGAP + LH;
+      // LPAD: a ring label sits on a pill rather than bare text, which makes it
+      // wider than the string. Modelled here or the pills touch at the radius
+      // this says is fine.
+      const LGAP = 6, LH = 20, LPAD = 16, H = ICON + LGAP + LH;
       const box = (p) => {
-        const w = Math.max(40, String(p.item.label || "").length * 7);
+        const w = Math.max(40, String(p.item.label || "").length * 7) + LPAD;
         return {
           icon: { l: p.x - ICON / 2, r: p.x + ICON / 2, t: p.y - H / 2, b: p.y - H / 2 + ICON },
           label: { l: p.x - w / 2, r: p.x + w / 2, t: p.y + H / 2 - LH, b: p.y + H / 2 }
@@ -2732,6 +2735,14 @@
       if (opts.compact && !ring) overlay.classList.add("radial-compact");
       if (ring) {
         overlay.classList.add("radial-ring");
+        // The line the spokes sit on. Without it this is seven circles and a
+        // word that happen to be arranged in a circle; with it, it is a dial.
+        // Drawn from the same radius the layout settled on, so it cannot drift
+        // away from the slices it is threading.
+        overlay.appendChild(el("div", {
+          class: "radial-ringline", "aria-hidden": "true",
+          style: `left:${ax}px; top:${ay}px; width:${ring.r * 2}px; height:${ring.r * 2}px`
+        }));
         // The empty middle, saying what the menu is for. Not a button: the
         // dead zone was always there, and this only makes it visible.
         overlay.appendChild(el("div", {
@@ -10368,8 +10379,13 @@
         html: icons.x, on: { click: () => setBrowsePath(null) }
       }));
     }
+    // Browse and Refine are a pair — one narrows by what a thing is, the other
+    // by what it needs and how it is trained — so they are one panel with a
+    // divider rather than two dashed rows that happen to be stacked. Two
+    // identical dashed outlines read as two leftovers.
+    const filterPanel = el("div", { class: "libfilters", "data-testid": "library-filters" });
     renderBrowseBar();
-    view.appendChild(browseBar);
+    filterPanel.appendChild(browseBar);
 
     // Body-part chips — the fallback, not a fixture.
     //
@@ -10520,7 +10536,8 @@
     }
 
     renderRefineBar();
-    view.appendChild(refineBar);
+    filterPanel.appendChild(refineBar);
+    view.appendChild(filterPanel);
     view.appendChild(discNote);
 
     // Sort control — order the library by your training relationship.
