@@ -515,6 +515,85 @@ const check = (label, ok, detail = '') => {
     await dismiss();
   }
 
+  // =============== 10. changing level does not blink ========================
+  console.log('\n=== 10. More and Back repaint the ring, not the screen ===');
+  {
+    // "More" used to close the menu and open a new one on a zero-delay timer.
+    // Between those two the overlay was out of the document, so the scrim, the
+    // blur, the ring and every spoke went with it and the screen behind flashed
+    // through for a frame — then the whole entrance replayed. It read as a
+    // jolt because it was one.
+    //
+    // Sampled across the swap rather than at the end, because the end looks
+    // identical either way. What is being asserted is that there is never a
+    // frame with no menu on it.
+    await dismiss();
+    await openPicker();
+    const d = await dialAt();
+    await page.mouse.move(d.x, d.y); await page.mouse.down();
+    await page.waitForTimeout(120); await page.mouse.up();
+    await page.waitForTimeout(300);
+
+    const sample = () => page.evaluate(() => {
+      const o = document.querySelector('[data-testid="radial-overlay"]');
+      if (!o) return { up: false };
+      return {
+        up: true,
+        scrim: !!o.querySelector('.radial-scrim'),
+        ringline: !!o.querySelector('.radial-ringline'),
+        hub: !!o.querySelector('[data-testid="radial-hub"]'),
+        leaving: o.querySelectorAll('.radial-slice.is-leaving').length,
+        fresh: o.querySelectorAll('.radial-slice:not(.is-leaving)').length
+      };
+    });
+    await page.click('[data-testid="radial-cat-more"]');
+    const frames = [];
+    for (const gap of [0, 30, 40, 50, 60]) {
+      await page.waitForTimeout(gap);
+      frames.push(await sample());
+    }
+    check('the menu is on screen in every frame of the swap',
+      frames.every((f) => f.up && f.scrim && f.ringline && f.hub),
+      JSON.stringify(frames));
+    // The point of keeping the overlay is the cross-dissolve; without an exit
+    // the outgoing spokes would simply be gone by the first sample.
+    check('the outgoing spokes leave rather than vanish',
+      frames[0].leaving > 0 && frames[0].fresh > 0, JSON.stringify(frames[0]));
+    // And they must not linger: two levels' worth of spokes on the ring is its
+    // own kind of mess.
+    await page.waitForTimeout(400);
+    const settled = await sample();
+    check('and they are gone once it settles', settled.leaving === 0 && settled.fresh > 1,
+      JSON.stringify(settled));
+
+    // Aiming has to work on the new level. The dead-zone guard measures from
+    // where the press began, and that press ended two levels ago — left as it
+    // was, the second ring would refuse every aim.
+    const hub = await page.evaluate(() => {
+      const h = document.querySelector('[data-testid="radial-hub"]').getBoundingClientRect();
+      return { x: h.left + h.width / 2, y: h.top + h.height / 2 };
+    });
+    await page.mouse.move(hub.x, hub.y - 130, { steps: 8 });
+    await page.waitForTimeout(200);
+    check('and the new level can be aimed at',
+      await page.evaluate(() => !!document.querySelector('.radial-slice.is-aimed')));
+
+    // Back is the same move in reverse, and it is the one that would be left
+    // behind by a fix that only special-cased More.
+    await page.click('[data-testid="radial-cat-back"]');
+    const backFrames = [];
+    for (const gap of [0, 40, 50]) {
+      await page.waitForTimeout(gap);
+      backFrames.push(await sample());
+    }
+    check('Back repaints in place too', backFrames.every((f) => f.up && f.scrim && f.hub),
+      JSON.stringify(backFrames));
+    await page.waitForTimeout(400);
+    check('and lands on the body parts',
+      (await spokes()).includes('radial-cat-chest'), (await spokes()).join(','));
+    await dismiss();
+  }
+
   console.log('\nERRORS:', errs.length ? errs : 'none');
   console.log(`\n${fails} failing check${fails === 1 ? '' : 's'}`);
   await b.close();

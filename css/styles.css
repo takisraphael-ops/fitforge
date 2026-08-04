@@ -788,19 +788,42 @@ button, a, [role="button"], input, textarea, select, .xpick-chip, .xrow, .xpick-
 .exercise-card.is-trained { border-color: color-mix(in srgb, var(--accent) 26%, var(--border)); }
 .exercise-card .xrow-fig { flex: none; }
 .exercise-card-main { flex: 1; min-width: 0; }
-.exercise-card-name { font-weight: 700; font-size: 15px; margin-bottom: 3px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
-.exercise-card-meta { font-size: 12px; color: var(--text-muted); }
-.exercise-card-muscles { font-size: 12px; color: var(--text-faint); margin-top: 5px; }
-.exercise-card-stat { font-size: 12px; color: var(--accent); margin-top: 5px; font-weight: 600; }
+/* Three lines that differ in size and weight, not only in colour. They used to
+   be 12px muted, 12px faint and 12px accent, so the eye had nothing to land on
+   and the name lost the card. */
+.exercise-card-top { display: flex; align-items: flex-start; gap: 8px; }
+.exercise-card-name {
+  flex: 1; min-width: 0;
+  font-weight: 700; font-size: 15.5px; line-height: 1.25; letter-spacing: -.01em;
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+}
+/* One line, ellipsed. Left to wrap it broke numbers across lines — "≈ 6.9 /
+   kcal/min" — and made a two-line card three or four. The full list is in the
+   detail sheet, and the title attribute carries it here. */
+.exercise-card-meta {
+  font-size: 12px; color: var(--text-faint); margin-top: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.exercise-card-meta .ex-side-chip { margin-right: 7px; vertical-align: 1px; }
+.exercise-card-stat {
+  display: flex; align-items: center;
+  font-size: 11px; color: var(--text-muted); margin-top: 6px; font-weight: 600;
+}
+/* The tier keeps its colour; the recency and the count do not. The whole row
+   used to be accent, which made "3 sessions" shout as loudly as the name. */
+.ex-stat-when { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ex-pr-chip {
   display: inline-flex; align-items: center; gap: 3px;
   padding: 2px 7px 2px 5px; border-radius: 100px; font-size: 11px; font-weight: 800;
   color: var(--pr-gold, #e8b64a); background: color-mix(in srgb, var(--pr-gold, #e8b64a) 15%, transparent);
   border: 1px solid color-mix(in srgb, var(--pr-gold, #e8b64a) 34%, transparent);
 }
+.exercise-card-top > .ex-pr-chip { flex: none; margin-top: 1px; }
 .ex-pr-ic { display: inline-flex; width: 11px; height: 11px; }
 .ex-pr-ic svg { width: 100%; height: 100%; }
-.exercise-card-spark { flex: none; width: 58px; opacity: .9; }
+/* Sits at the end of the line it describes. As a third column of the card it
+   was vertically centred against all three rows and belonged to none of them. */
+.exercise-card-spark { flex: none; margin-left: auto; padding-left: 8px; line-height: 0; opacity: .85; }
 
 /* Sort control */
 .library-sort { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 2px 0 10px; }
@@ -3271,17 +3294,34 @@ input:disabled.input,
    Counting children broke the moment a hub was inserted before them: the
    scrim was child 1, so slices started at 2, and adding the hub pushed every
    delay one slice along. `of .radial-slice` counts only the things being
-   animated, so it survives anything else the overlay gains. */
+   animated, so it survives anything else the overlay gains. `:not(.is-leaving)`
+   is the same lesson once more: a level change leaves the outgoing spokes in
+   the overlay for 170ms while they animate away, and counting them would push
+   every incoming delay past the last rule here — so the new level would arrive
+   all at once, unstaggered, exactly when the stagger is doing the most work. */
 .radial-slice { animation: radialIn 170ms cubic-bezier(.2, .9, .3, 1) both; }
-.radial-slice:nth-child(2 of .radial-slice) { animation-delay: 24ms; }
-.radial-slice:nth-child(3 of .radial-slice) { animation-delay: 48ms; }
-.radial-slice:nth-child(4 of .radial-slice) { animation-delay: 68ms; }
-.radial-slice:nth-child(5 of .radial-slice) { animation-delay: 86ms; }
-.radial-slice:nth-child(6 of .radial-slice) { animation-delay: 102ms; }
-.radial-slice:nth-child(7 of .radial-slice) { animation-delay: 116ms; }
+.radial-slice:nth-child(2 of .radial-slice:not(.is-leaving)) { animation-delay: 24ms; }
+.radial-slice:nth-child(3 of .radial-slice:not(.is-leaving)) { animation-delay: 48ms; }
+.radial-slice:nth-child(4 of .radial-slice:not(.is-leaving)) { animation-delay: 68ms; }
+.radial-slice:nth-child(5 of .radial-slice:not(.is-leaving)) { animation-delay: 86ms; }
+.radial-slice:nth-child(6 of .radial-slice:not(.is-leaving)) { animation-delay: 102ms; }
+.radial-slice:nth-child(7 of .radial-slice:not(.is-leaving)) { animation-delay: 116ms; }
 @keyframes radialIn {
   from { opacity: 0; transform: translate(-50%, -50%) scale(0.68); }
   to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+/* Changing level repaints inside the overlay instead of replacing it, so the
+   spokes being replaced need an exit of their own — without one they were just
+   deleted, and a deletion in the same frame as an entrance is the jolt. They
+   shrink towards where they stood as the next set grows in, which reads as the
+   dial changing gear rather than as two menus swapping places. */
+.radial-slice.is-leaving {
+  animation: radialOut 150ms cubic-bezier(.4, 0, .85, .4) both;
+  pointer-events: none;
+}
+@keyframes radialOut {
+  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  to   { opacity: 0; transform: translate(-50%, -50%) scale(0.72); }
 }
 
 /* Aimed at — not hovered. The thumb is nowhere near it; the angle is. */
@@ -3331,6 +3371,9 @@ input:disabled.input,
    colour and by the label, so switching motion off loses nothing you need. */
 @media (prefers-reduced-motion: reduce) {
   .radial-slice { animation: none; }
+  /* Hidden rather than un-animated: with the exit switched off they would sit
+     on top of the level that replaced them until the removal timer fired. */
+  .radial-slice.is-leaving { display: none; }
   .radial-slice-ic { transition: background 130ms ease, border-color 130ms ease, color 130ms ease; }
   .radial-slice.is-aimed .radial-slice-ic { transform: none; }
   .radial-slice.is-aimed .radial-slice-ic::after { animation: none; opacity: .9; }
@@ -6915,6 +6958,14 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
   border: 1px solid color-mix(in srgb, var(--text-faint) 22%, transparent);
   animation: radialHubIn .26s var(--ease-spring) both;
 }
+/* Levels have different spoke counts, so the ring settles on a different radius
+   and can settle off-centre when it grows. Both are kept across a repaint and
+   moved, so the dial widens or tightens into the next level instead of
+   disappearing and reappearing somewhere else. */
+.radial-ringline, .radial-hub {
+  transition: width 260ms var(--ease-spring), height 260ms var(--ease-spring),
+              left 260ms var(--ease-spring), top 260ms var(--ease-spring);
+}
 /* A pill, not a text-shadow. A shadow is a way of coping with an unknown
    background; a ring sits over whatever the screen was showing, so give the
    label a ground of its own and stop guessing. Matches the count badges. */
@@ -6929,5 +6980,5 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
   box-shadow: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .radial-hub, .radial-ringline { animation: none; }
+  .radial-hub, .radial-ringline { animation: none; transition: none; }
 }

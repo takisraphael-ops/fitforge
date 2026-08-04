@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=250").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=251").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -2403,6 +2403,7 @@
   const RADIAL_HINT_MS = 130;   // a crisp tap is over before the hint appears
   const RADIAL_SLOP = 10;       // px of movement that means "this was a scroll"
   const RADIAL_DEAD = 42;       // px around the centre that selects nothing
+  const RADIAL_SWAP_MS = 170;   // how long the outgoing spokes take to leave
 
   function attachRadial(trigger, opts) {
     // Items may be a function when the menu has more than one level — the
@@ -2709,22 +2710,16 @@
       return build(base, -1) || [];
     }
 
-    function openMenu(cx, cy) {
-      if (open) return;
-      hideHint();
-      const overlay = el("div", {
-        // `radial-compact` is decided below, once we know whether this is a
-        // ring: a ring restores full-size slices even for a menu that asked
-        // to be compact, because the constraint that shrank them was the arc.
-        class: "radial-overlay", "data-testid": "radial-overlay",
-        role: "menu", "aria-label": opts.label || "Quick actions"
-      });
-      const scrim = el("div", { class: "radial-scrim" });
-      overlay.appendChild(scrim);
-
-      const slices = [];
+    /** Draw the spokes into an overlay, reusing whatever furniture is there.
+     *
+     *  Split out of openMenu so that a menu with levels can repaint inside the
+     *  surface it is already showing. `prev` is the open menu's own record when
+     *  this is a repaint and null when it is a first paint; the ring line and
+     *  the hub come from it rather than being rebuilt, because both carry an
+     *  entrance animation and re-adding them replays it. */
+    function paintMenu(overlay, cx, cy, prev) {
       const items = itemsOf();
-      if (!items.length) return;
+      if (!items.length) return null;
       // A ring once there are enough spokes to make an arc cramped, or when a
       // menu asks for one. Three items in a full circle would be three points
       // of a triangle with a hole in the middle — worse than the fan.
@@ -2732,30 +2727,50 @@
       const ring = asRing ? ringLayout(cx, cy, items) : null;
       const pts = ring ? ring.pts : layout(cx, cy, items);
       const ax = ring ? ring.cx : cx, ay = ring ? ring.cy : cy;
-      if (opts.compact && !ring) overlay.classList.add("radial-compact");
+      // `radial-compact` depends on whether this is a ring: a ring restores
+      // full-size slices even for a menu that asked to be compact, because the
+      // constraint that shrank them was the arc.
+      overlay.classList.toggle("radial-compact", !!(opts.compact && !ring));
+      overlay.classList.toggle("radial-ring", !!ring);
+      let ringline = prev ? prev.ringline : null;
+      let hub = prev ? prev.hub : null;
       if (ring) {
-        overlay.classList.add("radial-ring");
         // The line the spokes sit on. Without it this is seven circles and a
         // word that happen to be arranged in a circle; with it, it is a dial.
         // Drawn from the same radius the layout settled on, so it cannot drift
-        // away from the slices it is threading.
-        overlay.appendChild(el("div", {
-          class: "radial-ringline", "aria-hidden": "true",
-          style: `left:${ax}px; top:${ay}px; width:${ring.r * 2}px; height:${ring.r * 2}px`
-        }));
+        // away from the slices it is threading — and resized rather than
+        // replaced between levels, so the dial visibly changes gear instead of
+        // blinking out and back.
+        if (!ringline) {
+          ringline = el("div", { class: "radial-ringline", "aria-hidden": "true" });
+          overlay.appendChild(ringline);
+        }
+        // Sized after it exists, either way. On a first paint the browser has
+        // not laid it out yet, so there is nothing for the size transition to
+        // run from; on a repaint that transition is the whole point.
+        Object.assign(ringline.style, {
+          left: `${ax}px`, top: `${ay}px`,
+          width: `${ring.r * 2}px`, height: `${ring.r * 2}px`
+        });
         // The empty middle, saying what the menu is for. Not a button: the
         // dead zone was always there, and this only makes it visible.
-        overlay.appendChild(el("div", {
-          class: "radial-hub", "data-testid": "radial-hub", "aria-hidden": "true",
-          style: `left:${ax}px; top:${ay}px; width:${HUB_R * 2}px; height:${HUB_R * 2}px`
-        }, el("span", {}, opts.centre || "Choose")));
+        if (!hub) {
+          hub = el("div", {
+            class: "radial-hub", "data-testid": "radial-hub", "aria-hidden": "true",
+            style: `width:${HUB_R * 2}px; height:${HUB_R * 2}px`
+          }, el("span", {}, opts.centre || "Choose"));
+          overlay.appendChild(hub);
+        }
+        hub.style.left = `${ax}px`;
+        hub.style.top = `${ay}px`;
       }
+      const slices = [];
       pts.forEach(({ item: it, x, y }) => {
         const btn = el("button", {
           class: "radial-slice", type: "button", role: "menuitem",
           "data-testid": `radial-${it.key}`,
           style: `left:${x}px; top:${y}px`,
-          on: { click: (e) => { e.preventDefault(); e.stopPropagation(); close(); it.onPick(); } }
+          on: { click: (e) => { e.preventDefault(); e.stopPropagation(); choose(it); } }
         },
           el("span", { class: "radial-slice-ic", html: it.icon || "", "aria-hidden": "true" }),
           el("span", { class: "radial-slice-label" }, it.label)
@@ -2763,6 +2778,60 @@
         overlay.appendChild(btn);
         slices.push({ btn, x, y, item: it });
       });
+      return { slices, ax, ay, ring: !!ring, ringline, hub };
+    }
+
+    /** Acting on a slice. A `keepOpen` item changes what the menu is showing
+     *  rather than choosing from it, so it must not tear the menu down. */
+    function choose(it) {
+      if (it.keepOpen) { it.onPick(); relayout(); return; }
+      close();
+      it.onPick();
+    }
+
+    /** Repaint the spokes for a new level, in place.
+     *
+     *  This used to be close() plus an open() on a zero-delay timer, and it
+     *  showed: the overlay came out of the document, so the scrim, the blur,
+     *  the ring and every spoke vanished for a frame and the screen behind
+     *  flashed through — then the whole entrance replayed from scratch. Nothing
+     *  about a level change is a new menu, so nothing about it should look like
+     *  one. The surface stays up, the ring resizes, and the old spokes shrink
+     *  away while the new ones grow in. */
+    function relayout() {
+      if (!open) return;
+      const o = open;
+      const dying = o.slices.map((s) => s.btn);
+      for (const b of dying) { b.classList.add("is-leaving"); b.tabIndex = -1; }
+      const painted = paintMenu(o.overlay, o.baseX, o.baseY, o);
+      // Removed after their exit has run, not before it starts.
+      setTimeout(() => { for (const b of dying) b.remove(); }, RADIAL_SWAP_MS);
+      if (!painted) { close(); return; }
+      o.slices = painted.slices;
+      o.cx = painted.ax; o.cy = painted.ay;
+      o.ring = painted.ring;
+      o.ringline = painted.ringline; o.hub = painted.hub;
+      o.active = null;
+      // The dead-zone guard measures from where the press began, and that press
+      // is long over. Measuring from the new centre is what makes aiming work
+      // on the second level at all.
+      o.fromX = o.cx; o.fromY = o.cy;
+      buzz(8);
+    }
+
+    function openMenu(cx, cy) {
+      if (open) return;
+      hideHint();
+      const overlay = el("div", {
+        class: "radial-overlay", "data-testid": "radial-overlay",
+        role: "menu", "aria-label": opts.label || "Quick actions"
+      });
+      const scrim = el("div", { class: "radial-scrim" });
+      overlay.appendChild(scrim);
+
+      const painted = paintMenu(overlay, cx, cy, null);
+      if (!painted) return;
+      const { slices, ax, ay, ring } = painted;
       // Whoever gets here has found the gesture, so stop advertising it.
       if (state.prefs && !state.prefs.radialDiscovered) {
         state.prefs.radialDiscovered = true;
@@ -2785,8 +2854,11 @@
       // Aim from the ring's centre, which clamping may have moved away from
       // the thumb — and record where the press began, so aiming can wait for
       // the thumb to actually go somewhere.
+      // baseX/baseY are where the menu was summoned from, kept so a repaint can
+      // lay the next level out from the same origin the first one used.
       open = { overlay, slices, cx: ax, cy: ay, onKey, onMove, active: null,
-        ring: !!ring, fromX: startX, fromY: startY };
+        ring: !!ring, ringline: painted.ringline, hub: painted.hub,
+        baseX: cx, baseY: cy, fromX: startX, fromY: startY };
       buzz(12);
     }
 
@@ -2874,12 +2946,7 @@
       // the press began on the trigger. Swallow it in every branch.
       suppressUntil = Date.now() + 500;
       const picked = open.active;
-      if (picked) {
-        const fn = picked.item.onPick;
-        close();
-        fn();
-        return;
-      }
+      if (picked) { choose(picked.item); return; }
       // Released in the dead centre. Having travelled means "I changed my
       // mind"; never having moved means the hold was the whole gesture, so
       // leave the menu up and let it be tapped.
@@ -10656,29 +10723,54 @@
         return;
       }
       for (const ex of filtered) {
-        const kpm = U.kcalPerMin(ex, bwKg);
         const st = exStats[ex.id];
         const trained = st && st.sessions > 0;
         // Mobility is timed holds — PRs, strength tiers and e1RM trends are
         // meaningless here, so show best hold and recency instead.
         const isMob = ex.category === "mobility";
         const pr = trained ? (isMob ? (st.maxSeconds ? `${st.maxSeconds}s` : null) : prLabelFor(st)) : null;
-        const nameRow = el("div", { class: "exercise-card-name" },
-          ex.name,
-          ex.isCustom ? el("span", { class: "chip chip-accent" }, "Custom") : null,
+        // The name owns the first line and the PR is pinned to its right, out
+        // of the name's own wrap. Inside it, at 390px, "Barbell Bench Press"
+        // plus a gold chip did not fit, so the chip dropped to a line of its
+        // own directly under the name — where it read as a second heading and
+        // was the loudest thing on the card.
+        const topRow = el("div", { class: "exercise-card-top" },
+          el("div", { class: "exercise-card-name" },
+            ex.name,
+            ex.isCustom ? el("span", { class: "chip chip-accent" }, "Custom") : null
+          ),
           pr ? el("span", { class: "ex-pr-chip" + (isMob ? " is-hold" : "") },
-                isMob ? null : el("span", { class: "ex-pr-ic", html: prTrophy }), pr) : null,
-          (isMob && ex.perSide) ? el("span", { class: "ex-side-chip" }, "per side") : null
+                isMob ? null : el("span", { class: "ex-pr-ic", html: prTrophy }), pr) : null
         );
+        // What it is, in one truncating line. The body part used to lead this
+        // line and the muscle list sat on the line below it, which meant
+        // "Chest" and "Lower Pectorals" were the same fact twice. kcal/min came
+        // off with it: the detail sheet gives it at three intensities, so the
+        // card was carrying a worse copy of a number one tap away, at the same
+        // weight as the equipment you actually filter by.
+        const meta = [ex.equipment, ...(ex.muscles || [])].filter(Boolean).join(" · ")
+          || EXERCISE_CATEGORIES[ex.category];
+        // Only for holds. Ten rep-based movements carry perSide too — a pistol
+        // squat is unilateral — but nothing else in the app honours it there:
+        // logging a pistol set never asks per side. Saying it on the card
+        // would be promising a distinction the set logger does not make.
+        const perSide = isMob && ex.perSide;
         const lvl = (!isMob && trained && st.bestE1RM) ? strengthLevel(ex, st.bestE1RM, bwKg, state.prefs.sex) : null;
-        const infoRow = trained
+        // Trained cards add a third line rather than swapping the second one
+        // out, so a card gains detail as you train it instead of changing
+        // shape — the muscle list used to vanish the moment you logged a set.
+        const statRow = trained
           ? el("div", { class: "exercise-card-stat" },
               lvl ? el("span", { class: "ex-tier-dot", style: `--tier:${lvl.color}` }) : null,
-              lvl ? el("span", { class: "ex-tier-name", style: `color:${lvl.color}` }, lvl.tier + " · ") : null,
-              `${daysAgoLabel(st.lastDate)} · ${st.sessions} session${st.sessions === 1 ? "" : "s"}`)
-          : el("div", { class: "exercise-card-muscles" }, (ex.muscles || []).join(" · "));
-        const spark = (!isMob && trained && st.series.length >= 2)
-          ? el("div", { class: "exercise-card-spark" }, sparkline(st.series, { width: 58, height: 26 }))
+              lvl ? el("span", { class: "ex-tier-name", style: `color:${lvl.color}` }, lvl.tier) : null,
+              // Non-breaking: a plain leading space at the start of an inline
+              // element is collapsed away, and "Intermediate· Today" is what
+              // that looks like.
+              el("span", { class: "ex-stat-when" },
+                `${lvl ? " · " : ""}${daysAgoLabel(st.lastDate)} · ${st.sessions} session${st.sessions === 1 ? "" : "s"}`),
+              (!isMob && st.series.length >= 2)
+                ? el("span", { class: "exercise-card-spark" }, sparkline(st.series, { width: 40, height: 15 }))
+                : null)
           : null;
         grid.appendChild(el("div", {
           class: "exercise-card" + (trained ? " is-trained" : ""),
@@ -10697,12 +10789,16 @@
         },
           exerciseFigureIcon(ex.category),
           el("div", { class: "exercise-card-main" },
-            nameRow,
-            el("div", { class: "exercise-card-meta" },
-              `${EXERCISE_CATEGORIES[ex.category]} · ${ex.equipment || "—"}` + (isMob ? "" : ` · ≈ ${kpm} kcal/min`)),
-            infoRow
-          ),
-          spark
+            topRow,
+            // "per side" describes the movement, so it belongs on the line
+            // that describes the movement. Next to the name it pushed itself
+            // onto a second line on most stretches, since "Cross-Body Shoulder
+            // Stretch" plus a chip does not fit 390px.
+            el("div", { class: "exercise-card-meta", title: (perSide ? "per side · " : "") + meta },
+              perSide ? el("span", { class: "ex-side-chip" }, "per side") : null,
+              meta),
+            statRow
+          )
         ));
       }
       // Centre the first card in the wheel, then apply the magnify pass.
@@ -11359,14 +11455,16 @@
       if (dialLevel === 1) {
         return [...rest.map(spoke), {
           key: "cat-back", label: "Back", icon: icons.chevronLeft || icons.close || "←",
-          onPick: () => { dialLevel = 0; setTimeout(() => dialCtl && dialCtl.open(), 0); }
+          keepOpen: true, onPick: () => { dialLevel = 0; }
         }];
       }
       if (!rest.length) return primary.map(spoke);
       return [...primary.map(spoke), {
         key: "cat-more", label: "More", icon: icons.dots || icons.plus,
-        // A second dial rather than nine crowded spokes on the first.
-        onPick: () => { dialLevel = 1; setTimeout(() => dialCtl && dialCtl.open(), 0); }
+        // A second dial rather than nine crowded spokes on the first. keepOpen
+        // makes it a change of level inside the menu that is already up, not a
+        // close and a reopen — see relayout().
+        keepOpen: true, onPick: () => { dialLevel = 1; }
       }];
     }
 

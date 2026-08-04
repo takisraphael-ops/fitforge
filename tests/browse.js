@@ -333,6 +333,100 @@ const countIn = (p, g, s) => DB.filter((e) =>
     await c2.close();
   }
 
+  // ================= 8. the card itself ====================================
+  console.log('\n=== 8. a card has a first line, a second line and a third ===');
+  {
+    // The complaint was that everything on a card weighed the same, and it did:
+    // the body part, the equipment, the kcal/min, the muscle list and the
+    // training stat were three 12px rows that differed only in colour. Each
+    // check below is one of the specific ways that showed.
+    // Section 6 left a browse and a refine on, and section 7 ran in a context
+    // of its own. Start from a clean library rather than unpicking that.
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(2000);
+    await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"],.splash').forEach((n) => n.remove()));
+    await toLibrary();
+    await page.evaluate(() => {
+      const s = document.querySelector('[data-testid="exercise-search"], .library-search input, input[type="search"]');
+      if (s) { s.value = 'bench'; s.dispatchEvent(new Event('input', { bubbles: true })); }
+    });
+    await page.waitForTimeout(700);
+
+    const card = await page.evaluate(() => {
+      const c = document.querySelector('[data-ex-id]');
+      if (!c) return null;
+      const px = (n, p) => n ? parseFloat(getComputedStyle(n)[p]) : null;
+      const name = c.querySelector('.exercise-card-name');
+      const meta = c.querySelector('.exercise-card-meta');
+      return {
+        nameSize: px(name, 'fontSize'), metaSize: px(meta, 'fontSize'),
+        nameWeight: px(name, 'fontWeight'), metaWeight: px(meta, 'fontWeight'),
+        // One line: a wrapped meta split numbers and equipment names across
+        // rows and made a two-line card a four-line one.
+        metaH: meta ? meta.getBoundingClientRect().height : 0,
+        metaLine: meta ? parseFloat(getComputedStyle(meta).lineHeight) || 16 : 16,
+        metaText: meta ? meta.textContent : '',
+        prInName: !!(name && name.querySelector('.ex-pr-chip'))
+      };
+    });
+    check('a card was rendered to look at', !!card);
+    if (!card) throw new Error('no exercise card on the library screen');
+    check('the name outweighs the line under it',
+      card.nameSize > card.metaSize + 2 && card.nameWeight > card.metaWeight,
+      `${card.nameSize}px/${card.nameWeight} vs ${card.metaSize}px/${card.metaWeight}`);
+    check('the second line is one line', card.metaH <= card.metaLine * 1.6,
+      `${card.metaH}px on a ${card.metaLine}px line — "${card.metaText}"`);
+    // A gold chip inside the name's own wrap dropped under the name at 390px
+    // and read as a second heading.
+    check('the PR is beside the name, not inside it', !card.prInName);
+
+    // The body part used to lead the meta line while the muscles sat below it,
+    // so "Chest" and "Pectorals" were the same fact stated twice.
+    const dupes = await page.evaluate(() => {
+      const out = [];
+      for (const c of document.querySelectorAll('[data-ex-id]')) {
+        const m = (c.querySelector('.exercise-card-meta')?.textContent || '').toLowerCase();
+        for (const w of ['chest', 'back', 'shoulders', 'arms', 'legs', 'core']) {
+          // The word alone, not as part of "Upper Back" or a piece of kit.
+          if (new RegExp(`(^|·\\s*)${w}\\s*·`).test(m) && m.indexOf(w) < m.indexOf('·')) {
+            out.push(c.dataset.exId + ': ' + m);
+          }
+        }
+      }
+      return out;
+    });
+    check('no card leads with its body part and then names the muscles',
+      dupes.length === 0, dupes.slice(0, 3).join(' | '));
+
+    // Trained cards used to drop the muscle list and show a stat line instead,
+    // so a card changed shape the moment you logged a set against it.
+    await page.evaluate(async () => {
+      const d = new Date(); d.setDate(d.getDate() - 1);
+      await Storage.saveWorkout({
+        id: 'cardfx', name: 'Push', date: U.todayISO(d), startedAt: d.getTime(),
+        completedAt: d.getTime() + 3.6e6, durationSec: 3300,
+        exercises: [{ exerciseId: 'bench-press-barbell', name: 'Barbell Bench Press',
+          type: 'weighted', sets: [{ weight: 80, reps: 5, done: true }] }]
+      });
+    });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(2000);
+    await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"],.splash').forEach((n) => n.remove()));
+    await toLibrary();
+    const shape = await page.evaluate(() => {
+      const c = document.querySelector('[data-ex-id="bench-press-barbell"]');
+      if (!c) return null;
+      return {
+        meta: c.querySelector('.exercise-card-meta')?.textContent || '',
+        stat: c.querySelector('.exercise-card-stat')?.textContent || ''
+      };
+    });
+    check('a trained card still says what the exercise is', !!shape && /Barbell/.test(shape.meta),
+      shape && shape.meta);
+    check('and adds the training line rather than replacing it',
+      !!shape && /session/.test(shape.stat), shape && shape.stat);
+  }
+
   console.log('\nERRORS:', errs.length ? errs : 'none');
   console.log(`\n${fails} failing check${fails === 1 ? '' : 's'}`);
   await b.close();
