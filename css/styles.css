@@ -6667,3 +6667,68 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
 .cplx-note { margin-top: 10px; font-size: 13px; color: var(--text-muted); }
 /* The rule the app cannot enforce, said plainly rather than left implied. */
 .cplx-caveat { margin-top: 6px; font-size: 12.5px; color: var(--text-faint); }
+
+/* ============ Swipe a saved meal right to log it ============ */
+/* The row slides; the action panel sits still underneath it. The old flex row
+   moved down a level into .smeal-slide so the translate has its own element —
+   the outer item already owns a press-scale transform and the two would fight
+   over the same property. */
+/* display:block, not the inherited flex — the slide has to fill the row. As a
+   flex item it took only its content width and left the Log panel showing
+   past its right edge on every row, permanently. */
+.saved-sheet-item.smeal { display: block; position: relative; overflow: hidden; padding: 0; }
+.saved-sheet-item.smeal:active { transform: none; }   /* the swipe is the feedback */
+.smeal-slide {
+  position: relative;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 6px 6px 0;
+  background: var(--bg-elev);          /* opaque, or the panel shows through */
+  will-change: transform;
+}
+.smeal-action {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; gap: 8px;
+  padding-left: 14px;
+  background: var(--accent-soft, var(--bg-sunken));
+  color: var(--accent);
+  font-size: 14px; font-weight: 800; letter-spacing: .01em;
+}
+.smeal-action-icon { display: inline-flex; width: 17px; height: 17px; }
+.smeal-action-icon svg { width: 100%; height: 100%; }
+/* Armed: past the commit point, so it reads as "let go and this happens". */
+.smeal.is-armed .smeal-action { background: var(--accent); color: var(--bg); }
+.smeal.is-firing .smeal-action { background: var(--accent); color: var(--bg); }
+
+/* The permanent half of the affordance: a sliver of the panel showing at the
+   leading edge of every row, so the gesture has somewhere to come from. A row
+   with nothing at its edge gives no reason to try pulling it. */
+.smeal-slide::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--accent); opacity: .55;
+}
+
+/* One demonstration on first open. Long enough to read as deliberate rather
+   than as a glitch, and it only ever plays once. */
+@keyframes smealNudge {
+  0%   { transform: translateX(0); }
+  38%  { transform: translateX(56px); }
+  62%  { transform: translateX(56px); }
+  100% { transform: translateX(0); }
+}
+.smeal-slide.is-nudging { animation: smealNudge 1.15s var(--ease-spring) 1; }
+
+.smeal-hint {
+  display: flex; align-items: center; gap: 7px;
+  margin: 0 0 2px; font-size: 12.5px; color: var(--text-faint);
+}
+.smeal-hint-arrow { color: var(--accent); font-weight: 800; }
+
+@media (prefers-reduced-motion: reduce) {
+  .smeal-slide.is-nudging { animation: none; }
+  .smeal-slide { transition: none !important; }
+}
+
+/* The mobility map with no mobility logged is the training map, and the
+   caption says so. Tinted because it is an explanation of an absence, not a
+   reading of the figure. */
+.map-mode-caption.is-flat { color: var(--text-faint); }

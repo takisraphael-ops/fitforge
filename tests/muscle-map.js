@@ -53,6 +53,34 @@ const seed = async (opts) => {
       }]
     });
   }
+  if (!opts.mobility) return;
+  // Stretching only counts against training that happened. The first version
+  // of this fixture trained chest and stretched legs, so nothing was ever
+  // discounted and the two maps came out identical — which looked like the
+  // switch was dead when it was the fixture that was wrong. Legs are trained
+  // here as well as stretched, which is the only shape that shows a
+  // difference at all.
+  for (let i = 0; i < 4; i++) {
+    const d = new Date(); d.setDate(d.getDate() - (i * 2 + 1));
+    await Storage.saveWorkout({
+      id: 'l' + i, name: 'Legs', date: iso(d), startedAt: d.getTime(),
+      completedAt: d.getTime() + 3.6e6, durationSec: 3300,
+      exercises: [{
+        exerciseId: 'squat-back', name: 'Barbell Back Squat', type: 'weighted',
+        sets: [{ weight: 100, reps: 5, done: true }, { weight: 100, reps: 5, done: true }]
+      }]
+    });
+    await Storage.saveWorkout({
+      id: 'm' + i, name: 'Stretch', date: iso(d), startedAt: d.getTime(),
+      completedAt: d.getTime() + 9e5, durationSec: 900,
+      exercises: [
+        { exerciseId: 'mob-bodyweight-squat', name: 'Bodyweight Squat', type: 'hold',
+          sets: [{ seconds: 60, done: true }, { seconds: 60, done: true }] },
+        { exerciseId: 'mob-leg-swings', name: 'Leg Swings', type: 'hold',
+          sets: [{ seconds: 60, done: true }, { seconds: 60, done: true }] }
+      ]
+    });
+  }
 };
 
 (async () => {
@@ -185,6 +213,64 @@ const seed = async (opts) => {
     check('no map', !r.hasMap);
     check('the "start a workout" prompt is shown', r.hasEmptyState);
     await close();
+  }
+
+  // ============ 6. the Training / Mobility switch ==========================
+  // Mobility heat is trained x (1 - stretched). Stretch nothing and that is
+  // trained x 1 — the training map, to the pixel — so the switch does nothing
+  // whatsoever while its caption goes on describing a second reading. Since
+  // most people log no mobility work at all, that is the normal state of this
+  // control rather than an edge case, and it read as broken.
+  console.log('\n=== 6. the map modes say what they are actually showing ===');
+  {
+    const zones = (page) => page.evaluate(() =>
+      [...document.querySelectorAll('.body-map-region')].map((n) =>
+        n.getAttribute('data-zone') + ':' + ([...n.classList].find((c) => /^heat-\d$/.test(c)) || '-')).join('|'));
+    const toMap = async (page) => {
+      await page.evaluate(() => document.querySelector('[data-testid="dock-library"]').click());
+      await page.waitForTimeout(700);
+      await page.evaluate(() => document.querySelector('[data-testid="learn-fork-bodymap"]')?.click());
+      await page.waitForTimeout(1800);
+    };
+    const caption = (page) => page.textContent('[data-testid="map-mode-caption"]').catch(() => '');
+    const flat = (page) => page.getAttribute('[data-testid="map-mode-caption"]', 'data-flat').catch(() => null);
+    const pick = async (page, m) => {
+      await page.evaluate((x) => document.querySelector(`[data-testid="map-mode-${x}"]`).click(), m);
+      await page.waitForTimeout(600);
+    };
+
+    {
+      const { page, close } = await open({});   // training only, no stretching
+      await toMap(page);
+      check('the mode switch is there', !!(await page.$('[data-testid="map-mode"]')));
+      await pick(page, 'training');
+      const t = await zones(page);
+      await pick(page, 'mobility');
+      const m = await zones(page);
+      // Not a bug to be fixed by making the map differ — the maths is right.
+      // Everything trained is neglected when nothing is stretched.
+      check('with no mobility logged the two maps really are identical', t === m);
+      check('so the caption says exactly that rather than claiming a reading',
+        /no mobility work logged/i.test(await caption(page)), (await caption(page)).slice(0, 70));
+      check('and it is marked as the flat case', (await flat(page)) === '1');
+      check('it also says what would make it differ',
+        /log some stretching|will cool down/i.test(await caption(page)));
+      await close();
+    }
+    {
+      const { page, close } = await open({ mobility: true });
+      await toMap(page);
+      await pick(page, 'training');
+      const t = await zones(page);
+      await pick(page, 'mobility');
+      const m = await zones(page);
+      check('with mobility logged the map actually changes', t !== m,
+        t === m ? 'identical — the switch is dead' : 'differs');
+      check('and the caption drops the explanation', !/no mobility work logged/i.test(await caption(page)),
+        (await caption(page)).slice(0, 70));
+      check('no longer the flat case', (await flat(page)) === '0');
+      await close();
+    }
   }
 
   console.log('\nERRORS:', errs.length ? errs : 'none');

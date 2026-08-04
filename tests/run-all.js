@@ -42,6 +42,7 @@ const SUITES = [
   { name: 'scored-formats', file: 'scored-formats.js', needsServer: true },
   { name: 'benchmarks', file: 'benchmarks.js', needsServer: true },
   { name: 'complexes', file: 'complexes.js', needsServer: true },
+  { name: 'swipe-to-log', file: 'swipe-to-log.js', needsServer: true },
   { name: 'dial', file: 'dial.js', needsServer: true },
   { name: 'robustness', file: 'robustness.js', needsServer: true },
   { name: 'import', file: 'import.js', needsServer: true },

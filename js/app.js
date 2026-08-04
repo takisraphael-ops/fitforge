@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=243").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=244").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -9986,14 +9986,26 @@
 
       // Training / Mobility switch — same map, two readings of it.
       const modeCaption = el("div", { class: "map-mode-caption", "data-testid": "map-mode-caption" });
+      // Mobility heat is trained × (1 − stretched). With nothing stretched
+      // that is trained × 1 — the training map, to the pixel. The switch then
+      // does nothing whatsoever while the caption goes on claiming a second
+      // reading, and since most people log no stretching at all that is the
+      // usual state of this control rather than an edge case. Say it.
+      const stretchedZones = Object.keys(stretchHeat)
+        .filter(k => !k.endsWith("_sets") && stretchHeat[k] > 0).length;
       const setMapMode = (m) => {
         mapMode = m;
         modeRow.querySelectorAll(".map-mode-btn").forEach(b =>
           b.classList.toggle("active", b.getAttribute("data-mode") === m));
         bodyMapApi.setHeat(m === "mobility" ? attentionHeat : heat);
-        modeCaption.textContent = m === "mobility"
-          ? "Warm = trained hard but barely stretched — mobility work needed here."
-          : "Warm = trained most in the last 14 days.";
+        const flat = m === "mobility" && !stretchedZones;
+        modeCaption.textContent = m !== "mobility"
+          ? "Warm = trained most in the last 14 days."
+          : (flat
+            ? "No mobility work logged in the last 14 days, so nothing is discounted here and this is the same map as Training. Log some stretching and the zones you cover will cool down."
+            : "Warm = trained hard but barely stretched — mobility work needed here.");
+        modeCaption.classList.toggle("is-flat", flat);
+        modeCaption.setAttribute("data-flat", flat ? "1" : "0");
       };
       const modeRow = el("div", { class: "map-mode", "data-testid": "map-mode" },
         el("button", { class: "map-mode-btn active", type: "button", "data-mode": "training", "data-testid": "map-mode-training", on: { click: () => setMapMode("training") } }, "Training"),
@@ -11679,6 +11691,75 @@
     if (date !== U.todayISO()) openNutritionDayDetail(date);
   }
 
+  /** Drag a row to the right to fire its primary action.
+   *
+   *  Rightward only. Left is where a delete-by-swipe would go, and deleting a
+   *  saved meal already asks for confirmation — a gesture that skips the
+   *  confirm because your thumb went the wrong way is not a shortcut.
+   *
+   *  Not an accessibility problem, but only because tapping the row does the
+   *  same thing. A gesture is unreachable by keyboard and by a screen reader,
+   *  so it may only ever be a faster route to something already reachable —
+   *  never the only way to do it. The action panel is aria-hidden for the same
+   *  reason: it is scenery for a gesture, not a second control to announce.
+   */
+  function attachSwipeAction(row, slide, onCommit) {
+    const MAX = 132;     // furthest the row travels
+    const COMMIT = 84;   // past here, letting go fires
+    let sx = 0, sy = 0, dx = 0, axis = null, armed = false, live = false;
+
+    const setX = (x, animate) => {
+      slide.style.transition = animate ? "transform .22s var(--ease-spring)" : "none";
+      slide.style.transform = x ? `translateX(${x}px)` : "";
+    };
+
+    row.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1) { live = false; return; }
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY;
+      dx = 0; axis = null; armed = false; live = true;
+      setX(0, false);
+    }, { passive: true });
+
+    row.addEventListener("touchmove", (e) => {
+      if (!live) return;
+      const mx = e.touches[0].clientX - sx;
+      const my = e.touches[0].clientY - sy;
+      // Pick the axis once, on the first movement big enough to read, and
+      // stick to it. Deciding per-frame means a vertical scroll that drifts a
+      // few pixels sideways drags the row open under your thumb.
+      if (!axis) {
+        if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
+        axis = Math.abs(mx) > Math.abs(my) * 1.2 ? "x" : "y";
+        if (axis === "y") { live = false; return; }   // the sheet keeps its scroll
+      }
+      if (mx <= 0) { dx = 0; setX(0, false); return; }
+      e.preventDefault();                              // the gesture is ours now
+      dx = Math.min(MAX, mx * 0.82);                   // drag, so the end feels like one
+      setX(dx, false);
+      const nowArmed = dx >= COMMIT;
+      if (nowArmed !== armed) {
+        armed = nowArmed;
+        row.classList.toggle("is-armed", armed);
+        // One tick when it arms, so you know it will fire without looking.
+        if (armed) { try { if (navigator.vibrate) navigator.vibrate(15); } catch (_) {} }
+      }
+    }, { passive: false });
+
+    row.addEventListener("touchend", () => {
+      if (!live) return;
+      live = false;
+      row.classList.remove("is-armed");
+      if (dx < COMMIT) { setX(0, true); return; }
+      setX(MAX, true);
+      row.classList.add("is-firing");
+      setTimeout(onCommit, 140);
+    }, { passive: true });
+
+    row.addEventListener("touchcancel", () => {
+      live = false; row.classList.remove("is-armed"); setX(0, true);
+    }, { passive: true });
+  }
+
   // Saved meals shortcut — quick sheet to re-log a saved meal (optionally into
   // a specific section) or jump to create/edit one.
   async function openSavedMealsSheet(sectionHint = null, dateHint = null) {
@@ -11702,10 +11783,20 @@
         return;
       }
       const sorted = templates.slice().sort((a, b) => (b.lastUsedAt || b.updatedAt || 0) - (a.lastUsedAt || a.updatedAt || 0));
+      // Three signals, doing different jobs. The rail is permanent — a sliver
+      // of the Log panel showing at the left edge of every row, so the gesture
+      // has somewhere visible to come from. The hint line and the nudge are
+      // teaching aids and retire the first time a swipe lands.
+      const taught = !!(await Storage.getPref("savedSwipeUsed"));
       const list = el("div", { class: "saved-sheet-list" });
+      if (!taught) {
+        list.appendChild(el("div", { class: "smeal-hint", "data-testid": "saved-swipe-hint" },
+          el("span", { class: "smeal-hint-arrow", "aria-hidden": "true" }, "→"),
+          "Swipe a meal right to log it"));
+      }
       for (const tpl of sorted) {
         const macroLine = U.formatMacroLine(tpl);
-        list.appendChild(el("div", { class: "saved-sheet-item", "data-testid": "saved-sheet-item" },
+        const slide = el("div", { class: "smeal-slide" },
           el("button", {
             class: "saved-sheet-main", type: "button", title: `Log ${tpl.name}`,
             "data-testid": "saved-sheet-log",
@@ -11725,9 +11816,32 @@
             "data-testid": "saved-sheet-delete", html: icons.trash,
             on: { click: () => deleteSavedMeal(tpl, fill) }
           })
-        ));
+        );
+        const item = el("div", { class: "saved-sheet-item smeal", "data-testid": "saved-sheet-item" },
+          el("div", { class: "smeal-action", "aria-hidden": "true", "data-testid": "saved-swipe-action" },
+            el("span", { class: "smeal-action-icon", html: icons.check }),
+            el("span", { class: "smeal-action-label" }, "Log")),
+          slide
+        );
+        attachSwipeAction(item, slide, async () => {
+          // Retire the teaching aids the moment the gesture lands once.
+          if (!taught) Storage.setPref("savedSwipeUsed", true).catch(() => {});
+          closeModal();
+          await logMealFromTemplate(tpl, sectionHint, dateHint);
+        });
+        list.appendChild(item);
       }
       body.appendChild(list);
+
+      // One demonstration, on the first row, the first time you open this. It
+      // is the only signal that survives someone who does not read the hint.
+      // Skipped under reduced motion — a row moving on its own is exactly the
+      // thing that setting is asking us not to do — where the rail and the
+      // hint line carry it instead.
+      if (!taught && !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) {
+        const firstSlide = list.querySelector(".smeal .smeal-slide");
+        if (firstSlide) setTimeout(() => firstSlide.classList.add("is-nudging"), 420);
+      }
     }
 
     await fill();
