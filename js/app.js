@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=251").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=252").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -6738,8 +6738,16 @@
   }
 
   /** Auto-mark sets the user actually typed into but never checked off.
-      Untouched rows (replayed values, template targets) are never auto-logged. */
-  function commitFilledSets(workout) {
+      Untouched rows (replayed values, template targets) are never auto-logged.
+
+      `bwKg` is passed in rather than read here because this is synchronous and
+      the bodyweight lookup is not. It used to fall back to U.DEFAULT_BW_KG,
+      which meant the same cardio set was worth a different number of calories
+      depending on how the workout ended: tick it yourself and it costed at your
+      real weight, let Finish sweep it up and it costed at 75kg. At 100kg that
+      is a quarter of the burn missing, on a set the user did tick — just not in
+      the way that happened to be wired to their own body. */
+  function commitFilledSets(workout, bwKg) {
     let autoCommitted = 0;
     for (const ex of (workout.exercises || [])) {
       const isCardio = ex.type === "cardio";
@@ -6760,7 +6768,7 @@
             if (s.kcal == null) {
               try {
                 const met = U.getMET({ type: "cardio", category: "cardio", met: ex.met }, s.intensity || "moderate");
-                s.kcal = U.estimateKcal(met, U.DEFAULT_BW_KG, dur);
+                s.kcal = U.estimateKcal(met, bwKg, dur);
               } catch (_) {}
             }
             autoCommitted += 1;
@@ -6810,7 +6818,7 @@
     // (flashCompletedSet at :854 shows the correct idiom for this query — it
     // filters the header out by requiring a .set-done button.)
 
-    const autoN = commitFilledSets(w);
+    const autoN = commitFilledSets(w, await getBodyweightKg());
 
     // Ask FIRST, then prune. This used to assign the pruned array to
     // w.exercises before the confirm, so answering "no" returned with
@@ -7797,7 +7805,7 @@
     );
 
     const e1rm = s.done && s.weight && s.reps
-      ? U.epley(s.weight, s.reps).toFixed(1)
+      ? (U.e1rmLabel(s.weight, s.reps) || "—")
       : (s.done && isBodyweight && s.reps ? `${s.reps}` : "—");
 
     const weightInput = el("input", {
@@ -7858,7 +7866,7 @@
       s.weight = nextW;
       s.reps = nextR;
       const e1 = s.weight && s.reps
-        ? U.epley(s.weight, s.reps).toFixed(1)
+        ? (U.e1rmLabel(s.weight, s.reps) || "—")
         : (isBodyweight && s.reps ? `${s.reps}` : "—");
       e1rmCell.textContent = e1;
       toolsE1.textContent = `e1RM ${e1}`;
@@ -14709,11 +14717,12 @@
           del
         );
       }
-      const e1 = el("div", { class: "mono text-muted set-edit-e1rm", style: "text-align:center" },
-        s.weight && s.reps ? `e1RM ${U.epley(s.weight, s.reps).toFixed(1)}` : "—");
-      const refreshE1 = () => {
-        e1.textContent = s.weight && s.reps ? `e1RM ${U.epley(s.weight, s.reps).toFixed(1)}` : "—";
+      const e1Text = () => {
+        const l = U.e1rmLabel(s.weight, s.reps);
+        return l ? `e1RM ${l}` : "—";
       };
+      const e1 = el("div", { class: "mono text-muted set-edit-e1rm", style: "text-align:center" }, e1Text());
+      const refreshE1 = () => { e1.textContent = e1Text(); };
       return el("div", { class: "set-row set-row-edit" + (s.drop ? " is-drop" : ""), style: "grid-template-columns: 34px 1fr 1fr 1fr 36px" },
         el("div", { class: "set-index" }, String(i + 1) + (s.drop ? " •" : "")),
         // wheel takes a range config, not a name. Passing the strings
@@ -16480,7 +16489,7 @@
     for (const w of workouts) {
       for (const ex of (w.exercises || [])) {
         for (const [i, s] of ex.sets.entries()) {
-          rows.push([w.date, w.name || "", ex.name, i + 1, s.weight, s.reps, U.epley(s.weight, s.reps).toFixed(1), s.isPR ? "Y" : ""]);
+          rows.push([w.date, w.name || "", ex.name, i + 1, s.weight, s.reps, U.e1rmLabel(s.weight, s.reps) || "", s.isPR ? "Y" : ""]);
         }
       }
     }

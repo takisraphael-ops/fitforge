@@ -250,10 +250,32 @@ window.U = {
       ? [20.4117, 15.8757, 11.3398, 4.5359, 2.2680, 1.1340]   // 45/35/25/10/5/2.5 lb
       : [25, 20, 15, 10, 5, 2.5, 1.25];
   },
+  // Past this many reps a one-rep-max estimate stops being an estimate.
+  //
+  // Epley holds to about 3% up to ten reps and is still usable at twelve. Past
+  // that it climbs away from reality: at twenty reps it claims you could lift
+  // 1.67x the bar you just did twenty with, which is true of almost nobody —
+  // high-rep capacity is largely a different quality from maximal strength, and
+  // no rep-max formula can convert between them. Brzycki and Lombardi disagree
+  // with Epley and with each other by more than 15% out there, which is itself
+  // the tell: the model has run out.
+  //
+  // So the app stops rather than rounding a fiction to one decimal place. This
+  // is the same rule the progression gates live by — a number the app cannot
+  // stand behind does not get shown.
+  E1RM_MAX_REPS: 12,
   epley(weight, reps) {
     if (!weight || !reps) return 0;
     if (reps === 1) return weight;
+    if (reps > U.E1RM_MAX_REPS) return 0;
     return weight * (1 + reps / 30);
+  },
+  /** The e1RM as display text, or null when the set cannot honestly give one.
+   *  One place, so the four screens that print it cannot drift apart on when
+   *  to print nothing. */
+  e1rmLabel(weight, reps) {
+    const e = U.epley(weight, reps);
+    return e > 0 ? e.toFixed(1) : null;
   },
   // Both tolerate a missing list. They are called on whatever is in storage,
   // and an exercise entry saved without a `sets` array — an older format, a
@@ -310,16 +332,31 @@ window.U = {
     }
     return base;
   },
+  /** METs above resting — what the activity actually costs you.
+   *
+   *  A MET is a multiple of resting metabolism, so a 5-MET exercise burns five
+   *  times resting, of which one times resting was going to be spent anyway:
+   *  lying on the sofa for that hour is not free. The energy the training added
+   *  is the other four. Every figure here used to be gross, which overstated
+   *  lifting by about a quarter and stretching — MET 2.0 to 3.5 across the
+   *  thirty mobility exercises — by roughly three quarters.
+   *
+   *  It matters twice over, because the budget adds workout kcal on top of a
+   *  lifestyle TDEE that already contains a full day of resting metabolism.
+   *  Gross numbers charged that hour's resting burn to both sides. */
+  netMET(met) {
+    return Math.max(0, (Number(met) || 0) - 1);
+  },
   estimateKcal(met, bodyweightKg, durationMin) {
     if (!met || !durationMin || durationMin <= 0) return 0;
     const bw = bodyweightKg > 0 ? bodyweightKg : U.DEFAULT_BW_KG;
-    return Math.max(0, Math.round(met * bw * (durationMin / 60)));
+    return Math.max(0, Math.round(U.netMET(met) * bw * (durationMin / 60)));
   },
   /** Approx kcal/min at a given bodyweight for library display. */
   kcalPerMin(ex, bodyweightKg, intensity = "moderate") {
     const met = U.getMET(ex, intensity);
     const bw = bodyweightKg > 0 ? bodyweightKg : U.DEFAULT_BW_KG;
-    return Math.round((met * bw / 60) * 10) / 10;
+    return Math.round((U.netMET(met) * bw / 60) * 10) / 10;
   },
   /** Sum kcal across done sets (uses stored s.kcal when present). */
   setsKcal(sets) {

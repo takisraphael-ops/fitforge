@@ -32,13 +32,13 @@ const check = (label, ok, detail = '') => { if (!ok) fails++; console.log(`   ${
 
   const PREFS = { onboarded: true, sex: 'male', dob: '1995-04-12', heightCm: 180, activityLevel: 'moderate', kcalGoal: 2200, warmupPrompt: false };
 
-  const seed = (exercises) => page.evaluate(async ({ ex, prefs }) => {
+  const seed = (exercises, bwKg = 82) => page.evaluate(async ({ ex, prefs, bw }) => {
     await Storage.clearAll();
     for (const [k, v] of Object.entries(prefs)) await Storage.setPref(k, v);
-    await Storage.saveBodyweight({ date: U.todayISO(), kg: 82 });
+    await Storage.saveBodyweight({ date: U.todayISO(), kg: bw });
     await Storage.saveWorkout({ id: 'aw', name: 'Session', date: U.todayISO(), startedAt: Date.now() - 6e5, exercises: ex });
     await Storage.setPref('activeWorkoutId', 'aw');
-  }, { ex: exercises, prefs: PREFS });
+  }, { ex: exercises, prefs: PREFS, bw: bwKg });
 
   const open = async () => {
     await page.reload({ waitUntil: 'load' });
@@ -78,7 +78,7 @@ const check = (label, ok, detail = '') => { if (!ok) fails++; console.log(`   ${
       completed: !!w.completedAt,
       ex: (w.exercises || []).map(e => ({
         n: e.name, t: e.type,
-        sets: (e.sets || []).map(s => ({ w: s.weight, r: s.reps, sec: s.seconds, min: s.durationMin, done: s.done }))
+        sets: (e.sets || []).map(s => ({ w: s.weight, r: s.reps, sec: s.seconds, min: s.durationMin, k: s.kcal, done: s.done }))
       }))
     };
   });
@@ -177,6 +177,102 @@ const check = (label, ok, detail = '') => { if (!ok) fails++; console.log(`   ${
   check('a set you only looked at is not recorded as performed',
     peeked.ex.length === 0 || peeked.ex[0].sets.length === 0,
     JSON.stringify(peeked.ex));
+
+  // ================= 5. an auto-committed set costs what YOU cost ==============
+  //
+  // The same cardio set was worth two different numbers depending on how the
+  // workout ended. Tick it yourself and the burn was estimated at your logged
+  // bodyweight; type the minutes and let Finish sweep the row up, and it was
+  // estimated at U.DEFAULT_BW_KG — 75kg, whoever you are. commitFilledSets is
+  // synchronous and the bodyweight lookup is not, so it had reached for the
+  // constant. At 110kg that is a third of the burn missing from a set the user
+  // did perform.
+  //
+  // Asserted against U's own arithmetic rather than a hardcoded number, so this
+  // pins WHOSE bodyweight was used without also freezing the MET table or the
+  // net-of-resting correction.
+  console.log('\n=== 5. Finish estimates the burn at your weight, not 75kg ===');
+  {
+    const HEAVY = 110;
+    await seed([{ exerciseId: 'rowing', name: 'Rowing Machine', category: 'cardio', type: 'cardio',
+      sets: [{ durationMin: null, intensity: 'moderate', distanceKm: null, done: false }] }], HEAVY);
+    await open();
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-cardio-field="durationMin"]');
+      if (!el) return;
+      el.value = '20';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await sleep(700);
+    const expect = await page.evaluate((bw) => {
+      const def = EXERCISE_DB.find(e => e.id === 'rowing');
+      const met = U.getMET({ type: 'cardio', category: 'cardio', met: def.met }, 'moderate');
+      return { mine: U.estimateKcal(met, bw, 20), default_: U.estimateKcal(met, U.DEFAULT_BW_KG, 20) };
+    }, HEAVY);
+    await finish();
+    const rowed = await stored();
+    const got = rowed.ex.length === 1 && rowed.ex[0].sets.length === 1 ? rowed.ex[0].sets[0].k : null;
+    console.log(`   typed 20 min, never ticked -> stored ${got} kcal (at ${HEAVY}kg: ${expect.mine}, at 75kg: ${expect.default_})`);
+    check('the set survived Finish', got != null, JSON.stringify(rowed.ex));
+    // The two must differ, or the check above proves nothing.
+    check('the fixture can tell the two apart', expect.mine !== expect.default_,
+      `${expect.mine} vs ${expect.default_}`);
+    check('and it was costed at the logged bodyweight', got === expect.mine,
+      `got ${got}, expected ${expect.mine}`);
+    check('not at the 75kg default', got !== expect.default_, `got ${got}`);
+  }
+
+  // ================= 6. the burn is what training ADDED =======================
+  //
+  // A MET is a multiple of resting metabolism, so a 5-MET hour burns five times
+  // resting, of which one times resting was going to happen anyway. Charging
+  // the gross figure overstated lifting by about a fifth and stretching by
+  // roughly three quarters — and did it twice over in the food budget, which
+  // adds workout kcal on top of a lifestyle TDEE that already contains a whole
+  // day of resting burn.
+  console.log('\n=== 6. calories are net of resting, not gross ===');
+  {
+    const m = await page.evaluate(() => ({
+      met5: U.estimateKcal(5, 100, 60),      // 5 METs, 100kg, an hour
+      met1: U.estimateKcal(1, 100, 60),      // resting: costs nothing extra
+      met2_3: U.estimateKcal(2.3, 100, 60),  // a stretch
+      perMin: U.kcalPerMin({ met: 5, category: 'chest' }, 100),
+      netExists: typeof U.netMET === 'function'
+    }));
+    check('there is one place that defines net METs', m.netExists);
+    check('5 METs for an hour at 100kg costs 400, not 500', m.met5 === 400, String(m.met5));
+    check('an activity at resting intensity adds nothing', m.met1 === 0, String(m.met1));
+    check('a MET 2.3 stretch costs 130, not 230', m.met2_3 === 130, String(m.met2_3));
+    // Within rounding: kcalPerMin reports one decimal, so 6.667 becomes 6.7 and
+    // an hour of it is 402 rather than 400. The failure this guards against is
+    // one of them going back to gross, which is a 100 kcal gap, not a 2.
+    check('the per-minute figure agrees with the per-hour one',
+      Math.abs(m.perMin * 60 - m.met5) < 10, `${m.perMin}/min vs ${m.met5}/hr`);
+  }
+
+  // ================= 7. e1RM stops where the formula stops ====================
+  //
+  // Epley holds to about 3% up to ten reps and is usable at twelve. At twenty
+  // it claims 1.67x the bar, which is true of almost nobody. The app printed it
+  // to one decimal place regardless, and that number fed the PR chip, the
+  // strength tier and the CSV export.
+  console.log('\n=== 7. no one-rep max is invented from a twenty-rep set ===');
+  {
+    const e = await page.evaluate(() => ({
+      cap: U.E1RM_MAX_REPS,
+      at1: U.epley(100, 1), at5: U.epley(100, 5), at12: U.epley(100, 12),
+      at13: U.epley(100, 13), at20: U.epley(100, 20),
+      label12: U.e1rmLabel(100, 12), label20: U.e1rmLabel(100, 20)
+    }));
+    check('the honest range is stated in one place', e.cap === 12, String(e.cap));
+    check('a single is its own one-rep max', e.at1 === 100, String(e.at1));
+    check('five reps still estimates', Math.abs(e.at5 - 116.67) < 0.1, String(e.at5));
+    check('twelve reps is the last one that does', e.at12 === 140, String(e.at12));
+    check('thirteen does not', e.at13 === 0, String(e.at13));
+    check('and neither does twenty', e.at20 === 0, String(e.at20));
+    check('the label prints a number inside the range', e.label12 === '140.0', String(e.label12));
+    check('and prints nothing outside it', e.label20 === null, String(e.label20));
+  }
 
   console.log('\nERRORS:', errs.length ? errs : 'none');
   console.log(`\n${fails} failing check${fails === 1 ? '' : 's'}`);
