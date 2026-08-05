@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=253").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=254").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -15560,6 +15560,83 @@
       `${U.KCAL_OFFSET_MIN} to +${U.KCAL_OFFSET_MAX}.`
     );
 
+    // What the logs say, next to the field it would fill in. The offset has
+    // always been the right mechanism for "the equation is wrong about me" —
+    // it just never said what to put in it, so it stayed at zero.
+    const calibCard = el("div", { class: "card calib-card", "data-testid": "calib-card" });
+    async function renderCalibration() {
+      clear(calibCard);
+      const [bws, meals] = await Promise.all([Storage.getBodyweights(), Storage.getMeals()]);
+      const intakeByDate = {};
+      for (const m of meals || []) {
+        if (!m || !m.date) continue;
+        intakeByDate[m.date] = (intakeByDate[m.date] || 0) + (Number(m.kcal) || 0);
+      }
+      const est = U.estimateMaintenance({ weighIns: bws || [], intakeByDate });
+      calibCard.appendChild(el("div", { class: "calib-title" }, "What your logs say"));
+
+      if (!est.ok) {
+        calibCard.appendChild(el("div", { class: "text-xs text-faint", "data-testid": "calib-blocked" },
+          "Not enough logged yet to measure your maintenance. This needs " +
+          est.reasons.map((r) => r.text).join(", and ") + "."));
+        // Naming the arithmetic even while it is unavailable, because the
+        // requirements read as arbitrary until you know what they are for.
+        calibCard.appendChild(el("div", { class: "text-xs text-faint mt-8" },
+          "Weight moves on water as much as on fat, so short stretches and patchy food logs " +
+          "produce a number that looks exact and is mostly noise."));
+        return;
+      }
+
+      // Against the rest-day figure: measured maintenance is a long-run
+      // average that already includes however much this person trains.
+      const restDay = U.computeEnergyBudget({
+        sex: sexS.value, age: parseInt(ageI.value, 10), heightCm: parseFloat(heightI.value),
+        activityLevel: activityS.value, weightKg, workoutKcal: 0,
+        goalIntent: goalIntentS.value, kcalOffset: 0
+      });
+      const dir = est.deltaKg < 0 ? "lost" : (est.deltaKg > 0 ? "gained" : "held");
+      const amount = Math.abs(est.deltaKg) < 0.05
+        ? "held steady"
+        : `${dir} ${U.trimNum(Math.abs(U.toDisplayWeight(est.deltaKg)))}${U.weightUnit()}`;
+      calibCard.appendChild(el("div", { class: "text-sm", "data-testid": "calib-measured" },
+        `Over ${est.elapsedDays} days you ${amount} while averaging ${est.avgIntake} kcal a day. ` +
+        `That puts your maintenance near ${est.maintenance}.`));
+      calibCard.appendChild(el("div", { class: "text-xs text-faint mt-8" },
+        `From ${est.weighIns} weigh-ins and ${est.loggedDays} days of food. ` +
+        "Rounded — it is not exact to the calorie."));
+
+      if (!restDay.complete) {
+        calibCard.appendChild(el("div", { class: "text-xs text-faint mt-8" },
+          "Fill in the profile above and this can be compared with the estimate."));
+        return;
+      }
+      const sug = U.offsetFromMeasured(est.maintenance, restDay.tdee);
+      if (!sug) return;
+      const gap = sug.raw;
+      if (Math.abs(gap) < 50) {
+        calibCard.appendChild(el("div", { class: "text-sm mt-8", "data-testid": "calib-agrees" },
+          `The estimate says ${restDay.tdee}, so it already agrees with you. Nothing to change.`));
+        return;
+      }
+      calibCard.appendChild(el("div", { class: "text-sm mt-8" },
+        `The estimate says ${restDay.tdee} — ${Math.abs(gap)} ${gap > 0 ? "below" : "above"} what your logs show.`));
+      if (sug.clamped) {
+        calibCard.appendChild(el("div", { class: "text-xs text-faint mt-8" },
+          `A tweak of ${gap} is outside the ${U.KCAL_OFFSET_MIN} to +${U.KCAL_OFFSET_MAX} range, so this would set ` +
+          `${sug.offset}. A gap that large usually means a water swing rather than a real difference — ` +
+          "worth another fortnight before trusting it."));
+      }
+      if (includeTrainingCb.checked) {
+        calibCard.appendChild(el("div", { class: "text-xs text-faint mt-8", "data-testid": "calib-training-warning" },
+          "Training burn is being added to your food room as well. What the scale measured already " +
+          "includes your training, so applying this would count it twice — turn that off first."));
+      }
+      calibCard.appendChild(el("button", {
+        class: "btn btn-sm btn-primary mt-8", type: "button", "data-testid": "calib-apply",
+        on: { click: () => { offsetI.value = String(sug.offset); refreshPreview(); toast("Personal tweak set — Save to keep it"); } }
+      }, `Set personal tweak to ${sug.offset > 0 ? "+" : ""}${sug.offset}`));
+    }
+
     const includeTrainingCb = el("input", {
       type: "checkbox",
       id: "include-training-food-room"
@@ -15903,6 +15980,13 @@
       node.addEventListener("change", refreshPreview);
     }
     refreshPreview();
+    // Async because it reads the logs. Re-run when the profile or the training
+    // toggle changes, since both change what it has to say — but not on every
+    // keystroke in the offset field, which it does not depend on.
+    renderCalibration();
+    for (const node of [sexS, ageI, heightI, activityS, includeTrainingCb]) {
+      node.addEventListener("change", () => { renderCalibration(); });
+    }
 
     autoMacroFields.append(
       el("div", { class: "form-row" },
@@ -16068,6 +16152,7 @@
           el("label", { class: "label" }, "Personal tweak"),
           offsetI, offsetHint)
       ),
+      calibCard,
       el("div", { class: "settings-check-row mt-8" },
         el("label", { class: "settings-check-label", for: "include-training-food-room" },
           includeTrainingCb,

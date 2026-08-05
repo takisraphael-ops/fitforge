@@ -636,6 +636,167 @@ window.U = {
   // Floor so auto budgets never collapse to unsafe lows after cut + offset.
   MIN_AUTO_BUDGET_KCAL: 1200,
 
+  // ---- Measured maintenance ---------------------------------------------
+  //
+  // Mifflin-St Jeor predicts. The logs measure. Over a long enough window the
+  // arithmetic is simply conservation of energy:
+  //
+  //     maintenance = average intake - (weight change x kcal per kg) / days
+  //
+  // Lose a kilo in a fortnight while eating 2000 and you were eating about
+  // 550 under; that puts real maintenance near 2550 whatever the equation
+  // said. This is worth having because the equation is wrong for a lot of
+  // people in ways it cannot know about — it cannot see body composition, it
+  // cannot see how much you fidget, and during a sustained deficit measured
+  // expenditure drifts below predicted as the body economises.
+  //
+  // THE DANGER IS THAT IT LOOKS MORE CERTAIN THAN IT IS. Both inputs are
+  // noisy in ways that do not average out over a short window:
+  //
+  //   * Bodyweight swings a kilo or more on water, glycogen, salt, gut
+  //     contents and the menstrual cycle. At 7700 kcal to the kilo, one kilo
+  //     of water misread as fat over 14 days is 550 kcal/day of pure error —
+  //     bigger than the effect being measured.
+  //   * Food logging is under-reported far more often than over-reported,
+  //     and a window with half its days missing is not an average, it is a
+  //     guess wearing one.
+  //
+  // Which is why the gates below are strict and the function returns reasons
+  // rather than a number when they are not met. A confident figure from four
+  // days of logging would be worse than no figure at all: it would be acted
+  // on. The gates are the whole feature.
+  KCAL_PER_KG_BODYWEIGHT: 7700,   // energy density of the tissue gained or lost
+  RECAL_WINDOW_DAYS: 28,          // how far back to look at all
+  RECAL_MIN_SPAN_DAYS: 14,        // shorter than this and water noise dominates
+  RECAL_END_BUCKET_DAYS: 7,       // weigh-ins averaged at each end, not endpoints
+  RECAL_MIN_BUCKET_WEIGH_INS: 2,  // per end, or there is nothing to average
+  RECAL_MIN_WEIGH_INS: 5,
+  RECAL_MIN_COVERAGE: 0.8,        // share of days in the span that need food logged
+
+  /** Maintenance as the logs measure it, or the reasons it cannot be said.
+   *
+   *  weighIns    [{ date: "YYYY-MM-DD", kg }]  (any order)
+   *  intakeByDate { "YYYY-MM-DD": kcal }       (days with no food logged omitted)
+   *
+   *  Endpoints are averaged over a week at each end rather than taken as
+   *  single readings, which is what makes the difference between a usable
+   *  number and a coin flip: one bloated morning at either end otherwise
+   *  moves the answer by hundreds of calories. */
+  estimateMaintenance({ weighIns = [], intakeByDate = {}, today = U.todayISO() } = {}) {
+    const reasons = [];
+    const back = (n) => {
+      const d = new Date(today + "T00:00:00");
+      d.setDate(d.getDate() - n);
+      return U.todayISO(d);
+    };
+    const from = back(U.RECAL_WINDOW_DAYS - 1);
+    const daysBetween = (a, b) =>
+      Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000);
+
+    const ws = (weighIns || [])
+      .filter((w) => w && w.date >= from && w.date <= today && Number(w.kg) > 0)
+      .map((w) => ({ date: w.date, kg: Number(w.kg) }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    if (ws.length < U.RECAL_MIN_WEIGH_INS) {
+      reasons.push({
+        code: "weigh-ins",
+        need: U.RECAL_MIN_WEIGH_INS, have: ws.length,
+        text: `${U.RECAL_MIN_WEIGH_INS} weigh-ins in the last ${U.RECAL_WINDOW_DAYS} days (you have ${ws.length})`
+      });
+    }
+    const spanDays = ws.length >= 2 ? daysBetween(ws[0].date, ws[ws.length - 1].date) : 0;
+    if (spanDays < U.RECAL_MIN_SPAN_DAYS) {
+      reasons.push({
+        code: "span",
+        need: U.RECAL_MIN_SPAN_DAYS, have: spanDays,
+        text: `weigh-ins spanning ${U.RECAL_MIN_SPAN_DAYS} days (yours span ${spanDays})`
+      });
+    }
+    if (reasons.length) return { ok: false, reasons, spanDays, weighIns: ws.length };
+
+    const firstEnd = U.todayISO(new Date(new Date(ws[0].date + "T00:00:00")
+      .setDate(new Date(ws[0].date + "T00:00:00").getDate() + U.RECAL_END_BUCKET_DAYS - 1)));
+    const lastStart = U.todayISO(new Date(new Date(ws[ws.length - 1].date + "T00:00:00")
+      .setDate(new Date(ws[ws.length - 1].date + "T00:00:00").getDate() - U.RECAL_END_BUCKET_DAYS + 1)));
+    const startBucket = ws.filter((w) => w.date <= firstEnd);
+    const endBucket = ws.filter((w) => w.date >= lastStart);
+    if (startBucket.length < U.RECAL_MIN_BUCKET_WEIGH_INS || endBucket.length < U.RECAL_MIN_BUCKET_WEIGH_INS) {
+      return {
+        ok: false, spanDays, weighIns: ws.length,
+        reasons: [{
+          code: "clustered",
+          text: `at least ${U.RECAL_MIN_BUCKET_WEIGH_INS} weigh-ins near the start and ${U.RECAL_MIN_BUCKET_WEIGH_INS} near the end ` +
+                `(you have ${startBucket.length} and ${endBucket.length})`
+        }]
+      };
+    }
+    const mean = (xs) => xs.reduce((s, x) => s + x, 0) / xs.length;
+    const startKg = mean(startBucket.map((w) => w.kg));
+    const endKg = mean(endBucket.map((w) => w.kg));
+    // Midpoints of the two buckets, so the elapsed time matches the weights
+    // being compared rather than the outermost readings.
+    const midDate = (bucket) => bucket[Math.floor(bucket.length / 2)].date;
+    const elapsed = Math.max(1, daysBetween(midDate(startBucket), midDate(endBucket)));
+
+    const logged = [];
+    for (let i = 0; i <= daysBetween(ws[0].date, ws[ws.length - 1].date); i++) {
+      const d = U.todayISO(new Date(new Date(ws[0].date + "T00:00:00")
+        .setDate(new Date(ws[0].date + "T00:00:00").getDate() + i)));
+      const k = Number(intakeByDate[d]);
+      if (Number.isFinite(k) && k > 0) logged.push(k);
+    }
+    const coverage = spanDays > 0 ? logged.length / (spanDays + 1) : 0;
+    if (coverage < U.RECAL_MIN_COVERAGE) {
+      return {
+        ok: false, spanDays, weighIns: ws.length, coverage,
+        reasons: [{
+          code: "coverage",
+          need: Math.ceil(U.RECAL_MIN_COVERAGE * (spanDays + 1)), have: logged.length,
+          text: `food logged on ${Math.ceil(U.RECAL_MIN_COVERAGE * (spanDays + 1))} of those ${spanDays + 1} days ` +
+                `(you logged ${logged.length})`
+        }]
+      };
+    }
+
+    const avgIntake = Math.round(mean(logged));
+    const deltaKg = endKg - startKg;
+    const maintenance = Math.round(avgIntake - (deltaKg * U.KCAL_PER_KG_BODYWEIGHT) / elapsed);
+    return {
+      ok: true,
+      // Rounded to 25 because this is not a to-the-calorie number and should
+      // not be dressed as one.
+      maintenance: Math.round(maintenance / 25) * 25,
+      exact: maintenance,
+      avgIntake,
+      startKg: Math.round(startKg * 10) / 10,
+      endKg: Math.round(endKg * 10) / 10,
+      deltaKg: Math.round(deltaKg * 100) / 100,
+      elapsedDays: elapsed,
+      spanDays,
+      weighIns: ws.length,
+      loggedDays: logged.length,
+      coverage,
+      reasons: []
+    };
+  },
+
+  /** The kcalOffset that would make the app agree with the logs.
+   *
+   *  Against the rest-day prediction on purpose: a measured maintenance is a
+   *  long-run average that already contains however much the person trains,
+   *  so comparing it with a figure that has today's session added would fold
+   *  that session in twice. `clamped` is surfaced rather than applied
+   *  silently — a suggestion of 1400 quietly becoming 800 is the app
+   *  pretending to have taken an instruction it did not take. */
+  offsetFromMeasured(measuredMaintenance, predictedRestDayTdee) {
+    const m = Number(measuredMaintenance), p = Number(predictedRestDayTdee);
+    if (!Number.isFinite(m) || !Number.isFinite(p) || p <= 0) return null;
+    const raw = Math.round(m - p);
+    const clamped = U.normalizeKcalOffset(raw);
+    return { raw, offset: clamped, clamped: clamped !== raw };
+  },
+
   profileComplete(prefs) {
     if (!prefs) return false;
     const sex = prefs.sex;

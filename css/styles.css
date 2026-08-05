@@ -1656,6 +1656,20 @@ html.dark .macro-stat.macro-fat { border-color: color-mix(in srgb, var(--macro-f
   border: 1px solid var(--border);
   line-height: 1.45;
 }
+/* The measured-maintenance readout, sitting under the field it fills in.
+   Accent-tinted rather than plain, because it is the one thing on this screen
+   made from the user's own data rather than from an equation. */
+.calib-card {
+  margin-top: 10px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-elev));
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  line-height: 1.45;
+}
+.calib-title {
+  font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-muted); margin-bottom: 8px;
+}
 .settings-section-title {
   font-size: 13px;
   font-weight: 600;
