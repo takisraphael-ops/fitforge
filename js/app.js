@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=257").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=258").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -229,11 +229,46 @@
     if (/curl/.test(n)) return "curl";
     return "generic";
   }
+  // How the women's thresholds scale off the men's, per lift.
+  //
+  // This was a single 0.72 for everything, and one number cannot be right for
+  // both ends of the body. The sex difference in strength is much larger in the
+  // upper body than the lower — women carry proportionally less muscle above
+  // the waist — so the usual figures are around 55–65% of male strength for
+  // upper-body work and 70–80% for the legs. A flat factor splits the
+  // difference and is therefore wrong in both directions at once: at 65kg it
+  // asked a woman for 70kg to call her bench Advanced when the evidence puts it
+  // near 58, and let a 94kg squat count as Advanced when it should be nearer
+  // 104. Twenty per cent too hard on the press, ten per cent too easy on the
+  // legs.
+  //
+  // Three values, not eight, because three is the granularity the evidence
+  // supports: pressing, pulling, and lower body. Pulling sits between them —
+  // women do relatively better at it than at pressing.
+  //
+  // Still an approximation, and worth being plain about: the sources that do
+  // this properly publish separate women's tables rather than scaling the
+  // men's, because the shape of the distribution differs and not only its
+  // scale. This is a better approximation than one number. It is not the same
+  // thing as real women's standards.
+  const FEMALE_STANDARD_RATIO = {
+    bench: 0.6, ohp: 0.6, curl: 0.6,       // upper-body press and isolation
+    row: 0.65, pulldown: 0.65,             // upper-body pull
+    squat: 0.8, deadlift: 0.8,             // lower body
+    generic: 0.7                           // mixed / unknown lift
+  };
   // Returns a strength tier for a lift, or null when it can't be computed.
   function strengthLevel(ex, e1rm, bwKg, sex) {
     if (!e1rm || !bwKg || bwKg <= 0) return null;
-    const base = STRENGTH_STANDARDS[liftKeyForStandards(ex)] || STRENGTH_STANDARDS.generic;
-    const f = sex === "female" ? 0.72 : 1; // women's standards run lower; unknown → default
+    // No sex on file means no standard to measure against. This used to fall
+    // through to the men's table, so anyone who had not answered that question
+    // was being graded against it without being told — a tier is a claim about
+    // where you sit among people, and it cannot be made without knowing which
+    // people. Every caller already handles a null.
+    if (sex !== "male" && sex !== "female") return null;
+    const key = liftKeyForStandards(ex);
+    const base = STRENGTH_STANDARDS[key] || STRENGTH_STANDARDS.generic;
+    const f = sex === "female" ? (FEMALE_STANDARD_RATIO[key] ?? FEMALE_STANDARD_RATIO.generic) : 1;
     const th = base.map(v => v * f);
     const ratio = e1rm / bwKg;
     let idx = 0;
