@@ -190,6 +190,74 @@ const check = (label, ok, detail = '') => {
       JSON.stringify(roundTrip.resolved));
   }
 
+  // ================= 6. the fat floor ======================================
+  console.log('\n=== 6. fat has a floor, and it scales with the body ===');
+  {
+    // The floor was a flat 20g, dropping to a flat 15g when protein and fat
+    // would not both fit — and the branch under that could take fat to ZERO.
+    // At 120kg on 2.2 g/kg with a 1000 kcal budget the app returned 250g
+    // protein, no fat and no carbs, and offered it as the day's target.
+    const t = await page.evaluate(() => {
+      const at = (bw, ppk, budget) => {
+        const g = U.computeMacroGoals({ weightKg: bw, kcalBudget: budget, proteinPerKg: ppk, fatPercent: 30 });
+        return { ...g, perKg: g.fat / bw, kcal: g.protein * 4 + g.carbs * 4 + g.fat * 9 };
+      };
+      return {
+        minPerKg: U.MIN_FAT_PER_KG,
+        tight: at(120, 2.2, 1000),   // the case that used to return zero fat
+        mid: at(100, 2.2, 1300),
+        roomy: at(80, 1.8, 2400),
+        low: at(80, 1.8, 1200),
+        impossible: at(80, 1.8, 400)
+      };
+    });
+    check('the floor is stated per kg, not as a flat gram figure',
+      t.minPerKg >= 0.4 && t.minPerKg <= 1.0, String(t.minPerKg));
+    // The specific regression.
+    check('the case that used to return zero fat no longer does',
+      t.tight.fat > 0, `P${t.tight.protein} C${t.tight.carbs} F${t.tight.fat}`);
+    for (const [name, g] of [['tight', t.tight], ['mid', t.mid], ['roomy', t.roomy], ['low', t.low]]) {
+      check(`  ${name}: fat is at or above the floor`,
+        g.perKg >= t.minPerKg - 0.005, `${g.fat}g = ${g.perKg.toFixed(2)} g/kg at ${g.weightKg}kg`);
+      check(`  ${name}: and the macros still fit the budget`,
+        g.kcal <= g.kcalBudget, `${g.kcal} vs ${g.kcalBudget}`);
+    }
+    // Fat holds; protein is the one with headroom, so protein is what yields.
+    check('when they do not both fit, protein gives way rather than fat',
+      t.tight.squeezed && t.tight.fat === t.tight.fatFloorG && t.tight.protein < Math.round(120 * 2.2),
+      `F${t.tight.fat} (floor ${t.tight.fatFloorG}), P${t.tight.protein} of ${Math.round(120 * 2.2)}`);
+    check('a roomy budget is not squeezed at all', !t.roomy.squeezed && t.roomy.carbs > 0,
+      `P${t.roomy.protein} C${t.roomy.carbs} F${t.roomy.fat}`);
+
+    // A budget too small to hold essential fat is reported, not resolved.
+    // Shaving the floor to make the sum balance would hide the real problem.
+    check('a budget below essential fat says so rather than shaving the floor',
+      t.impossible.belowFatFloor === true && t.impossible.fat === t.impossible.fatFloorG,
+      JSON.stringify({ fat: t.impossible.fat, floor: t.impossible.fatFloorG, flag: t.impossible.belowFatFloor }));
+    check('and it does not pretend the sum fits',
+      t.impossible.kcal > t.impossible.kcalBudget, `${t.impossible.kcal} vs ${t.impossible.kcalBudget}`);
+
+    // Sweep, because the floor is easy to satisfy in one case and miss in
+    // another: heavier bodies and higher protein are where it bites.
+    const sweep = await page.evaluate(() => {
+      const bad = [];
+      for (const bw of [45, 60, 80, 100, 120, 150]) {
+        for (const ppk of [1.6, 1.8, 2.0, 2.2]) {
+          for (const budget of [1200, 1500, 1800, 2200, 2800, 3500]) {
+            const g = U.computeMacroGoals({ weightKg: bw, kcalBudget: budget, proteinPerKg: ppk, fatPercent: 30 });
+            const kcal = g.protein * 4 + g.carbs * 4 + g.fat * 9;
+            if (g.fat / bw < U.MIN_FAT_PER_KG - 0.005) bad.push(`${bw}kg ${ppk} ${budget}: fat ${g.fat}`);
+            else if (!g.belowFatFloor && kcal > budget) bad.push(`${bw}kg ${ppk} ${budget}: ${kcal}>${budget}`);
+            else if (g.protein < 0 || g.carbs < 0 || g.fat < 0) bad.push(`${bw}kg ${ppk} ${budget}: negative`);
+          }
+        }
+      }
+      return bad;
+    });
+    check('144 bodyweight/protein/budget combinations all respect the floor and the budget',
+      sweep.length === 0, sweep.slice(0, 4).join(' | '));
+  }
+
   console.log('\nERRORS:', errs.length ? errs : 'none');
   console.log(`\n${fails} failing check${fails === 1 ? '' : 's'}`);
   await b.close();

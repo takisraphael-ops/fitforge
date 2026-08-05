@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=254").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=255").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -15808,9 +15808,21 @@
         const why = resolvedPpk.fromGoal
           ? `protein at ${ppk} g/kg (${(U.GOAL_INTENTS[goalIntentS.value]?.label || "your goal").toLowerCase()})`
           : `protein at ${ppk} g/kg`;
+        // When the budget could not hold what was asked for, say which way it
+        // gave and why. Otherwise the numbers simply come out different from
+        // the settings above them and look like a bug.
+        let squeeze = "";
+        if (auto.belowFatFloor) {
+          squeeze = ` That food room is below the ${auto.fatFloorG}g of fat this bodyweight needs, so these add up ` +
+            "to more than it. The budget is the thing to change.";
+        } else if (auto.squeezed) {
+          squeeze = ` Protein and fat did not both fit, so fat held its ${auto.fatFloorG}g floor ` +
+            `(${U.MIN_FAT_PER_KG} g/kg) and protein came down to ` +
+            `${Math.round((auto.protein / weightKg) * 100) / 100} g/kg.`;
+        }
         macroPreview.textContent =
           `From ${weightKg} kg bodyweight, ${why}, fat ${fatPct}% of ${budget} food room, carbs fill the rest: ` +
-          `P ${auto.protein}g · C ${auto.carbs}g · F ${auto.fat}g.`;
+          `P ${auto.protein}g · C ${auto.carbs}g · F ${auto.fat}g.` + squeeze;
       } else {
         const p = parseFloat(proteinGoalI.value) || 0;
         const c = parseFloat(carbsGoalI.value) || 0;

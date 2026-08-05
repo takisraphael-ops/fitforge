@@ -447,6 +447,12 @@ window.U = {
   // Auto: protein from bodyweight (g/kg), fat as % of calorie budget, carbs fill remainder.
   DEFAULT_PROTEIN_PER_KG: 1.8,
   DEFAULT_FAT_PERCENT: 30,
+  // The least fat a target may ask for, per kg of bodyweight. Below roughly
+  // half a gram per kilo is where hormone production and the absorption of the
+  // fat-soluble vitamins start to suffer, so 0.6 sits just clear of it rather
+  // than on it. Per kg because that is the shape of the requirement — a flat
+  // gram figure is generous for a small person and meaningless for a large one.
+  MIN_FAT_PER_KG: 0.6,
   PROTEIN_PER_KG_OPTIONS: [
     { value: 1.6, label: "1.6 g/kg", hint: "Enough to build on" },
     { value: 1.8, label: "1.8 g/kg", hint: "Comfortable middle" },
@@ -520,29 +526,54 @@ window.U = {
     if (!Number.isFinite(fatPct) || fatPct < 15) fatPct = U.DEFAULT_FAT_PERCENT;
     if (fatPct > 45) fatPct = 45;
 
+    // The fat floor scales with the body it belongs to. It used to be a flat
+    // 20g, dropping to a flat 15g under pressure, and both are the wrong shape:
+    // fat requirement tracks bodyweight, so one number is simultaneously
+    // generous for a small person and meaningless for a large one. 20g is
+    // 0.4 g/kg at 50kg and 0.17 g/kg at 120kg.
+    const fatFloor = Math.round(bw * U.MIN_FAT_PER_KG);
+
     let protein = Math.round(bw * ppk);
-    let fat = budget > 0 ? Math.round((budget * (fatPct / 100)) / U.MACRO_KCAL.fat) : Math.round(bw * 0.8);
-    // Floor fat so it's never absurdly low when budget is set
-    if (budget > 0) fat = Math.max(20, fat);
+    let fat = budget > 0
+      ? Math.max(fatFloor, Math.round((budget * (fatPct / 100)) / U.MACRO_KCAL.fat))
+      // No budget to take a percentage of, so straight from bodyweight. This
+      // branch was always per-kg; the floors below simply never caught up.
+      : Math.round(bw * 0.8);
+
+    // Protein and fat together can outgrow a small budget, and something has
+    // to give. The old order gave up fat first and could take it to ZERO: at
+    // 120kg on 2.2 g/kg with a 1000 kcal budget it returned 250g protein, no
+    // fat and no carbs, and presented that as the day's target.
+    //
+    // Fat above the floor is discretionary and goes first. The floor itself is
+    // not — below roughly half a gram per kilo you are into hormone production
+    // and fat-soluble vitamin absorption — so past that point it is protein
+    // that yields, being the macro with headroom: the target sits well above
+    // the ~1.6 g/kg where the benefit for building plateaus.
+    let squeezed = false, belowFatFloor = false;
+    if (budget > 0 && protein * U.MACRO_KCAL.protein + fat * U.MACRO_KCAL.fat > budget) {
+      squeezed = true;
+      const roomForFat = budget - protein * U.MACRO_KCAL.protein;
+      fat = Math.max(fatFloor, Math.floor(roomForFat / U.MACRO_KCAL.fat));
+      if (protein * U.MACRO_KCAL.protein + fat * U.MACRO_KCAL.fat > budget) {
+        fat = fatFloor;
+        protein = Math.max(0, Math.floor((budget - fat * U.MACRO_KCAL.fat) / U.MACRO_KCAL.protein));
+      }
+    }
+    // A budget too small to hold essential fat at all. Reported rather than
+    // resolved: the honest answer is that the budget is wrong, and quietly
+    // shaving the floor to make the sum balance would hide exactly that.
+    if (budget > 0 && fat * U.MACRO_KCAL.fat > budget) belowFatFloor = true;
 
     let proteinKcal = protein * U.MACRO_KCAL.protein;
     let fatKcal = fat * U.MACRO_KCAL.fat;
 
-    // If P+F exceed budget, scale fat down first, then protein if needed.
-    if (budget > 0 && proteinKcal + fatKcal > budget) {
-      const roomForFat = Math.max(0, budget - proteinKcal);
-      fat = Math.max(15, Math.floor(roomForFat / U.MACRO_KCAL.fat));
-      fatKcal = fat * U.MACRO_KCAL.fat;
-      if (proteinKcal + fatKcal > budget) {
-        protein = Math.max(0, Math.floor(budget / U.MACRO_KCAL.protein));
-        proteinKcal = protein * U.MACRO_KCAL.protein;
-        fat = Math.max(0, Math.floor((budget - proteinKcal) / U.MACRO_KCAL.fat));
-        fatKcal = fat * U.MACRO_KCAL.fat;
-      }
-    }
-
     const remaining = budget > 0 ? Math.max(0, budget - proteinKcal - fatKcal) : 0;
-    const carbs = budget > 0 ? Math.round(remaining / U.MACRO_KCAL.carbs) : Math.round(bw * 3);
+    // Floor, not round. Carbs are the remainder, so rounding them up let the
+    // three targets add up to a couple of calories MORE than the food room
+    // they were divided out of — small, but it is the one arithmetic on this
+    // screen a user can check by hand.
+    const carbs = budget > 0 ? Math.floor(remaining / U.MACRO_KCAL.carbs) : Math.round(bw * 3);
 
     return {
       complete: budget > 0 || bw > 0,
@@ -550,6 +581,13 @@ window.U = {
       kcalBudget: budget || null,
       proteinPerKg: ppk,
       fatPercent: fatPct,
+      fatFloorG: fatFloor,
+      // True when the budget could not hold the requested protein and fat, so
+      // one of them was cut back to fit.
+      squeezed,
+      // True when it could not even hold essential fat. The macros returned
+      // then add up to more than the budget, on purpose.
+      belowFatFloor,
       protein,
       carbs,
       fat,
