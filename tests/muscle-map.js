@@ -88,7 +88,9 @@ const seed = async (opts) => {
   const errs = [];
 
   // One page per scenario: the fallback case has to block a script at load.
-  const open = async (opts) => {
+  // `customSeed` replaces the shared fixture for the cases that need a
+  // specific length of history rather than a specific shape of imbalance.
+  const open = async (opts, customSeed) => {
     const c = await b.newContext({ viewport: { width: 390, height: 900 }, serviceWorkers: 'block', hasTouch: true });
     const page = await c.newPage();
     page.on('pageerror', e => errs.push('PAGEERR: ' + e.message));
@@ -104,7 +106,7 @@ const seed = async (opts) => {
     }
     await page.goto('http://localhost:8199/index.html', { waitUntil: 'load' });
     await page.waitForFunction(() => window.Storage && window.U);
-    await page.evaluate(seed, opts);
+    if (customSeed) await customSeed(page); else await page.evaluate(seed, opts);
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(4200);
     await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"],.splash').forEach(n => n.remove()));
@@ -271,6 +273,154 @@ const seed = async (opts) => {
       check('no longer the flat case', (await flat(page)) === '0');
       await close();
     }
+  }
+
+  // ============ 7. sets per muscle per week ================================
+  //
+  // The map counted sets and normalised them to your own busiest muscle, so
+  // three sets of chest and nothing else lit chest at full heat. "Most trained"
+  // and "enough" are different questions and only the second has an answer from
+  // outside your own history: roughly ten to twenty hard sets a week per muscle
+  // is where the dose-response evidence sits.
+  //
+  // The thing to be careful of is inventing a shortfall. Halving a fortnight's
+  // tally is only a weekly rate if there was a fortnight of it, and the range
+  // is evidence rather than this user's stated goal — the app has no
+  // strength/hypertrophy/endurance axis to read an intent off.
+  console.log('\n=== 7. sets per muscle, per week, against the evidenced range ===');
+  {
+    const { page, close } = await open({});
+    const u = await page.evaluate(() => ({
+      min: U.SETS_PER_WEEK_MIN, max: U.SETS_PER_WEEK_MAX,
+      majors: BodyMap.MAJOR_ZONES,
+      zoneIds: Object.keys(BodyMap.ZONES),
+      // 20 sets in a fortnight is 10 a week, exactly on the line.
+      rate: [U.setsPerWeek(20, 14), U.setsPerWeek(7, 7), U.setsPerWeek(0, 14), U.setsPerWeek(10, 0)],
+      bands: [U.setsBand(0), U.setsBand(9.9), U.setsBand(10), U.setsBand(20), U.setsBand(20.1)],
+      // Rounding the tally before dividing flips this one across the line.
+      borderline: U.setsBand(U.setsPerWeek(19.6, 14))
+    }));
+    check('the range is the one the evidence covers', u.min === 10 && u.max === 20, `${u.min}-${u.max}`);
+    check('a fortnight of 20 sets is 10 a week', u.rate[0] === 10, String(u.rate[0]));
+    check('and a week of 7 is 7', u.rate[1] === 7, String(u.rate[1]));
+    check('no window means no rate rather than a division by zero',
+      u.rate[2] === 0 && u.rate[3] === 0, JSON.stringify(u.rate));
+    check('the bands sit where they should',
+      JSON.stringify(u.bands) === '["none","under","in","in","over"]', JSON.stringify(u.bands));
+    // The reason the exact tally is carried alongside the rounded one.
+    check('19.6 sets in a fortnight is under the line, not on it',
+      u.borderline === 'under', u.borderline);
+    // ...and the reason that matters: the map must actually EMIT the fraction.
+    // Checking setsBand in isolation passes happily while the heat map hands it
+    // a pre-rounded number, which is exactly the bug the constant exists for.
+    const exact = await page.evaluate(() => {
+      const workouts = [{
+        date: U.todayISO(), completedAt: Date.now(),
+        exercises: [{ exerciseId: 'bench-press-barbell',
+          sets: [{ done: true }, { done: true }, { done: true }] }]
+      }];
+      const byId = new Map(EXERCISE_DB.map((e) => [e.id, e]));
+      const h = BodyMap.heatFromWorkouts(workouts, byId, 14);
+      // Three bench sets: chest is a prime mover and scores whole, triceps are
+      // secondary and score a fraction of each.
+      return { chest: h.chest_setsExact, triceps: h.triceps_setsExact, tricepsRounded: h.triceps_sets };
+    });
+    check('the map emits whole sets for a prime mover', exact.chest === 3, String(exact.chest));
+    check('and a fraction for a secondary one, unrounded',
+      exact.triceps > 0 && exact.triceps % 1 !== 0, String(exact.triceps));
+    check('which is a different number from the rounded one it sits beside',
+      exact.triceps !== exact.tricepsRounded, `${exact.triceps} vs ${exact.tricepsRounded}`);
+
+    // Every major zone must be a real zone, and none may be a coarse bucket —
+    // counting both `lats` and `back` would count the same set twice.
+    const bad = u.majors.filter((z) => !u.zoneIds.includes(z));
+    check('every major group names a real zone', bad.length === 0, bad.join(', '));
+    const coarse = u.majors.filter((z) => ['arms', 'back', 'core', 'legs'].includes(z));
+    check('and none of them is a coarse bucket that would double count',
+      coarse.length === 0, coarse.join(', '));
+    await close();
+  }
+
+  // A short history must NOT be halved into a shortfall.
+  {
+    const { page, close } = await open({}, async (p) => {
+      await p.evaluate(async () => {
+        await Storage.clearAll();
+        for (const [k, v] of Object.entries({ onboarded: true, sex: 'male', dob: '1995-04-12', heightCm: 180, activityLevel: 'moderate' })) {
+          await Storage.setPref(k, v);
+        }
+        const iso = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return U.todayISO(d); };
+        // Four days old, trained hard every one of them.
+        for (let i = 0; i < 4; i++) {
+          const d = new Date(); d.setDate(d.getDate() - i);
+          await Storage.saveWorkout({
+            id: 'n' + i, name: 'Push', date: iso(i), startedAt: d.getTime(),
+            completedAt: d.getTime() + 3.6e6, durationSec: 3300,
+            exercises: [{ exerciseId: 'bench-press-barbell', name: 'Barbell Bench Press', type: 'weighted',
+              sets: Array.from({ length: 5 }, () => ({ weight: 80, reps: 8, done: true })) }]
+          });
+        }
+      });
+    });
+    const r = await page.evaluate(() => {
+      const map = document.querySelector('[data-testid="home-muscle-map"]');
+      if (!map) return null;
+      return {
+        head: map.textContent.slice(0, 90),
+        busiest: map.querySelector('[data-testid="mmap-busiest"]')?.textContent || '',
+        under: map.querySelector('[data-testid="mmap-under"]')?.textContent || null
+      };
+    });
+    check('a four-day-old account still gets a map', !!r);
+    if (!r) { await close(); throw new Error('no muscle map — the two checks below would prove nothing'); }
+    check('it does not claim a weekly rate it cannot divide for',
+      !/\/wk/.test(r.busiest), r.busiest.trim());
+    check('and invents no shortfall from four days of history', r.under === null, String(r.under));
+    await close();
+  }
+
+  // With a full window, the rate and the range appear.
+  {
+    const { page, close } = await open({}, async (p) => {
+      await p.evaluate(async () => {
+        await Storage.clearAll();
+        for (const [k, v] of Object.entries({ onboarded: true, sex: 'male', dob: '1995-04-12', heightCm: 180, activityLevel: 'moderate' })) {
+          await Storage.setPref(k, v);
+        }
+        const iso = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return U.todayISO(d); };
+        // Three weeks of history, benching hard and neglecting everything else.
+        for (let i = 20; i >= 0; i--) {
+          if (i % 2) continue;
+          const d = new Date(); d.setDate(d.getDate() - i);
+          await Storage.saveWorkout({
+            id: 'f' + i, name: 'Push', date: iso(i), startedAt: d.getTime(),
+            completedAt: d.getTime() + 3.6e6, durationSec: 3300,
+            exercises: [{ exerciseId: 'bench-press-barbell', name: 'Barbell Bench Press', type: 'weighted',
+              sets: Array.from({ length: 6 }, () => ({ weight: 80, reps: 8, done: true })) }]
+          });
+        }
+      });
+    });
+    const r = await page.evaluate(() => {
+      const map = document.querySelector('[data-testid="home-muscle-map"]');
+      if (!map) return null;
+      const under = map.querySelector('[data-testid="mmap-under"]');
+      return {
+        head: map.textContent.slice(0, 80),
+        busiest: map.querySelector('[data-testid="mmap-busiest"]')?.textContent || '',
+        under: under ? under.textContent : null
+      };
+    });
+    check('with a full window it reports a weekly rate', !!r && /\/wk/.test(r.busiest),
+      r ? r.busiest.trim() : 'no map');
+    check('and says so in the card heading', !!r && /per week/i.test(r.head), r ? r.head.trim() : '');
+    check('chest, benched every other day, is not listed as under the range',
+      !!r && !/Chest/.test(r.under || ''), String(r && r.under));
+    // The list is majors only: forearms get worked by every pressing set and
+    // nobody programmes ten direct sets a week for them.
+    check('and the under-range list holds no minor groups',
+      !!r && !/Forearms|Lower back|Obliques/.test(r.under || ''), String(r && r.under));
+    await close();
   }
 
   console.log('\nERRORS:', errs.length ? errs : 'none');

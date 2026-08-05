@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=255").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=256").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -3198,19 +3198,50 @@
 
   // A picture with no numbers would be a straight information loss against the
   // bars, so the counts stay — as the two readings the bars made you derive.
-  function muscleMapReadout(heat) {
+  // `windowDays` is how long the tally covers; null when the account has not
+  // been running long enough to divide it into a weekly rate honestly.
+  function muscleMapReadout(heat, windowDays) {
+    const major = new Set(BodyMap.MAJOR_ZONES || []);
     const drawn = Object.entries(BodyMap.ZONES)
       .filter(([, z]) => (z.views || []).length && z.category !== "mobility")
-      .map(([id, z]) => ({ id, label: z.label, sets: Math.round(heat[id + "_sets"] || 0) }));
+      .map(([id, z]) => {
+        const exact = heat[id + "_setsExact"] != null ? heat[id + "_setsExact"] : (heat[id + "_sets"] || 0);
+        return {
+          id, label: z.label,
+          sets: Math.round(heat[id + "_sets"] || 0),
+          perWeek: windowDays ? U.setsPerWeek(exact, windowDays) : null,
+          major: major.has(id)
+        };
+      });
     const busiest = drawn.filter(z => z.sets > 0).sort((a, b) => b.sets - a.sets).slice(0, 3);
     const untouched = drawn.filter(z => z.sets === 0);
     const row = el("div", { class: "mmap-readout" });
     if (busiest.length) {
+      // A weekly rate rather than a fortnight's total, because a total can only
+      // be compared with your own other totals. Ten a week is a number from
+      // outside your history, which is the whole point of showing it.
       row.appendChild(el("div", { class: "mmap-read", "data-testid": "mmap-busiest" },
         el("span", { class: "mmap-read-key" }, "Most work"),
         el("span", { class: "mmap-read-val" },
-          busiest.map(z => `${z.label} ${z.sets}`).join(" · "))
+          busiest.map(z => windowDays ? `${z.label} ${z.perWeek}/wk` : `${z.label} ${z.sets}`).join(" · "))
       ));
+    }
+    // Trained, but under the range the evidence covers. Only the major groups:
+    // forearms and lower back are worked as synergists and nobody programmes
+    // ten direct sets a week for them, so listing them here would make the line
+    // permanently red and teach you to skip it.
+    if (windowDays) {
+      const light = drawn
+        .filter(z => z.major && z.sets > 0 && U.setsBand(z.perWeek) === "under")
+        .sort((a, b) => a.perWeek - b.perWeek);
+      if (light.length) {
+        const shown = light.slice(0, 4).map(z => `${z.label} ${z.perWeek}`);
+        row.appendChild(el("div", { class: "mmap-read", "data-testid": "mmap-under" },
+          el("span", { class: "mmap-read-key" }, `Under ${U.SETS_PER_WEEK_MIN}/wk`),
+          el("span", { class: "mmap-read-val is-quiet" },
+            light.length > 4 ? `${shown.join(", ")} +${light.length - 4}` : shown.join(", "))
+        ));
+      }
     }
     if (untouched.length) {
       const names = untouched.map(z => z.label);
@@ -3224,9 +3255,9 @@
     return row.childNodes.length ? row : null;
   }
 
-  function renderMuscleMap(heat, sex) {
+  function renderMuscleMap(heat, sex, windowDays) {
     const wrap = el("div", { class: "card mmap-card", "data-testid": "home-muscle-map" });
-    wrap.appendChild(cardHead("Muscle balance", "Last 14 days"));
+    wrap.appendChild(cardHead("Muscle balance", windowDays ? "Per week, last 14 days" : "Last 14 days"));
     const stage = el("div", { class: "body-map body-map-mini heat-on mmap-stage" });
     for (const v of MUSCLE_MAP_VIEWS) {
       const fig = buildMuscleFigure(sex, v.view, heat);
@@ -3236,7 +3267,7 @@
     }
     if (!stage.childNodes.length) return null;   // geometry missing — caller falls back
     wrap.appendChild(stage);
-    const readout = muscleMapReadout(heat);
+    const readout = muscleMapReadout(heat, windowDays);
     if (readout) wrap.appendChild(readout);
     return wrap;
   }
@@ -3260,7 +3291,17 @@
       const heat = BodyMap.heatFromWorkouts(completed, exById, 14, {
         include: (e) => !isMobilityEx(e)
       });
-      return renderMuscleMap(heat, state.prefs?.sex === "female" ? "female" : "male") || bars();
+      // Dividing a fortnight's tally in half only gives a weekly rate if there
+      // was a fortnight to tally. Someone three days in would have their real
+      // week's work halved and reported as a shortfall they do not have, so
+      // until the history is that long the readout stays on raw counts.
+      const first = completed.length
+        ? completed.map(w => w.date).filter(Boolean).sort()[0] : null;
+      const historyDays = first
+        ? Math.round((new Date(U.todayISO() + "T00:00:00") - new Date(first + "T00:00:00")) / 86400000) + 1
+        : 0;
+      const windowDays = historyDays >= 14 ? 14 : null;
+      return renderMuscleMap(heat, state.prefs?.sex === "female" ? "female" : "male", windowDays) || bars();
     } catch (err) {
       console.error("muscle map failed, falling back to bars", err);
       return bars();

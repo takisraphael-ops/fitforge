@@ -845,6 +845,20 @@ window.BodyMap = (function () {
   // triceps set the way a close-grip press is overstates every helper muscle;
   // weighting keeps the heat map honest about what you actually trained.
   const SECONDARY_WEIGHT = 0.4;
+
+  // The groups a weekly set target is meaningful for.
+  //
+  // Every zone gets counted; only these get held against the ten-to-twenty
+  // band, because those are the muscles the dose-response work actually
+  // studied. The rest — forearms, traps, lower back, obliques — are trained
+  // mostly as synergists and almost nobody programmes ten direct sets a week
+  // for them, so flagging them would produce a permanently red list that
+  // teaches you to ignore the whole readout. Abs are in: they are commonly
+  // programmed directly, which is the line being drawn here.
+  const MAJOR_ZONES = [
+    "chest", "lats", "midback", "shoulders", "biceps", "triceps",
+    "quads", "hams", "glutes", "calves", "abs"
+  ];
   function zoneWeight(ex, zoneId) {
     const z = ZONES[zoneId];
     if (!z) return 0;
@@ -925,6 +939,10 @@ window.BodyMap = (function () {
       // Weighting makes the tally fractional; the status line reads as whole
       // sets, so round for display while the ratio above stays precise.
       heat[id + "_sets"] = Math.round(sets[id]);
+      // The unrounded tally, for anything dividing it down to a weekly rate.
+      // Rounding first flips zones across the ten-a-week line: 19.6 sets in a
+      // fortnight is 9.8 a week and under it, but rounds to 20 and lands on it.
+      heat[id + "_setsExact"] = sets[id];
     }
     return heat;
   }
@@ -1395,5 +1413,5 @@ window.BodyMap = (function () {
     };
   }
 
-  return { create, ZONES, SEXES, GEOMETRY, exerciseMatchesZone, zoneWeight, countByZone, heatFromWorkouts };
+  return { create, ZONES, MAJOR_ZONES, SEXES, GEOMETRY, exerciseMatchesZone, zoneWeight, countByZone, heatFromWorkouts };
 })();

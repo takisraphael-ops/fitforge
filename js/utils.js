@@ -453,6 +453,43 @@ window.U = {
   // than on it. Per kg because that is the shape of the requirement — a flat
   // gram figure is generous for a small person and meaningless for a large one.
   MIN_FAT_PER_KG: 0.6,
+
+  // ---- Training volume ---------------------------------------------------
+  //
+  // Hard sets per muscle per week is the best-evidenced dose for growth, and
+  // the range where the dose-response work sits is roughly ten to twenty. Below
+  // ten the gains are real but smaller; past twenty the evidence thins and
+  // recovery starts to be the limit rather than the stimulus.
+  //
+  // The map has always counted sets. What it could not do was tell you whether
+  // a number was any good, because it normalised everything to your own
+  // busiest muscle — so three sets of chest and nothing else lit up chest at
+  // full heat. "Most trained" is not the same question as "enough", and only
+  // one of them has an answer outside your own history.
+  //
+  // Stated as a range and never as a target. It is what the evidence covers,
+  // not what this user said they wanted: the app has no strength/hypertrophy/
+  // endurance axis to read an intent off, and someone training for a sport or
+  // for health is not failing by sitting under ten.
+  SETS_PER_WEEK_MIN: 10,
+  SETS_PER_WEEK_MAX: 20,
+
+  /** Sets in a window, as a weekly rate. Fractional because a bench press is
+   *  a whole set for the chest and a fraction of one for the triceps. */
+  setsPerWeek(setsInWindow, windowDays) {
+    const d = Number(windowDays);
+    if (!Number.isFinite(d) || d <= 0) return 0;
+    return Math.round(((Number(setsInWindow) || 0) / d) * 7 * 10) / 10;
+  },
+
+  /** Where a weekly figure sits against the evidenced range. */
+  setsBand(perWeek) {
+    const n = Number(perWeek) || 0;
+    if (n <= 0) return "none";
+    if (n < U.SETS_PER_WEEK_MIN) return "under";
+    if (n <= U.SETS_PER_WEEK_MAX) return "in";
+    return "over";
+  },
   PROTEIN_PER_KG_OPTIONS: [
     { value: 1.6, label: "1.6 g/kg", hint: "Enough to build on" },
     { value: 1.8, label: "1.8 g/kg", hint: "Comfortable middle" },
