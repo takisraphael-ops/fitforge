@@ -448,11 +448,58 @@ window.U = {
   DEFAULT_PROTEIN_PER_KG: 1.8,
   DEFAULT_FAT_PERCENT: 30,
   PROTEIN_PER_KG_OPTIONS: [
-    { value: 1.6, label: "1.6 g/kg", hint: "General fitness" },
-    { value: 1.8, label: "1.8 g/kg", hint: "Strength training (default)" },
-    { value: 2.0, label: "2.0 g/kg", hint: "Higher protein" },
-    { value: 2.2, label: "2.2 g/kg", hint: "Aggressive cut / recomp" }
+    { value: 1.6, label: "1.6 g/kg", hint: "Enough to build on" },
+    { value: 1.8, label: "1.8 g/kg", hint: "Comfortable middle" },
+    { value: 2.0, label: "2.0 g/kg", hint: "Protects muscle in a deficit" },
+    { value: 2.2, label: "2.2 g/kg", hint: "Steep deficit, or very lean" }
   ],
+
+  /** How much protein each goal asks for, in grams per kg of bodyweight.
+   *
+   *  Protein is the one macro whose requirement genuinely moves with the goal,
+   *  and it moves the opposite way to intuition: you need MORE of it when
+   *  eating less, not when eating more. In a deficit the body is willing to
+   *  break down muscle for energy, and a high protein intake is most of what
+   *  stops it — the steeper the cut and the leaner you already are, the more
+   *  it matters. In a surplus, energy is plentiful, nothing is under threat,
+   *  and the requirement falls back to what it takes to build: Morton's 2018
+   *  meta-analysis put that plateau around 1.6 g/kg, with the confidence
+   *  interval reaching 2.2.
+   *
+   *  The app knew all of this already — the 2.2 option was labelled for
+   *  cutting — and then made the user apply it by hand.
+   *
+   *  Total bodyweight, not lean mass, which over-prescribes for anyone
+   *  carrying a lot of fat. Lean mass is the better denominator and the app
+   *  cannot see it: body fat is not measured, and asking for a number people
+   *  guess at would make the target look precise while making it worse. */
+  PROTEIN_PER_KG_BY_GOAL: {
+    cut_hard: 2.2,
+    cut: 2.0,
+    maintain: 1.8,
+    bulk: 1.6,
+    bulk_hard: 1.6
+  },
+
+  /** The g/kg a goal implies. Falls back to the plain default for an unknown
+   *  or missing goal, which is also exactly the `maintain` figure. */
+  proteinPerKgForGoal(goalIntent) {
+    return U.PROTEIN_PER_KG_BY_GOAL[U.normalizeGoalIntent(goalIntent)] || U.DEFAULT_PROTEIN_PER_KG;
+  },
+
+  /** What protein target to actually use.
+   *
+   *  A stored number is a choice the user made on the settings screen and
+   *  outranks the goal — changing goal must not silently overwrite it. Absent
+   *  means they never touched it, so the goal decides. There is no third
+   *  "mode" pref for this because absence already carries the meaning, and a
+   *  mode flag would need migrating for everyone who has ever opened the
+   *  screen. */
+  resolveProteinPerKg(storedPerKg, goalIntent) {
+    const n = Number(storedPerKg);
+    if (Number.isFinite(n) && n > 0) return { perKg: n, fromGoal: false };
+    return { perKg: U.proteinPerKgForGoal(goalIntent), fromGoal: true };
+  },
 
   /**
    * Compute auto macro targets from weight + daily kcal budget.

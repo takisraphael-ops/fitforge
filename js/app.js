@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=252").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=253").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -516,7 +516,10 @@
       includeTrainingInFoodRoom: !!(await Storage.getPref("includeTrainingInFoodRoom", false)),
       // Macro goals: auto from bodyweight + kcal budget, or full manual P/C/F
       macroGoalMode: await Storage.getPref("macroGoalMode", "auto"),
-      proteinPerKg: await Storage.getPref("proteinPerKg", U.DEFAULT_PROTEIN_PER_KG),
+      // null means "never chosen", which is what lets the goal drive it —
+      // see U.resolveProteinPerKg. Defaulting this to 1.8 would make every
+      // user look like someone who had deliberately picked 1.8.
+      proteinPerKg: await Storage.getPref("proteinPerKg", null),
       fatPercent: await Storage.getPref("fatPercent", U.DEFAULT_FAT_PERCENT),
       proteinGoal: await Storage.getPref("proteinGoal", 0),
       carbsGoal: await Storage.getPref("carbsGoal", 0),
@@ -670,7 +673,9 @@
     const mode = prefs.macroGoalMode === "manual" ? "manual" : "auto";
     const weightKg = e.weightKg || await getBodyweightKg();
     const kcalBudget = e.goal || prefs.kcalGoal || 2200;
-    const proteinPerKg = Number(prefs.proteinPerKg) > 0 ? Number(prefs.proteinPerKg) : U.DEFAULT_PROTEIN_PER_KG;
+    // Protein follows the goal unless the user has set a figure themselves.
+    const ppk = U.resolveProteinPerKg(prefs.proteinPerKg, e.goalIntent || prefs.goalIntent);
+    const proteinPerKg = ppk.perKg;
     const fatPercent = Number(prefs.fatPercent) > 0 ? Number(prefs.fatPercent) : U.DEFAULT_FAT_PERCENT;
 
     const auto = U.computeMacroGoals({
@@ -706,6 +711,8 @@
       weightKg,
       kcalBudget,
       proteinPerKg,
+      proteinFromGoal: ppk.fromGoal,
+      goalIntent: e.goalIntent || U.normalizeGoalIntent(prefs.goalIntent),
       fatPercent,
       goals,
       auto,
@@ -15210,7 +15217,10 @@
       const macros = U.computeMacroGoals({
         weightKg: draft.weightKg,
         kcalBudget: budget,
-        proteinPerKg: state.prefs.proteinPerKg || U.DEFAULT_PROTEIN_PER_KG,
+        // The goal the quiz just asked for, not the one on file — this runs
+        // before anything is saved, and the reveal has to show the targets the
+        // answers actually produce.
+        proteinPerKg: U.resolveProteinPerKg(state.prefs.proteinPerKg, draft.goalIntent).perKg,
         fatPercent: state.prefs.fatPercent || U.DEFAULT_FAT_PERCENT
       });
       return { calc, budget, macros, manualKcal };
@@ -15597,13 +15607,22 @@
     const macroAutoBtn = el("button", { type: "button", class: "btn btn-sm energy-mode-btn" }, "Suggested");
     const macroManualBtn = el("button", { type: "button", class: "btn btn-sm energy-mode-btn" }, "My numbers");
 
+    // The empty value is "follow my goal", and it is first because it is the
+    // right answer for almost everyone: protein need rises in a deficit and
+    // falls in a surplus, and the goal is already on this screen. Picking a
+    // number pins it and the goal stops moving it.
     const proteinPerKgS = el("select", { class: "select" });
+    proteinPerKgS.appendChild(el("option", { value: "" }, "Follow my goal"));
     for (const opt of U.PROTEIN_PER_KG_OPTIONS) {
       proteinPerKgS.appendChild(el("option", { value: String(opt.value) }, `${opt.label} — ${opt.hint}`));
     }
-    const curPpk = Number(state.prefs.proteinPerKg) || U.DEFAULT_PROTEIN_PER_KG;
-    const ppkMatch = U.PROTEIN_PER_KG_OPTIONS.find(o => Math.abs(o.value - curPpk) < 0.05);
-    proteinPerKgS.value = String(ppkMatch ? ppkMatch.value : U.DEFAULT_PROTEIN_PER_KG);
+    const curPpk = Number(state.prefs.proteinPerKg);
+    const ppkMatch = curPpk > 0 && U.PROTEIN_PER_KG_OPTIONS.find(o => Math.abs(o.value - curPpk) < 0.05);
+    proteinPerKgS.value = ppkMatch ? String(ppkMatch.value) : "";
+    /** The g/kg the current selection means, resolving "follow my goal". */
+    const ppkNow = () => U.resolveProteinPerKg(
+      proteinPerKgS.value === "" ? null : parseFloat(proteinPerKgS.value),
+      goalIntentS.value);
 
     const fatPctI = el("input", {
       class: "input input-num", type: "number", inputmode: "numeric",
@@ -15692,7 +15711,8 @@
       manualMacroFields.style.display = macroMode === "manual" ? "" : "none";
 
       const budget = currentKcalBudget(calc);
-      const ppk = parseFloat(proteinPerKgS.value) || U.DEFAULT_PROTEIN_PER_KG;
+      const resolvedPpk = ppkNow();
+      const ppk = resolvedPpk.perKg;
       const fatPct = parseFloat(fatPctI.value) || U.DEFAULT_FAT_PERCENT;
       const auto = U.computeMacroGoals({
         weightKg,
@@ -15705,8 +15725,14 @@
         proteinGoalI.value = String(auto.protein);
         carbsGoalI.value = String(auto.carbs);
         fatGoalI.value = String(auto.fat);
+        // Say where the g/kg came from. "2.2 g/kg" on its own reads as a number
+        // the app picked out of the air; naming the goal that chose it makes it
+        // checkable, and makes it obvious why it moved when the goal did.
+        const why = resolvedPpk.fromGoal
+          ? `protein at ${ppk} g/kg (${(U.GOAL_INTENTS[goalIntentS.value]?.label || "your goal").toLowerCase()})`
+          : `protein at ${ppk} g/kg`;
         macroPreview.textContent =
-          `From ${weightKg} kg bodyweight, protein at ${ppk} g/kg, fat ${fatPct}% of ${budget} food room, carbs fill the rest: ` +
+          `From ${weightKg} kg bodyweight, ${why}, fat ${fatPct}% of ${budget} food room, carbs fill the rest: ` +
           `P ${auto.protein}g · C ${auto.carbs}g · F ${auto.fat}g.`;
       } else {
         const p = parseFloat(proteinGoalI.value) || 0;
@@ -15723,9 +15749,11 @@
       const bodyDone = !!(sexS.value && ageI.value && heightI.value);
       const dayDone = !!(activityS.value && U.ACTIVITY_LEVELS[activityS.value]);
       const goalDone = !!(goalIntentS.value && U.GOAL_INTENTS[goalIntentS.value]);
+      // "Follow my goal" is an empty select value and a complete answer, so
+      // only the fat field is still required for the auto branch to be done.
       const macrosDone = macroMode === "manual"
         ? !!(parseFloat(proteinGoalI.value) || parseFloat(carbsGoalI.value) || parseFloat(fatGoalI.value))
-        : !!(proteinPerKgS.value && fatPctI.value);
+        : !!fatPctI.value;
       return [
         {
           id: "body",
@@ -15752,7 +15780,7 @@
           label: "Macros",
           done: macrosDone,
           hint: macrosDone
-            ? (macroMode === "manual" ? "Your gram targets" : `${proteinPerKgS.value} g/kg · fat ${fatPctI.value}%`)
+            ? (macroMode === "manual" ? "Your gram targets" : `${ppkNow().perKg} g/kg · fat ${fatPctI.value}%`)
             : "Protein and fat targets"
         }
       ];
@@ -15833,7 +15861,7 @@
       }
 
       // Macro line on hero
-      const ppk = parseFloat(proteinPerKgS.value) || U.DEFAULT_PROTEIN_PER_KG;
+      const ppk = ppkNow().perKg;
       const fatPct = parseFloat(fatPctI.value) || U.DEFAULT_FAT_PERCENT;
       let p, c, f;
       if (macroMode === "auto") {
@@ -16142,7 +16170,7 @@
             kcalOffset: U.DEFAULT_KCAL_OFFSET,
             includeTrainingInFoodRoom: false,
             macroGoalMode: "auto",
-            proteinPerKg: U.DEFAULT_PROTEIN_PER_KG,
+            proteinPerKg: null,
             fatPercent: U.DEFAULT_FAT_PERCENT,
             proteinGoal: 0,
             carbsGoal: 0,
@@ -16193,7 +16221,12 @@
           if (calc.complete) kcalGoal = calc.budget;
         }
 
-        const proteinPerKg = parseFloat(proteinPerKgS.value) || U.DEFAULT_PROTEIN_PER_KG;
+        // null is stored deliberately: it is what "follow my goal" means, and
+        // what keeps the goal in charge on every later change.
+        const proteinPerKgChoice = proteinPerKgS.value === ""
+          ? null
+          : (parseFloat(proteinPerKgS.value) || null);
+        const proteinPerKg = U.resolveProteinPerKg(proteinPerKgChoice, goalIntent).perKg;
         let fatPercent = parseFloat(fatPctI.value);
         if (!Number.isFinite(fatPercent) || fatPercent < 15 || fatPercent > 45) {
           return toast("Fat % must be between 15 and 45");
@@ -16250,7 +16283,7 @@
         state.prefs.kcalGoalMode = goalMode;
         state.prefs.kcalGoal = kcalGoal;
         state.prefs.macroGoalMode = macroMode;
-        state.prefs.proteinPerKg = proteinPerKg;
+        state.prefs.proteinPerKg = proteinPerKgChoice;
         state.prefs.fatPercent = fatPercent;
         state.prefs.proteinGoal = proteinGoal;
         state.prefs.carbsGoal = carbsGoal;
@@ -16275,7 +16308,7 @@
         await Storage.setPref("kcalGoalMode", goalMode);
         await Storage.setPref("kcalGoal", kcalGoal);
         await Storage.setPref("macroGoalMode", macroMode);
-        await Storage.setPref("proteinPerKg", proteinPerKg);
+        await Storage.setPref("proteinPerKg", proteinPerKgChoice);
         await Storage.setPref("fatPercent", fatPercent);
         await Storage.setPref("proteinGoal", proteinGoal);
         await Storage.setPref("carbsGoal", carbsGoal);

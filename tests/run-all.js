@@ -35,6 +35,7 @@ const SUITES = [
   { name: 'guided', file: 'guided.js', needsServer: true },
   { name: 'learn', file: 'learn.js', needsServer: true },
   { name: 'diet-plan', file: 'diet-plan.js', needsServer: true },
+  { name: 'macro-targets', file: 'macro-targets.js', needsServer: true },
   { name: 'units', file: 'units.js', needsServer: true },
   { name: 'a11y', file: 'a11y.js', needsServer: true },
   { name: 'progression', file: 'progression.js', needsServer: true },
