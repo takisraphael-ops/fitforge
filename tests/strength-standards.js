@@ -33,13 +33,15 @@ const check = (label, ok, detail = '') => {
 // tests/taxonomy.js uses on the data files.
 const APP = fs.readFileSync(path.resolve(__dirname, '..', 'js/app.js'), 'utf8');
 const literal = (name) => {
-  const at = APP.indexOf(`const ${name} = {`);
+  const at = APP.search(new RegExp(`const ${name} = [\\[{]`));
   if (at < 0) return null;
-  const open = APP.indexOf('{', at);
+  const openCh = APP[APP.search(new RegExp(`const ${name} = ([\\[{])`)) + `const ${name} = `.length];
+  const closeCh = openCh === '[' ? ']' : '}';
+  const open = APP.indexOf(openCh, at);
   let depth = 0;
   for (let i = open; i < APP.length; i++) {
-    if (APP[i] === '{') depth++;
-    else if (APP[i] === '}' && --depth === 0) {
+    if (APP[i] === openCh) depth++;
+    else if (APP[i] === closeCh && --depth === 0) {
       // Strip line comments so the literal parses.
       const src = APP.slice(open, i + 1).replace(/\/\/[^\n]*/g, '');
       return new Function('return ' + src)();
@@ -176,6 +178,126 @@ const literal = (name) => {
     check('with no sex on file the card still renders', n.card);
     check('but it claims no tier rather than grading you as a man',
       n.tier === null, String(n.tier));
+  }
+
+  // ================= 5. age, and saying so ================================
+  //
+  // The tiers already normalise for bodyweight and sex, which makes them a
+  // claim about people like you. Leaving age out was an inconsistency, not
+  // restraint: it measured a sixty-year-old against a twenty-five-year-old's
+  // yardstick for ever.
+  //
+  // The risk is not the adjustment, it is the unqualified word. "Advanced"
+  // meaning "advanced for seventy" is the same failure as a per-side label the
+  // set logger does not honour, or an e1RM from a twenty-rep set. Section 5b
+  // is the one that matters here, and it is the one a tidy-up would break.
+  console.log('\n=== 5. the age bands ===');
+  const BANDS = literal('AGE_STANDARD_BANDS');
+  {
+    check('the bands were found', Array.isArray(BANDS) && BANDS.length >= 3,
+      BANDS ? JSON.stringify(BANDS.map((b) => b.from)) : 'not found');
+    if (!BANDS) throw new Error('could not read AGE_STANDARD_BANDS out of app.js');
+
+    check('nothing is adjusted before 40', Math.min(...BANDS.map((b) => b.from)) === 40,
+      JSON.stringify(BANDS.map((b) => b.from)));
+    // Younger lifters are left on the adult standard: the way up is training
+    // age and maturation, neither of which the app can see.
+    check('and no band tries to adjust the young end',
+      BANDS.every((b) => b.from >= 40), JSON.stringify(BANDS.map((b) => b.from)));
+
+    const byAge = [...BANDS].sort((x, y) => x.from - y.from);
+    const ratios = byAge.map((b) => b.ratio);
+    check('the thresholds only ever come down with age',
+      ratios.every((r, i) => i === 0 || r < ratios[i - 1]), JSON.stringify(ratios));
+    check('and never so far that the tier stops meaning anything',
+      ratios.every((r) => r >= 0.6 && r < 1), JSON.stringify(ratios));
+    // Every band must be able to name itself, because the label is the thing
+    // that keeps the adjustment honest.
+    check('every band carries a label to print',
+      BANDS.every((b) => typeof b.label === 'string' && /\d/.test(b.label)),
+      JSON.stringify(BANDS.map((b) => b.label)));
+    console.log('      ' + byAge.map((b) => `${b.label} ×${b.ratio}`).join('  ·  '));
+  }
+
+  console.log('\n=== 5b. an adjusted tier always says which bracket it used ===');
+  {
+    // 100kg bench at 80kg bodyweight is 1.25x — under the open Advanced line
+    // of 1.5, over the 60+ line of 1.2. So the same lift changes tier with age,
+    // and every adjusted answer has to carry its bracket.
+    const seen = [];
+    for (const [dob, expectBand] of [
+      ['1995-01-01', null], ['1980-01-01', '40+'], ['1970-01-01', '50+'],
+      ['1960-01-01', '60+'], ['1950-01-01', '70+']
+    ]) {
+      const r = await page.evaluate(async (o) => {
+        await Storage.clearAll();
+        for (const [k, v] of Object.entries({ onboarded: true, sex: 'male', dob: o.dob, heightCm: 180, activityLevel: 'moderate' })) {
+          await Storage.setPref(k, v);
+        }
+        await Storage.saveBodyweight({ date: U.todayISO(), kg: 80 });
+        const d = new Date(); d.setDate(d.getDate() - 1);
+        await Storage.saveWorkout({ id: 'w', name: 'S', date: U.todayISO(d), startedAt: d.getTime(),
+          completedAt: d.getTime() + 3.6e6, durationSec: 3600,
+          exercises: [{ exerciseId: 'bench-press-barbell', name: 'Barbell Bench Press', type: 'weighted',
+            sets: [{ weight: 100, reps: 1, done: true }] }] });
+        return true;
+      }, { dob });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(2400);
+      await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"],.splash').forEach((n) => n.remove()));
+      await page.evaluate(() => document.querySelector('[data-testid="dock-library"]').click());
+      await page.waitForTimeout(700);
+      await page.evaluate(() => document.querySelector('[data-testid="learn-fork-bodymap"]')?.click());
+      await page.waitForTimeout(1500);
+      const text = await page.evaluate(() =>
+        document.querySelector('[data-ex-id="bench-press-barbell"] .ex-tier-name')?.textContent.trim() || null);
+      seen.push({ dob, expectBand, text });
+    }
+    for (const s of seen) {
+      if (s.expectBand) {
+        check(`  born ${s.dob.slice(0, 4)}: the tier names its bracket`,
+          !!s.text && s.text.includes(s.expectBand), String(s.text));
+      } else {
+        // The unadjusted case must NOT pick up a bracket it did not use.
+        check(`  born ${s.dob.slice(0, 4)}: no bracket, because none was applied`,
+          !!s.text && !/\d\+/.test(s.text), String(s.text));
+      }
+    }
+    // The whole point: the same lift is a different tier at different ages.
+    const tiers = seen.map((s) => (s.text || '').split(' ')[0]);
+    check('the same lift moves tier with age', new Set(tiers).size > 1, tiers.join(' → '));
+    // And in the right direction — never harder for being older.
+    check('and it moves up, never down',
+      tiers.indexOf('Advanced') === -1 || tiers.indexOf('Advanced') > tiers.indexOf('Intermediate'),
+      tiers.join(' → '));
+
+    // No age on file is different from no sex: the open standard is a real
+    // standard, so it degrades quietly rather than refusing.
+    const noAge = await page.evaluate(async () => {
+      await Storage.clearAll();
+      for (const [k, v] of Object.entries({ onboarded: true, sex: 'male', heightCm: 180, activityLevel: 'moderate' })) {
+        await Storage.setPref(k, v);
+      }
+      await Storage.saveBodyweight({ date: U.todayISO(), kg: 80 });
+      const d = new Date(); d.setDate(d.getDate() - 1);
+      await Storage.saveWorkout({ id: 'w', name: 'S', date: U.todayISO(d), startedAt: d.getTime(),
+        completedAt: d.getTime() + 3.6e6, durationSec: 3600,
+        exercises: [{ exerciseId: 'bench-press-barbell', name: 'Barbell Bench Press', type: 'weighted',
+          sets: [{ weight: 100, reps: 1, done: true }] }] });
+      return true;
+    });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(2400);
+    await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"],.splash').forEach((n) => n.remove()));
+    await page.evaluate(() => document.querySelector('[data-testid="dock-library"]').click());
+    await page.waitForTimeout(700);
+    await page.evaluate(() => document.querySelector('[data-testid="learn-fork-bodymap"]')?.click());
+    await page.waitForTimeout(1500);
+    const t = await page.evaluate(() =>
+      document.querySelector('[data-ex-id="bench-press-barbell"] .ex-tier-name')?.textContent.trim() || null);
+    check('with no age on file the tier is still shown', !!t, String(t));
+    check('on the open standard, and it claims no bracket',
+      t === 'Intermediate', String(t));
   }
 
   console.log('\nERRORS:', errs.length ? errs : 'none');

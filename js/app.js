@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=258").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=259").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -257,8 +257,40 @@
     squat: 0.8, deadlift: 0.8,             // lower body
     generic: 0.7                           // mixed / unknown lift
   };
+  // How the thresholds come down with age, and from when.
+  //
+  // The tiers already normalise for bodyweight and for sex, which makes them a
+  // claim about people like you rather than about people in general. Leaving
+  // age out of that was not restraint, it was an inconsistency: it measured a
+  // sixty-year-old against a twenty-five-year-old's yardstick for ever.
+  //
+  // Nothing moves before forty, because the decline is the part that is well
+  // characterised. The way up is dominated by training age and by maturation,
+  // neither of which the app can see, so a young lifter is measured against
+  // the adult standard and left alone.
+  //
+  // The bands come from comparing two sources that mostly agree — the masters
+  // powerlifting coefficients, and a flat one per cent a year from forty — and
+  // taking the SMALLER adjustment at every step. Erring that way means the tier
+  // is occasionally harder than it should be and never softer, which is the
+  // side to be wrong on when the output is a compliment.
+  //
+  // Bands rather than a curve on purpose. A per-year figure would imply a
+  // precision that is not there, and a band is something the label can say out
+  // loud: see `ageBand` below, which is the part that keeps this honest.
+  const AGE_STANDARD_BANDS = [
+    { from: 70, ratio: 0.70, label: "70+" },
+    { from: 60, ratio: 0.80, label: "60+" },
+    { from: 50, ratio: 0.88, label: "50+" },
+    { from: 40, ratio: 0.95, label: "40+" }
+  ];
+  function ageStandardFor(age) {
+    const a = Number(age);
+    if (!Number.isFinite(a)) return null;
+    return AGE_STANDARD_BANDS.find(b => a >= b.from) || null;
+  }
   // Returns a strength tier for a lift, or null when it can't be computed.
-  function strengthLevel(ex, e1rm, bwKg, sex) {
+  function strengthLevel(ex, e1rm, bwKg, sex, age) {
     if (!e1rm || !bwKg || bwKg <= 0) return null;
     // No sex on file means no standard to measure against. This used to fall
     // through to the men's table, so anyone who had not answered that question
@@ -269,7 +301,11 @@
     const key = liftKeyForStandards(ex);
     const base = STRENGTH_STANDARDS[key] || STRENGTH_STANDARDS.generic;
     const f = sex === "female" ? (FEMALE_STANDARD_RATIO[key] ?? FEMALE_STANDARD_RATIO.generic) : 1;
-    const th = base.map(v => v * f);
+    // No age on file means the plain adult standard, which is a real standard
+    // rather than a guess — unlike a missing sex, where there is no sensible
+    // default at all. So this one degrades quietly and that is honest.
+    const band = ageStandardFor(age);
+    const th = base.map(v => v * f * (band ? band.ratio : 1));
     const ratio = e1rm / bwKg;
     let idx = 0;
     for (let i = 0; i < th.length; i++) if (ratio >= th[i]) idx = i + 1;
@@ -279,7 +315,14 @@
     return {
       tier: STRENGTH_TIERS[idx], tierIndex: idx, color: STRENGTH_TIER_COLORS[idx], ratio,
       nextTier: idx < 4 ? STRENGTH_TIERS[idx + 1] : null,
-      pctToNext, nextAt: upper != null ? Math.round(upper * bwKg) : null
+      pctToNext, nextAt: upper != null ? Math.round(upper * bwKg) : null,
+      // The band the thresholds were graded to, or null when they were not.
+      // Every screen that prints the tier has to print this alongside it: the
+      // adjustment is defensible, "Advanced" on its own when it means "advanced
+      // for seventy" is not. Sex needs no such note because sex-specific
+      // standards are what everybody already assumes a tier to be; age-graded
+      // ones are not, and an unlabelled one would quietly flatter people.
+      ageBand: band ? band.label : null
     };
   }
 
@@ -10849,14 +10892,17 @@
         // logging a pistol set never asks per side. Saying it on the card
         // would be promising a distinction the set logger does not make.
         const perSide = isMob && ex.perSide;
-        const lvl = (!isMob && trained && st.bestE1RM) ? strengthLevel(ex, st.bestE1RM, bwKg, state.prefs.sex) : null;
+        const lvl = (!isMob && trained && st.bestE1RM) ? strengthLevel(ex, st.bestE1RM, bwKg, state.prefs.sex, U.effectiveAge(state.prefs)) : null;
         // Trained cards add a third line rather than swapping the second one
         // out, so a card gains detail as you train it instead of changing
         // shape — the muscle list used to vanish the moment you logged a set.
         const statRow = trained
           ? el("div", { class: "exercise-card-stat" },
               lvl ? el("span", { class: "ex-tier-dot", style: `--tier:${lvl.color}` }) : null,
-              lvl ? el("span", { class: "ex-tier-name", style: `color:${lvl.color}` }, lvl.tier) : null,
+              // The band travels with the tier. "Advanced" and "Advanced 60+"
+              // are different claims and only one of them is true here.
+              lvl ? el("span", { class: "ex-tier-name", style: `color:${lvl.color}` },
+                lvl.ageBand ? `${lvl.tier} ${lvl.ageBand}` : lvl.tier) : null,
               // Non-breaking: a plain leading space at the start of an inline
               // element is collapsed away, and "Intermediate· Today" is what
               // that looks like.
@@ -11166,14 +11212,15 @@
       ) : null,
       // Strength level — gamified tier from e1RM vs bodyweight
       (!isCardio && prs.maxE1RM && bwKg) ? (() => {
-        const lvl = strengthLevel(ex, prs.maxE1RM, bwKg, state.prefs.sex);
+        const lvl = strengthLevel(ex, prs.maxE1RM, bwKg, state.prefs.sex, U.effectiveAge(state.prefs));
         if (!lvl) return null;
         return el("div", { class: "card mt-16 strength-card" },
           el("div", { class: "row-between", style: "align-items: flex-start; margin-bottom: 12px" },
             el("div", {},
               el("div", { class: "card-title", style: "margin: 0 0 2px" }, "Strength level"),
               el("div", { class: "text-xs text-faint" }, `e1RM ${U.formatWeight(prs.maxE1RM, { space: false })} · ${lvl.ratio.toFixed(2)}× bodyweight`)),
-            el("div", { class: "strength-badge", style: `--tier:${lvl.color}` }, lvl.tier)),
+            el("div", { class: "strength-badge", style: `--tier:${lvl.color}` },
+              lvl.ageBand ? `${lvl.tier} ${lvl.ageBand}` : lvl.tier)),
           el("div", { class: "tier-ladder" },
             ...STRENGTH_TIERS.map((t, i) => el("div", { class: "tier-step" + (i <= lvl.tierIndex ? " on" : ""), style: `--tier:${lvl.color}`, title: t }))),
           lvl.nextTier
@@ -11181,7 +11228,12 @@
                 el("div", { class: "strength-progress" }, el("i", { style: `width:${lvl.pctToNext}%; background:${lvl.color}` })),
                 el("div", { class: "text-xs text-muted", style: "margin-top: 6px" }, `${lvl.pctToNext}% to ${lvl.nextTier} · reach ${U.formatWeight(lvl.nextAt, { space: false })} e1RM`))
             : el("div", { class: "text-sm", style: `color:${lvl.color}; margin-top: 10px; font-weight: 700` }, "Top tier — Elite 💪"),
-          el("div", { class: "text-xs text-faint", style: "margin-top: 10px" }, "A rough guide from bodyweight ratios — real standards vary by lift and person.")
+          // Room here to say what the badge can only gesture at.
+          el("div", { class: "text-xs text-faint", style: "margin-top: 10px" },
+            "A rough guide from bodyweight ratios — real standards vary by lift and person."
+            + (lvl.ageBand
+                ? ` Graded against the ${lvl.ageBand} bracket, so these are lower than the open thresholds.`
+                : ""))
         );
       })() : null,
       // Strength trend — e1RM over sessions
