@@ -228,6 +228,87 @@ const check = (label, ok, detail = '') => {
       !!shown && shown.apply === null, String(shown && shown.apply));
   }
 
+  // ================= 5. the activity bands mean what they are =============
+  //
+  // 1.2 / 1.375 / 1.55 / 1.725 / 1.9 is the standard PAL ladder and every one
+  // of those numbers was calibrated against a definition that names exercise:
+  // 1.55 is "moderate exercise 3-5 days a week", not "a standing job".
+  //
+  // The app used to describe them as the opposite. The quiz said in as many
+  // words to answer "outside the gym — gym sessions are tracked separately",
+  // which put a desk-job lifter on 1.2 — the figure for somebody who does not
+  // train at all — and roughly six hundred calories a day under their own
+  // maintenance. Worse, the settings hint called 1.375 "typical for gym-goers",
+  // so the answer you got depended on which screen you set it from.
+  console.log('\n=== 5. the activity ladder says it includes training ===');
+  {
+    const a = await page.evaluate(() => {
+      const levels = Object.entries(U.ACTIVITY_LEVELS).map(([k, v]) => ({
+        key: k, mult: v.mult, label: v.label, hint: v.hint
+      }));
+      const bmr = U.bmrMifflin({ sex: 'male', weightKg: 80, heightCm: 180, age: 30 });
+      return {
+        levels,
+        mults: levels.map((l) => l.mult),
+        deskLifter: {
+          sedentary: U.tdeeFromBmr(bmr, 'sedentary'),
+          moderate: U.tdeeFromBmr(bmr, 'moderate')
+        }
+      };
+    });
+    // Pinned because the tempting fix is to invent a lower, exercise-free
+    // ladder to match the old labels. The published bands do not come in that
+    // form, and a made-up number that matched the label would be worse than a
+    // real one that needed explaining.
+    check('the multipliers are the standard PAL ladder, unchanged',
+      JSON.stringify(a.mults) === '[1.2,1.375,1.55,1.725,1.9]', JSON.stringify(a.mults));
+
+    // Every band has to say where training fits, or the user is guessing again.
+    const silent = a.levels.filter((l) =>
+      !/train|exercis/i.test(`${l.label} ${l.hint}`));
+    check('every band says what it assumes about training', silent.length === 0,
+      silent.map((l) => `${l.key}: ${l.label} — ${l.hint}`).join(' | '));
+
+    // The specific instruction that caused it. Swept over the shipped strings
+    // rather than spot-checked, so the phrasing cannot come back somewhere else.
+    const excludes = a.levels.filter((l) =>
+      /not the gym|outside the gym|excluding|apart from (your )?training|gym sessions are tracked/i
+        .test(`${l.label} ${l.hint}`));
+    check('and none of them tells you to leave training out',
+      excludes.length === 0, excludes.map((l) => l.hint).join(' | '));
+
+    check('the gap the mislabelling opened is real, and is what it cost',
+      a.deskLifter.moderate - a.deskLifter.sedentary > 500,
+      `${a.deskLifter.sedentary} on 1.2 vs ${a.deskLifter.moderate} on 1.55`);
+
+    // The onboarding step is where most people answer this exactly once.
+    await page.evaluate(async () => { await Storage.clearAll(); });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(2600);
+    await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"],.splash').forEach((n) => n.remove()));
+    for (let i = 0; i < 12; i++) {
+      if (await page.$('[data-testid="pquiz-activity-moderate"]')) break;
+      const next = await page.$('[data-testid="pquiz-next"], [data-testid="pquiz-start"]');
+      if (next) { await next.click(); await page.waitForTimeout(550); continue; }
+      const card = await page.$('.pquiz-list button, .pquiz-choice');
+      if (card) { await card.click(); await page.waitForTimeout(550); continue; }
+      break;
+    }
+    const step = await page.evaluate(() => {
+      if (!document.querySelector('[data-testid="pquiz-activity-moderate"]')) return null;
+      return document.body.innerText;
+    });
+    check('the onboarding step is reachable to check', !!step);
+    if (step) {
+      check('it asks about the week, not the day', /normal week/i.test(step),
+        (step.match(/How active[^\n]*/) || [''])[0]);
+      check('and tells you to count your training',
+        /count your training/i.test(step), (step.match(/Count[^\n]*/) || [''])[0]);
+      check('rather than to leave it out',
+        !/outside the gym|tracked separately|not the gym/i.test(step));
+    }
+  }
+
   console.log('\nERRORS:', errs.length ? errs : 'none');
   console.log(`\n${fails} failing check${fails === 1 ? '' : 's'}`);
   await b.close();

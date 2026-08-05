@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=256").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=257").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -3701,8 +3701,9 @@
     const rows = [];
     if (!energy.profileReady) return rows;
     const fmt = (n) => (n > 0 ? `+${n}` : String(n));
-    // Lifestyle TDEE already includes body baseline × daily movement; show both pieces.
-    // Body baseline = BMR; Daily movement = lifestyle TDEE − BMR (extra from being up and about).
+    // TDEE is body baseline × the activity band; show both pieces.
+    // Body baseline = BMR; Activity = TDEE − BMR, which is everything the band
+    // covers — moving about AND training, because the band already includes it.
     const movementExtra = (energy.tdee != null && energy.bmr != null)
       ? Math.max(0, energy.tdee - energy.bmr)
       : null;
@@ -3711,9 +3712,11 @@
     }
     if (movementExtra != null) {
       rows.push({
-        label: "Daily movement",
+        label: "Activity",
         value: fmt(movementExtra),
-        note: energy.activityLabel || "normal day, not the gym"
+        // Named for the band the user picked. It used to say "normal day, not
+        // the gym", which is the reading that put people on the wrong band.
+        note: energy.activityLabel || "your usual week, training included"
       });
     }
     const trainingBurn = energy.workoutKcal || 0;
@@ -3723,7 +3726,7 @@
       value: trainingBurn ? fmt(trainingBurn) : "+0",
       note: trainingCounted
         ? "added into today's food room"
-        : "estimate only — not added to food room"
+        : "estimate only — your activity band already covers it"
     });
     if (energy.maintenance != null) {
       rows.push({
@@ -3731,7 +3734,7 @@
         value: String(energy.maintenance),
         note: trainingCounted
           ? "before your goal tweak"
-          : "body + daily movement (training not included)"
+          : "body baseline + your activity band, which covers training"
       });
     }
     if (energy.goalAdj) {
@@ -15219,9 +15222,14 @@
         }));
       }
       return stepShell({
-        eyebrow: "Your day",
-        title: "How active is a normal day?",
-        subtitle: "Outside the gym — gym sessions are tracked separately.",
+        eyebrow: "Your week",
+        // A normal WEEK, training included. This said "outside the gym — gym
+        // sessions are tracked separately" and it was the single most wrong
+        // line in the app: the bands below already assume training, so
+        // answering it that way put a desk-job lifter six hundred calories a
+        // day under their own maintenance.
+        title: "How active is a normal week?",
+        subtitle: "Count your training — these already include it.",
         content: list
       });
     }
@@ -15683,8 +15691,12 @@
       id: "include-training-food-room"
     });
     includeTrainingCb.checked = !!state.prefs.includeTrainingInFoodRoom;
+    // The honest reason to leave this off is not that MET estimates are rough,
+    // though they are. It is that the activity band above already contains
+    // training, so switching this on counts it a second time.
     const includeTrainingHint = el("div", { class: "text-xs text-faint mt-8" },
-      "Off by default. Workout burn estimates are rough; leaving this off usually matches the scale better. You still see the estimate on Home."
+      "Off by default, and best left off: the activity level above already includes your training, " +
+      "so adding the session estimate on top counts it twice. You still see the estimate on Home."
     );
 
     const warmupCb = el("input", { type: "checkbox", id: "warmup-toggle" });
@@ -15972,15 +15984,15 @@
         const detailBits = [
           `${weightKg} kg`,
           `body baseline ${calc.bmr}`,
-          `daily movement +${movementExtra}`,
+          `activity +${movementExtra}`,
           `hold-weight ${calc.maintenance}`
         ];
         if (calc.goalAdj) detailBits.push(`${calc.goalLabel || "goal"} ${fmtAdj(calc.goalAdj)}`);
         if (calc.kcalOffset) detailBits.push(`personal tweak ${fmtAdj(calc.kcalOffset)}`);
         detailBits.push(`room ${calc.budget}`);
         const trainNote = includeTrainingCb.checked
-          ? "Training burn will be added on Home when you log workouts."
-          : "Training burn is shown on Home but not added to food room.";
+          ? "Training burn will be added on Home when you log workouts — on top of the activity level, which already counts it."
+          : "Training burn is shown on Home; the activity level above already accounts for it.";
         preview.textContent = detailBits.join(" · ") + ". " + trainNote;
       } else {
         heroSub.textContent = "Starter estimate until body details are complete";

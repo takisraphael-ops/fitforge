@@ -634,39 +634,65 @@ window.U = {
     };
   },
 
-  // ---- Energy budget (Mifflin–St Jeor + lifestyle + training) ----
-  // Activity multipliers are LIFESTYLE / NEAT only (not gym days).
-  // Logged workout kcal is added once on top — avoids double-counting training.
+  // ---- Energy budget (Mifflin–St Jeor × activity) ----
+  //
+  // THESE BANDS INCLUDE TRAINING. 1.2 / 1.375 / 1.55 / 1.725 / 1.9 is the
+  // standard PAL ladder, and every one of those numbers was calibrated against
+  // a definition that names exercise: 1.55 is "moderate exercise 3–5 days a
+  // week", not "a standing job". The multiplier cannot be separated from that
+  // because it was never measured separately.
+  //
+  // This used to claim the opposite. The comment here said LIFESTYLE / NEAT
+  // ONLY, and the quiz told people in as many words to answer "outside the gym
+  // — gym sessions are tracked separately", while handing them a ladder that
+  // assumes the gym. Someone with a desk job who trains four times a week was
+  // steered to 1.2, which is the figure for a person who does not train at all:
+  // 2136 kcal against the 2759 the band they should have picked describes. Six
+  // hundred calories a day, on the app's most ordinary user.
+  //
+  // The two screens did not even agree with each other. The hint on 1.375 said
+  // "typical for gym-goers" — the exercise-inclusive reading — so the number
+  // you ended up with depended on whether you set it during onboarding or in
+  // settings, 312 kcal apart.
+  //
+  // The numbers are the standard ladder and stay. Re-deriving a genuinely
+  // exercise-free ladder would mean inventing multipliers: the published bands
+  // do not come in that form, and a made-up number that matched the label would
+  // be worse than a real one that needed explaining.
+  //
+  // It is a weekly average, so a rest day is covered by the same figure as a
+  // training day. That is what a PAL is and it is why the measured maintenance
+  // on the settings screen beats it whenever there is enough logged to compute.
   ACTIVITY_LEVELS: {
     sedentary: {
       key: "sedentary",
-      label: "Mostly sitting",
+      label: "Sitting, no training",
       mult: 1.2,
-      hint: "Desk / driving most of the day, little walking"
+      hint: "Desk or driving most of the day, and little or no exercise"
     },
     light: {
       key: "light",
-      label: "Light daily movement",
+      label: "Lightly active",
       mult: 1.375,
-      hint: "Desk job with regular walking (typical for gym-goers)"
+      hint: "Some walking in the day, or training 1–3 days a week"
     },
     moderate: {
       key: "moderate",
-      label: "On your feet often",
+      label: "Moderately active",
       mult: 1.55,
-      hint: "Standing / walking job, or very active daily life"
+      hint: "On your feet often, or training 3–5 days a week"
     },
     active: {
       key: "active",
-      label: "Physically demanding job",
+      label: "Very active",
       mult: 1.725,
-      hint: "Manual work most of the day"
+      hint: "Physical job, or training hard 6–7 days a week"
     },
     very_active: {
       key: "very_active",
-      label: "Heavy labour",
+      label: "Extremely active",
       mult: 1.9,
-      hint: "Hard physical work all day"
+      hint: "Hard physical work and training on top of it"
     }
   },
 
