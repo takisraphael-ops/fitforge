@@ -5192,6 +5192,25 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
   padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
   box-shadow: var(--shadow-md); animation: sheetUp 260ms cubic-bezier(.2,.9,.3,1);
 }
+/* The grab handle on a draggable sheet. The bar is small; the row around it
+   is not, because the target is a thumb arriving at the top of a sheet and
+   the visible pill is only the part that says so. */
+.sheet-grip {
+  display: flex; align-items: center; justify-content: center;
+  height: 26px; margin: -10px -16px 4px;
+  cursor: grab; touch-action: none;
+}
+.sheet-grip:active { cursor: grabbing; }
+.sheet-grip-bar {
+  width: 38px; height: 4px; border-radius: 999px;
+  background: var(--text-faint); opacity: 0.45;
+  transition: opacity 150ms ease, transform 150ms var(--ease-spring);
+}
+.sheet-grip:active .sheet-grip-bar { opacity: 0.8; transform: scaleX(1.15); }
+/* The sheet is transform-driven while a finger owns it, so the entrance
+   animation must not fight it — and the scrim fades with the drag. */
+.wsheet-overlay { transition: opacity 120ms ease; }
+
 .wsheet-title { text-align: center; font-size: 15px; font-weight: 700; margin-bottom: 2px; }
 .wsheet-wheel { position: relative; display: flex; flex-direction: column; align-items: center; }
 .wsheet-unit { font-size: 13px; color: var(--text-faint); margin-top: 4px; }

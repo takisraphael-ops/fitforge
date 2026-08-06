@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=259").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=260").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1855,7 +1855,11 @@
     };
     // First time this tab is opened this session, play its tailored loader.
     const firstVisit = TAB_LOADERS[id] && !seenTabLoaders.has(id);
-    animateTabSwitch(dir, doRender);
+    // The loader covers the whole screen for 1.5s. Sliding the new view in
+    // underneath it was two motions competing for one moment, and the one you
+    // could actually see won — so on a first visit the loader *is* the
+    // entrance and the slide is skipped.
+    animateTabSwitch(firstVisit ? 0 : dir, doRender);
     if (firstVisit) { seenTabLoaders.add(id); showTabLoader(id); }
   }
 
@@ -1935,12 +1939,48 @@
   // Slide the outgoing view off in the travel direction while the incoming one
   // slides in from the opposite edge. Falls back to an instant swap when there's
   // no direction, nothing to animate, or the user prefers reduced motion.
-  let tabAnimating = false;
+  let tabAnimating = false;   // read when a switch interrupts one already running
+  let tabSpring = null;       // the spring driving it, so its velocity can carry
+  let tabCleanup = null;      // lets anyone finish the transition early
+  let tabRaf = 0, tabGuard = 0;
+  // ============ Navigation springs ============
+  // Semi-implicit Euler on fixed 1/480s substeps. The substepping is what
+  // makes it frame-rate independent: without it a 30Hz phone integrates half
+  // as often and the same move takes visibly longer than it does at 120Hz.
+  //
+  // Settled means "close enough that another frame would not move a pixel" —
+  // 6e-4 of the travel is well under a tenth of a pixel across a phone.
+  function makeSpring(v = 0) { return { v, target: v, vel: 0 }; }
+
+  function stepSpring(s, k, c, dt) {
+    let t = dt;
+    while (t > 0) {
+      const h = Math.min(1 / 480, t);
+      t -= h;
+      s.vel += (-k * (s.v - s.target) - c * s.vel) * h;
+      s.v += s.vel * h;
+    }
+    if (Math.abs(s.v - s.target) < 6e-4 && Math.abs(s.vel) < 6e-3) {
+      s.v = s.target;
+      s.vel = 0;
+      return false;
+    }
+    return true;
+  }
+
+  // k420/c38 rather than anything softer. A transition is judged by its
+  // duration, a spring by when it arrives: these values reach 99% of the
+  // travel at 283ms against the 280ms the fixed transition took, so the move
+  // gains velocity carry-over and interruptibility without getting slower.
+  // Gentler springs measured 380ms+, which on the most repeated gesture in
+  // the app reads as lag, not as polish.
+  const TAB_SPRING_K = 420, TAB_SPRING_C = 38;
+
   function animateTabSwitch(dir, doRender) {
     const main = $("#main");
     const oldView = main && main.querySelector(".view");
     const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (!main || !oldView || !dir || reduce) { doRender(); return; }
+    if (!main || !oldView || !dir || reduce) { settleTabSwitch(); doRender(); return; }
 
     // Clear any half-finished previous transition so rapid swipes stay clean.
     main.querySelectorAll(".view.tab-ghost").forEach(g => g.remove());
@@ -1955,31 +1995,180 @@
     if (!newView) { ghost.remove(); main.classList.remove("tab-anim"); return; }
     main.appendChild(ghost);            // overlay the outgoing view on top
 
-    const DUR = 280, EASE = "cubic-bezier(.4,0,.2,1)";
-    const enterFrom = dir > 0 ? "100%" : "-100%"; // forward: new comes from the right
-    const exitTo = dir > 0 ? "-100%" : "100%";
-    newView.style.transform = `translateX(${enterFrom})`;
-    newView.style.willChange = "transform";
-    ghost.style.transform = "translateX(0)";
-    ghost.style.willChange = "transform, opacity";
-    void newView.offsetWidth;           // force a reflow so the start state sticks
-    newView.style.transition = `transform ${DUR}ms ${EASE}`;
-    ghost.style.transition = `transform ${DUR}ms ${EASE}, opacity ${DUR}ms ease`;
-    newView.style.transform = "translateX(0)";
-    ghost.style.transform = `translateX(${exitTo})`;
-    ghost.style.opacity = "0.35";
+    // A switch arriving mid-flight inherits the velocity of the one it
+    // interrupts, so a fast double-swipe reads as one continuous movement
+    // instead of two transitions played back to back. `tabAnimating` was set
+    // and never read before this — the old version just restarted from zero.
+    const carried = tabAnimating && tabSpring ? tabSpring.vel : 0;
+    settleTabSwitch();
 
-    tabAnimating = true;
+    const sign = dir > 0 ? 1 : -1;      // forward: the new view comes from the right
+    const s = makeSpring(0);            // 0 = new view offscreen, 1 = arrived
+    s.target = 1;
+    s.vel = carried;
+
+    newView.style.willChange = "transform";
+    ghost.style.willChange = "transform, opacity";
+
+    const paint = () => {
+      const p = s.v;
+      newView.style.transform = `translate3d(${(1 - p) * 100 * sign}%,0,0)`;
+      ghost.style.transform = `translate3d(${-p * 100 * sign}%,0,0)`;
+      ghost.style.opacity = String(1 - p * 0.65);
+    };
+    paint();
+
     let done = false;
     const cleanup = () => {
       if (done) return;
-      done = true; tabAnimating = false;
+      done = true;
+      tabAnimating = false;
+      tabSpring = null;
+      tabCleanup = null;
+      if (tabRaf) { cancelAnimationFrame(tabRaf); tabRaf = 0; }
+      clearTimeout(tabGuard);
       ghost.remove();
-      newView.style.transition = ""; newView.style.transform = ""; newView.style.willChange = "";
+      newView.style.transform = ""; newView.style.willChange = "";
       main.classList.remove("tab-anim");
     };
-    newView.addEventListener("transitionend", cleanup, { once: true });
-    setTimeout(cleanup, DUR + 90);      // belt-and-braces in case transitionend is missed
+
+    let last = performance.now();
+    const frame = (now) => {
+      const dt = Math.min((now - last) / 1000, 0.05);   // a long stall must not explode it
+      last = now;
+      const running = stepSpring(s, TAB_SPRING_K, TAB_SPRING_C, dt);
+      paint();
+      if (running) tabRaf = requestAnimationFrame(frame);
+      else cleanup();
+    };
+
+    tabAnimating = true;
+    tabSpring = s;
+    tabCleanup = cleanup;
+    tabRaf = requestAnimationFrame(frame);
+    // Belt and braces, as the fixed-duration version had. Generous enough that
+    // it never truncates a real settle (400ms at these constants).
+    tabGuard = setTimeout(cleanup, 1200);
+  }
+
+  // Finish any tab transition immediately, leaving the destination exactly
+  // where it would have landed. Called before starting another one, and when
+  // the page is hidden: a backgrounded tab gets no animation frames, so a
+  // spring stops dead where a CSS transition would have completed. Without
+  // this you come back to a view frozen halfway across the screen.
+  function settleTabSwitch() {
+    if (tabCleanup) tabCleanup();
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) settleTabSwitch();
+  });
+
+  // ============ Drag a sheet away ============
+  // Bottom sheets could only be dismissed by a button, the scrim or Escape.
+  // On a phone the gesture people already try is to push the thing back down,
+  // so give them a grip and let the spring finish what the finger started.
+  //
+  // Listeners live on the grip and use pointer capture rather than sitting on
+  // window: sheets here are built and thrown away constantly, and a pair of
+  // window listeners per sheet with no removal is an unbounded leak.
+  const SHEET_SPRING_K = 480, SHEET_SPRING_C = 42;
+
+  /** Should a released drag dismiss the sheet?
+   *
+   *  `vel` is px/ms downward, `far` the furthest it actually travelled, and
+   *  `open` how much of the sheet is still on screen (1 = untouched).
+   *
+   *  Two rules, because either alone gets a case wrong. Distance alone means
+   *  a fast flick that stops short does nothing, which feels stuck. Speed
+   *  alone means a slip of the thumb closes the sheet, and a single coalesced
+   *  pointer event can report a speed no finger ever produced — that is why
+   *  the flick must also have gone somewhere.
+   */
+  function shouldDismissSheet(vel, far, open) {
+    if (vel > 0.5 && far >= 24) return true;   // a committed flick
+    return open < 0.62;                        // or simply dragged most of the way down
+  }
+
+  function makeDismissible(sheet, onClose) {
+    if (!sheet) return null;
+    const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const grip = el("div", { class: "sheet-grip", "data-testid": "sheet-grip", "aria-hidden": "true" },
+      el("span", { class: "sheet-grip-bar" }));
+    sheet.insertBefore(grip, sheet.firstChild);
+    if (reduce) return grip;            // the handle still reads as "this closes"
+
+    // The scrim is the sheet's own overlay parent, not a sibling: every sheet
+    // here is <div class="…-overlay"><div class="sheet">.
+    const scrim = sheet.parentElement;
+    const s = makeSpring(1);            // 1 = fully open, 0 = gone
+    let raf = 0, last = 0, drag = null;
+
+    const paint = () => {
+      sheet.style.transform = `translate3d(0,${(1 - s.v) * 100}%,0)`;
+      if (scrim) scrim.style.opacity = String(Math.max(0, Math.min(s.v, 1)));
+    };
+
+    const stop = () => { if (raf) { cancelAnimationFrame(raf); raf = 0; } };
+
+    const run = () => {
+      if (raf) return;
+      last = performance.now();
+      const frame = (now) => {
+        const dt = Math.min((now - last) / 1000, 0.05);
+        last = now;
+        const running = stepSpring(s, SHEET_SPRING_K, SHEET_SPRING_C, dt);
+        paint();
+        if (running) { raf = requestAnimationFrame(frame); return; }
+        raf = 0;
+        if (s.target === 0) onClose();
+        else { sheet.style.transform = ""; if (scrim) scrim.style.opacity = ""; }
+      };
+      raf = requestAnimationFrame(frame);
+    };
+
+    grip.style.touchAction = "none";
+    grip.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      grip.setPointerCapture(e.pointerId);
+      stop();
+      // The sheet animates up on open; measuring mid-animation gives a height
+      // that is right but a position that is not, so read the box now.
+      drag = { y: e.clientY, prev: e.clientY, t: performance.now(), vel: 0, far: 0,
+               h: Math.max(sheet.getBoundingClientRect().height, 1) };
+    });
+
+    grip.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      const now = performance.now();
+      let dy = e.clientY - drag.y;
+      if (dy < 0) dy *= 0.28;           // rubber band: it gives, but not much
+      // Smoothed, because one coalesced move can report an absurd instantaneous
+      // speed and a twitch should never read as a flick.
+      const inst = (e.clientY - drag.prev) / Math.max(now - drag.t, 8);
+      drag.vel = drag.vel * 0.6 + inst * 0.4;
+      drag.far = Math.max(drag.far, e.clientY - drag.y);
+      drag.prev = e.clientY;
+      drag.t = now;
+      s.v = Math.min(1 - dy / drag.h, 1.06);
+      s.vel = 0;
+      paint();
+    });
+
+    const release = () => {
+      if (!drag) return;
+      // Hand the flick to the spring so a fast flick keeps going and a slow
+      // drag past halfway still commits.
+      s.vel = -drag.vel * 1000 / drag.h;
+      s.target = shouldDismissSheet(drag.vel, drag.far, s.v) ? 0 : 1;
+      drag = null;
+      run();
+    };
+    grip.addEventListener("pointerup", release);
+    grip.addEventListener("pointercancel", release);
+
+    return grip;
   }
 
   // Set after saving a meal so the Saved-meals hero pulses on the next render.
@@ -12239,6 +12428,7 @@
     );
     overlay.appendChild(sheet);
     document.body.appendChild(overlay);
+    makeDismissible(sheet, close);
   }
 
   // Open any past day's breakdown, including days with nothing logged — those
@@ -12258,7 +12448,7 @@
       variant: "wheel-sheet wheel-when-day", testid: "date-sheet-wheel",
       onChange: (v) => { picked = v; }
     });
-    overlay.appendChild(el("div", { class: "wsheet" },
+    const sheet = el("div", { class: "wsheet" },
       el("div", { class: "wsheet-title" }, title || "Pick a day"),
       el("div", { class: "wsheet-wheel" }, wheelC.el),
       el("div", { class: "wsheet-actions" },
@@ -12268,8 +12458,10 @@
           on: { click: () => { const d = picked; close(); onPick && onPick(d); } }
         }, confirmLabel || "Open")
       )
-    ));
+    );
+    overlay.appendChild(sheet);
     document.body.appendChild(overlay);
+    makeDismissible(sheet, close);
   }
 
   function openDayPicker() {
@@ -15555,6 +15747,7 @@
     );
     overlay.appendChild(sheet);
     document.body.appendChild(overlay);
+    makeDismissible(sheet, close);
   }
 
   // A field-style button showing the current value; tap opens a wheel sheet.
