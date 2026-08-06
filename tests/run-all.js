@@ -53,7 +53,8 @@ const SUITES = [
   { name: 'import', file: 'import.js', needsServer: true },
   { name: 'finish-workout', file: 'finish-workout.js', needsServer: true },
   { name: 'nav-motion', file: 'nav-motion.js', needsServer: true },
-  { name: 'pager', file: 'pager.js', needsServer: true }
+  { name: 'pager', file: 'pager.js', needsServer: true },
+  { name: 'body-figure', file: 'body-figure.js', needsServer: true }
 ];
 
 const up = () => new Promise((resolve) => {

@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=263").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=264").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -1685,7 +1685,12 @@
     // An open book for the reading, a figure for the map. Same weight as the
     // other three so the two forks look like one family.
     learn: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="M24 13c-3.5-3-8-4-14-4v27c6 0 10.5 1 14 4 3.5-3 8-4 14-4V9c-6 0-10.5 1-14 4z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><line x1="24" y1="13" x2="24" y2="40" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>`,
-    bodymap: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><rect x="17.5" y="15" width="13" height="15" rx="5" fill="currentColor" fill-opacity="0.18"/><circle cx="24" cy="9" r="4.5" stroke="currentColor" stroke-width="3"/><g stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M24 15v13"/><path d="M24 18 13 23"/><path d="M24 18l11 5"/><path d="M24 28 17 42"/><path d="M24 28l7 14"/></g></svg>`
+    // The same body as the exercise figure, drawn as an outline rather than a
+    // silhouette. Filled, it would be the only solid mark among five and stop
+    // the two forks reading as one family — so this keeps the family's stroke
+    // and takes the proportions: shoulders wider than the waist, arms with
+    // mass, legs from the trunk rather than a crotch vertex.
+    bodymap: `<svg viewBox="0 0 44 44" fill="none" aria-hidden="true" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="22" cy="7.2" r="3.5"/><path d="M14.4 15.2 Q22 12.8 29.6 15.2 L27.6 23.4 Q27 27.6 26.2 29.6 L17.8 29.6 Q17 27.6 16.4 23.4 Z"/><path d="M14.2 15.8 Q11 21 10.8 28.4"/><path d="M29.8 15.8 Q33 21 33.2 28.4"/><path d="M18.4 30.2 17.6 41"/><path d="M25.6 30.2 26.4 41"/></svg>`
   };
 
   // Marks for the set-row hold menu. "D" on a button is enough when it sits
@@ -1708,7 +1713,11 @@
     history: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4"/><path d="M12 7v5l3 2"/></svg>',
     gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7.6 19.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3 14a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10 3.6V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>',
     search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
-    body: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="4" r="2.2"/><path d="M12 6.5v7M12 8.5 6.5 11M12 8.5 17.5 11M12 13.5 8.5 21M12 13.5 15.5 21"/></svg>'
+    // Drawn for 24, not scaled down from the big one: at this size its curves
+    // close up into blobs. Slightly lighter than the stroke the other marks
+    // use, because a body carries interior detail a chart or a book does not,
+    // and at 22px the trunk fills in at 2.
+    body: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="4" r="2.1"/><path d="M8.4 8.4 Q12 7 15.6 8.4 L14.9 12.6 Q14.6 15 14.2 16.2 L9.8 16.2 Q9.4 15 9.1 12.6 Z"/><path d="M8.3 8.7 Q6.4 11.4 6.3 15.4"/><path d="M15.7 8.7 Q17.6 11.4 17.7 15.4"/><path d="M10.2 16.5 9.8 22"/><path d="M13.8 16.5 14.2 22"/></svg>'
   };
 
   // Go to a tab and then put the screen where the slice said it would.
@@ -11958,16 +11967,26 @@
       boxing: ["sh", "armL", "armR", "torsoU", "legL", "legR"]
     })[category] || ["torsoU"];
     const on = (id) => accent.includes(id) ? " xfig-on" : "";
+    // A body rather than a diagram. The old figure read as a stickman for two
+    // reasons, and neither was the torso: the arms floated clear of the
+    // shoulders so the outline was never continuous, and every part was a
+    // uniform-width block so nothing tapered.
+    //
+    // Same viewBox and the same region ids, so the accent map above, .xfig-base
+    // and .xfig-on all keep working untouched. Eight parts become nine — the
+    // extra one is the neck, which is what closes the head-to-shoulders gap.
+    // Limbs are drawn after the trunk so an accented arm sits over it.
     const svg =
       '<svg viewBox="0 0 44 44" class="xfig-svg" aria-hidden="true">' +
-      '<circle class="xfig-base" cx="22" cy="9" r="4"/>' +
-      '<rect class="xfig-base' + on("sh") + '" x="13" y="14" width="18" height="4" rx="2"/>' +
-      '<rect class="xfig-base' + on("armL") + '" x="9" y="15.5" width="3.5" height="13" rx="1.75"/>' +
-      '<rect class="xfig-base' + on("armR") + '" x="31.5" y="15.5" width="3.5" height="13" rx="1.75"/>' +
-      '<rect class="xfig-base' + on("torsoU") + '" x="15" y="16" width="14" height="8" rx="2"/>' +
-      '<rect class="xfig-base' + on("torsoL") + '" x="15" y="23" width="14" height="7" rx="2"/>' +
-      '<rect class="xfig-base' + on("legL") + '" x="16" y="30" width="4" height="10" rx="2"/>' +
-      '<rect class="xfig-base' + on("legR") + '" x="24" y="30" width="4" height="10" rx="2"/>' +
+      '<circle class="xfig-base" cx="22" cy="6.8" r="4.2"/>' +
+      '<rect class="xfig-base" x="20.4" y="9.6" width="3.2" height="3.4" rx="1.4"/>' +
+      '<rect class="xfig-base' + on("sh") + '" x="11" y="12.2" width="22" height="5.4" rx="2.7"/>' +
+      '<path class="xfig-base' + on("torsoU") + '" d="M13.8 16.2 H30.2 L28.6 23.4 H15.4 Z"/>' +
+      '<path class="xfig-base' + on("torsoL") + '" d="M15.4 23.2 H28.6 L27.8 28.8 H16.2 Z"/>' +
+      '<rect class="xfig-base' + on("armL") + '" x="8.6" y="13.4" width="4.2" height="15.4" rx="2.1" transform="rotate(7 10.7 21.1)"/>' +
+      '<rect class="xfig-base' + on("armR") + '" x="31.2" y="13.4" width="4.2" height="15.4" rx="2.1" transform="rotate(-7 33.3 21.1)"/>' +
+      '<rect class="xfig-base' + on("legL") + '" x="16.1" y="27.9" width="5" height="14.3" rx="2.5" transform="rotate(2 18.6 35)"/>' +
+      '<rect class="xfig-base' + on("legR") + '" x="22.9" y="27.9" width="5" height="14.3" rx="2.5" transform="rotate(-2 25.4 35)"/>' +
       '</svg>';
     return svg;
   }
