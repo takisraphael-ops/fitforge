@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=260").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=261").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -69,6 +69,9 @@
       });
     }
     await Storage.open();
+    // Wrapped before anything writes, so no change can slip past unstamped
+    // and leave a swipe showing a pane built from data that has since moved.
+    watchStorageWrites();
     // Best-effort: ask browser not to evict workout data under storage pressure.
     try { await Storage.requestPersistent(); } catch (_) {}
     state.prefs = await loadPrefs();
@@ -1839,13 +1842,19 @@
 
   // Switch to a top-level tab, resetting remembered pager scroll so it opens
   // fresh. `dir` (-1/0/+1) drives the slide direction; 0 = infer from dock order.
-  function switchTab(id, dir = 0) {
+  // `animate: false` is for the swipe pager, which has already moved the
+  // screen with the finger — animating again would play the same journey
+  // twice.
+  function switchTab(id, dir = 0, { animate = true } = {}) {
     if (id === state.tab) return;
     if (!dir) {
       const a = SWIPE_TABS.indexOf(state.tab === "history" ? "stats" : state.tab);
       const b = SWIPE_TABS.indexOf(id);
       dir = (a >= 0 && b >= 0) ? Math.sign(b - a) : 0;
     }
+    // Taken before the tab changes, so a later swipe back has something to
+    // show while the real render catches up.
+    snapshotPane(state.tab);
     const doRender = () => {
       nutritionScrollKey = null; nutritionScrollTop = 0;
       workoutScrollIdx = 0; workoutScrollTop = 0;
@@ -1859,7 +1868,7 @@
     // underneath it was two motions competing for one moment, and the one you
     // could actually see won — so on a first visit the loader *is* the
     // entrance and the slide is skipped.
-    animateTabSwitch(firstVisit ? 0 : dir, doRender);
+    animateTabSwitch((firstVisit || !animate) ? 0 : dir, doRender);
     if (firstVisit) { seenTabLoaders.add(id); showTabLoader(id); }
   }
 
@@ -2177,6 +2186,60 @@
   let finishFlourish = false;
 
   // Horizontal swipe anywhere moves between the main tabs (in dock order).
+  // ============ Tab snapshots, for the swipe pager ============
+  // A tab pane costs 95–176ms to build, because building it means reading
+  // IndexedDB. That is far too slow to do at the start of a drag, so a
+  // finger-tracked swipe needs a pane it already has.
+  //
+  // The pane is a clone of the outgoing view, taken as you leave a tab. That
+  // is deliberately not a re-render: re-entering a tab renderer with a
+  // different state.tab, while its own async render may still be in flight,
+  // is a much larger hazard than anything this feature is worth. A clone
+  // carries no listeners, which is exactly right — it only has to look
+  // correct for the length of a drag, and the real render lands on commit.
+  //
+  // Anything written to storage invalidates every snapshot. A stale pane
+  // would flash last week's numbers mid-drag, and this app does not show a
+  // number it cannot stand behind. An invalid pane simply means no finger
+  // tracking for that swipe, which is what the app did before all of this.
+  const paneSnaps = new Map();     // tab id -> { el, stamp }
+  let dataStamp = 0;
+
+  function bumpDataStamp() { dataStamp++; }
+
+  // One wrap at startup beats a bump at every call site, which is the version
+  // that goes stale the first time someone adds a new write.
+  function watchStorageWrites() {
+    if (typeof Storage === "undefined" || Storage.__stampWrapped) return;
+    for (const name of Object.keys(Storage)) {
+      if (!/^(save|delete|import|clear)/.test(name)) continue;
+      const fn = Storage[name];
+      if (typeof fn !== "function") continue;
+      Storage[name] = function (...args) {
+        bumpDataStamp();
+        return fn.apply(Storage, args);
+      };
+    }
+    Storage.__stampWrapped = true;
+  }
+
+  function snapshotPane(tabId) {
+    if (!SWIPE_TABS.includes(tabId)) return;
+    const view = $("#main") && $("#main").querySelector(".view:not(.tab-ghost)");
+    if (!view) return;
+    const clone = view.cloneNode(true);
+    clone.classList.add("tab-ghost");
+    // Ids would be duplicated the moment this is put back on screen.
+    clone.querySelectorAll("[id]").forEach(n => n.removeAttribute("id"));
+    paneSnaps.set(tabId, { el: clone, stamp: dataStamp });
+  }
+
+  function takePane(tabId) {
+    const snap = paneSnaps.get(tabId);
+    if (!snap || snap.stamp !== dataStamp) return null;
+    return snap.el.cloneNode(true);
+  }
+
   const SWIPE_TABS = ["home", "nutrition", "stats", "library"];
   function initTabSwipe() {
     // Sheets/modals/quizzes that should own the gesture while open.
@@ -2200,27 +2263,169 @@
       }
       return false;
     }
+    // Where a swipe from here would land, or null at either end.
+    function neighbourTab(dx) {
+      const cur = state.tab === "history" ? "stats" : state.tab;
+      const i = SWIPE_TABS.indexOf(cur);
+      if (i < 0) return null;            // e.g. mid-workout — don't swipe out of a session
+      const ni = dx < 0 ? i + 1 : i - 1; // swipe left → next tab, right → previous
+      return (ni < 0 || ni >= SWIPE_TABS.length) ? null : SWIPE_TABS[ni];
+    }
+
+    const CLAIM_PX = 14;        // enough travel to be sure this is not a scroll
+    const RUBBER = 0.32;        // how much the ends give when there is nowhere to go
+    const COMMIT_FRAC = 0.5;    // past halfway and it goes, on distance alone
+    const COMMIT_VEL = 0.45;    // px/ms — a flick commits from anywhere
+
     let sx = 0, sy = 0, tracking = false, skip = false;
+    let drag = null;            // live once the gesture is ours
+
+    // Everything the drag put on screen, undone. Safe to call twice.
+    function clearDrag() {
+      if (!drag) return;
+      const { main, view, pane } = drag;
+      if (pane && pane.parentNode) pane.remove();
+      if (view) { view.style.transform = ""; view.style.willChange = ""; }
+      if (main) main.classList.remove("tab-anim");
+      drag = null;
+    }
+
+    function paint() {
+      if (!drag || drag.noPane) return;
+      const { view, pane, w, p, sign } = drag;
+      // p is 0 at rest and 1 fully swapped, always positive; sign says which
+      // way the finger went.
+      view.style.transform = `translate3d(${-p * w * sign}px,0,0)`;
+      if (pane) pane.style.transform = `translate3d(${(1 - p) * w * sign}px,0,0)`;
+    }
+
+    function beginDrag(dx) {
+      const main = $("#main");
+      const view = main && main.querySelector(".view:not(.tab-ghost)");
+      if (!main || !view) return false;
+
+      const sign = dx < 0 ? 1 : -1;
+      const dest = neighbourTab(dx);
+      // No pane means no tracking: a tab never shown this session, or a
+      // snapshot a write has since invalidated. There is nothing honest to
+      // put on screen, so the gesture reverts to what it was before the pager
+      // existed — measure it, and switch on release if it was a real swipe.
+      const pane = dest ? takePane(dest) : null;
+      const noPane = !!dest && !pane;
+
+      if (!noPane) {
+        main.classList.add("tab-anim");
+        if (pane) {
+          pane.style.willChange = "transform";
+          main.appendChild(pane);
+        }
+        view.style.willChange = "transform";
+      }
+      drag = {
+        main, view, pane, dest, sign, noPane,
+        w: main.clientWidth || window.innerWidth || 390,
+        p: 0, atEnd: !dest, vel: 0, lastX: 0, lastT: 0, far: 0
+      };
+      return true;
+    }
+
+    function endDrag(commit) {
+      if (!drag) return;
+      const d = drag;
+      if (d.noPane) {
+        // Nothing was moved, so there is nothing to spring. Commit the way the
+        // app always did, animation and all.
+        clearDrag();
+        if (commit) switchTab(d.dest, d.sign);
+        return;
+      }
+      if (!d.dest || !d.pane) { clearDrag(); return; }   // at the end of the row
+      if (reduceMotion()) {
+        clearDrag();
+        if (commit) switchTab(d.dest, d.sign, { animate: false });
+        return;
+      }
+      // Hand the finger's speed to the same spring the dock taps use, so a
+      // flick and a tap resolve at the same rate.
+      const s = makeSpring(d.p);
+      s.target = commit ? 1 : 0;
+      s.vel = (d.vel / d.w) * 1000 * d.sign * -1;
+      let last = performance.now();
+      const frame = (now) => {
+        if (!drag) return;
+        const dt = Math.min((now - last) / 1000, 0.05);
+        last = now;
+        const running = stepSpring(s, TAB_SPRING_K, TAB_SPRING_C, dt);
+        drag.p = s.v;
+        paint();
+        if (running) { drag.raf = requestAnimationFrame(frame); return; }
+        clearDrag();
+        if (commit) switchTab(d.dest, d.sign, { animate: false });
+      };
+      drag.raf = requestAnimationFrame(frame);
+    }
+
     document.addEventListener("touchstart", (e) => {
+      if (drag && drag.raf) { cancelAnimationFrame(drag.raf); clearDrag(); }
       if (e.touches.length !== 1) { tracking = false; return; }
       const t = e.touches[0];
       sx = t.clientX; sy = t.clientY; tracking = true;
       skip = !!document.querySelector(BLOCKING) || ownsHorizontal(e.target);
     }, { passive: true });
-    document.addEventListener("touchend", (e) => {
-      const go = tracking && !skip;
-      tracking = false;
-      if (!go) return;
-      const t = e.changedTouches[0];
+
+    // Non-passive because once the gesture is ours the page must not also
+    // scroll. It returns immediately for every touch that is not a candidate,
+    // which is nearly all of them.
+    document.addEventListener("touchmove", (e) => {
+      if (!tracking || skip || e.touches.length !== 1) return;
+      const t = e.touches[0];
       const dx = t.clientX - sx, dy = t.clientY - sy;
-      // Require a clean, mostly-horizontal swipe so vertical scrolls never trigger it.
-      if (Math.abs(dx) < 64 || Math.abs(dx) < Math.abs(dy) * 1.7) return;
-      const cur = state.tab === "history" ? "stats" : state.tab;
-      const i = SWIPE_TABS.indexOf(cur);
-      if (i < 0) return; // e.g. mid-workout — don't swipe out of a session
-      const ni = dx < 0 ? i + 1 : i - 1; // swipe left → next tab, right → previous
-      if (ni < 0 || ni >= SWIPE_TABS.length) return; // clamp at the ends
-      switchTab(SWIPE_TABS[ni], dx < 0 ? 1 : -1);
+
+      if (!drag) {
+        if (Math.abs(dx) < CLAIM_PX || Math.abs(dx) < Math.abs(dy) * 1.2) {
+          // A mostly-vertical move settles it: this is a scroll, hands off
+          // for the rest of the gesture.
+          if (Math.abs(dy) > CLAIM_PX) skip = true;
+          return;
+        }
+        if (!beginDrag(dx)) { skip = true; return; }
+        drag.lastX = t.clientX;
+        drag.lastT = e.timeStamp || performance.now();
+      }
+
+      e.preventDefault();
+      const now = e.timeStamp || performance.now();
+      const inst = (t.clientX - drag.lastX) / Math.max(now - drag.lastT, 8);
+      drag.vel = drag.vel * 0.6 + inst * 0.4;
+      drag.lastX = t.clientX;
+      drag.lastT = now;
+
+      // Travel in the direction the gesture started. Pulling back past the
+      // start just returns to rest; it never drags the far neighbour in.
+      let travelled = Math.max(0, dx * -drag.sign);
+      drag.far = Math.max(drag.far, travelled);
+      if (drag.atEnd) travelled *= RUBBER;   // the row gives, then stops
+      drag.p = Math.min(travelled / drag.w, drag.atEnd ? 0.18 : 1);
+      paint();
+    }, { passive: false });
+
+    document.addEventListener("touchend", () => {
+      if (!tracking) return;
+      tracking = false;
+      if (!drag) return;
+      const flick = (drag.vel * -drag.sign) > COMMIT_VEL;
+      // Untracked swipes keep the old 64px rule rather than inheriting the
+      // pager's halfway line, which on a 390px screen would be three times
+      // further than this gesture has ever needed.
+      const commit = drag.noPane
+        ? (drag.far >= 64 || flick)
+        : (drag.p >= COMMIT_FRAC || flick);
+      endDrag(commit && !drag.atEnd);
+    }, { passive: true });
+
+    document.addEventListener("touchcancel", () => {
+      tracking = false;
+      if (drag) endDrag(false);
     }, { passive: true });
   }
 
