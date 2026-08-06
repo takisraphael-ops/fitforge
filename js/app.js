@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=261").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=262").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -145,7 +145,7 @@
     { id: "cobalt", label: "Cobalt", swatch: "#8ba4ff" },
     { id: "amber", label: "Amber", swatch: "#f0a23a" }
   ];
-  const DEFAULT_ACCENT = "ice";
+  const DEFAULT_ACCENT = "amber";
   const isAccent = (id) => ACCENTS.some(a => a.id === id);
 
   // Keep the browser chrome (iOS status bar, Android task switcher) in step

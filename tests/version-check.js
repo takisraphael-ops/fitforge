@@ -87,5 +87,50 @@ check('every font file exists on disk', missingFonts.length === 0, missingFonts.
 const unprecached = fontRefs.filter(f => !sw.includes(f));
 check('every font file is in the precache list', unprecached.length === 0, unprecached.join(', '));
 
+// --- the default accent is stated in two files and must match ---
+//
+// styles.css carries a bare :root accent as well as one block per accent id.
+// The bare one is what paints the splash, because that is on screen before
+// app.js has read the stored preference and set data-accent. Change the
+// default in app.js alone and every cold launch opens on the old colour for
+// about a second and then swaps — which reads as a bug in the splash rather
+// than as the stale default it is.
+const css = fs.readFileSync(path.join(ROOT, 'css/styles.css'), 'utf8');
+const appjs = fs.readFileSync(path.join(ROOT, 'js/app.js'), 'utf8');
+
+const defAccent = (appjs.match(/const DEFAULT_ACCENT = "([a-z]+)"/) || [])[1];
+check('app.js names a default accent', !!defAccent, defAccent || 'not found');
+
+if (defAccent) {
+  // Pull the tokens for the default from its own light and dark blocks, then
+  // from whatever the bare :root and .dark say before any attribute is set.
+  const tokens = (block) => {
+    const out = {};
+    for (const m of block.matchAll(/(--(?:accent|accent-hover|accent-soft|on-accent))\s*:\s*([^;]+);/g)) {
+      out[m[1]] = m[2].trim();
+    }
+    return out;
+  };
+  const named = (sel) => {
+    const re = new RegExp(`${sel}\\[data-accent="${defAccent}"\\]\\s*\\{([^}]*)\\}`);
+    const m = css.match(re);
+    return m ? tokens(m[1]) : null;
+  };
+  // The bare declarations: everything before the first data-accent block.
+  const bare = css.slice(0, css.indexOf('[data-accent='));
+  const lightBare = tokens(bare.slice(0, bare.indexOf('.dark')));
+  const darkBare = tokens(bare.slice(bare.indexOf('.dark')));
+
+  for (const [mode, want, got] of [
+    ['light', named(':root'), lightBare],
+    ['dark', named('.dark'), darkBare]
+  ]) {
+    if (!want) { check(`the ${defAccent} ${mode} block exists`, false); continue; }
+    const differs = Object.keys(want).filter(k => got[k] && got[k] !== want[k]);
+    check(`the pre-JS ${mode} accent is ${defAccent}`, differs.length === 0,
+      differs.map(k => `${k}: ${got[k]} vs ${want[k]}`).join(', ') || defAccent);
+  }
+}
+
 console.log(`\n${fails} failing check${fails === 1 ? '' : 's'}`);
 process.exit(fails ? 1 : 0);

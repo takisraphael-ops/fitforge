@@ -57,9 +57,12 @@
   /* Accent — overridden per theme colour below. Light-mode accents run deep
      because the accent is used as text (links, stat figures, PR numbers), and
      a pastel on near-white fails contrast at any size. */
-  --accent: #0a7683;
-  --accent-hover: #08616c;
-  --accent-soft: #e0f4f6;
+  /* These base values must match the DEFAULT_ACCENT block below, because the
+     splash paints before app.js has set data-accent — leave them on the old
+     colour and every launch flashes the wrong one for a second. */
+  --accent: #9c5f10;
+  --accent-hover: #874f0a;
+  --accent-soft: #fbf1e0;
   /* Text/icons drawn ON an accent fill. Flips with the mode: white on the deep
      light-mode accents, near-black on the bright dark-mode ones. */
   --on-accent: #ffffff;
@@ -120,10 +123,10 @@
   --text: #eef1f5;
   --text-muted: #7d8798;
   --text-faint: #798497;   /* was #5a6473 = 3.22:1 on dark bg */
-  --accent: #57c9d6;
-  --accent-hover: #74d6e1;
-  --accent-soft: #10262a;
-  --on-accent: #05242a;
+  --accent: #f0a23a;
+  --accent-hover: #f7b45c;
+  --accent-soft: #2a1f0c;
+  --on-accent: #2b1705;
   --on-ok: #04231a;
   --on-gold: #241800;
   --success: #3ecf8e;
