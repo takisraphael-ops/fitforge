@@ -248,6 +248,53 @@ const TABS = ['home', 'nutrition', 'stats', 'library'];
     check('with the cover taken back off', left === 0, String(left));
   }
 
+  console.log('\n=== 3d. swiping while scrolled down ===');
+  {
+    // The pane is absolutely positioned inside #main, so top:0 is the top of
+    // the page, not of the screen. Scrolled down, it sat above the viewport
+    // and the outgoing view slid off against nothing — the whole screen went
+    // to 3% covered for sixteen frames. Every earlier check swiped from the
+    // top, where the two happen to coincide, so none of them saw it.
+    await seed();
+    await warmAll();
+    const worst = await page.evaluate(async () => {
+      window.scrollTo(0, 900);
+      await new Promise(r => setTimeout(r, 250));
+      const t = (type, cx, cy) => {
+        const target = document.elementFromPoint(cx, cy) || document.body;
+        const tt = new Touch({ identifier: 6, target, clientX: cx, clientY: cy });
+        target.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true,
+          touches: type === 'touchend' ? [] : [tt], changedTouches: [tt],
+          targetTouches: type === 'touchend' ? [] : [tt] }));
+      };
+      const main = document.querySelector('#main');
+      // Share of the viewport covered by a view that has content in it.
+      const covered = () => {
+        let a = 0;
+        for (const v of main.children) {
+          if (!v.classList || !v.classList.contains('view') || !v.children.length) continue;
+          const r = v.getBoundingClientRect();
+          a += Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0)) *
+               Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0));
+        }
+        return Math.round((a / (innerWidth * innerHeight)) * 100);
+      };
+      let low = 100;
+      t('touchstart', 340, 430);
+      for (let px = 20; px <= 260; px += 20) { t('touchmove', 340 - px, 430); low = Math.min(low, covered()); }
+      t('touchend', 80, 430);
+      for (let i = 0; i < 45; i++) {
+        await new Promise(r => requestAnimationFrame(r));
+        low = Math.min(low, covered());
+      }
+      return low;
+    });
+    check('the screen stays covered throughout', worst >= 55, `worst ${worst}% of the viewport`);
+    check('and it lands on the next tab', (await activeTab()) === 'nutrition');
+    check('with the page back at the top', await page.evaluate(() => window.scrollY) === 0,
+      String(await page.evaluate(() => window.scrollY)));
+  }
+
   console.log('\n=== 4. the ends of the row give, then stop ===');
   {
     await seed();

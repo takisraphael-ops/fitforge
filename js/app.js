@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=264").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=265").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -2335,6 +2335,12 @@
         main.classList.add("tab-anim");
         if (pane) {
           pane.style.willChange = "transform";
+          // The pane is absolutely positioned inside #main, so top:0 means the
+          // top of the page, not the top of the screen. Swipe while scrolled
+          // down and it sits above the viewport entirely: the outgoing view
+          // slides off against nothing, which is the flash. Anchor it to where
+          // the eye actually is.
+          pane.style.top = window.scrollY + "px";
           main.appendChild(pane);
         }
         view.style.willChange = "transform";
@@ -2406,6 +2412,9 @@
 
       main.classList.add("tab-anim");
       pane.style.transform = "translate3d(0,0,0)";
+      // The render just scrolled to the top, so the cover has to follow it
+      // rather than stay where the drag left it.
+      pane.style.top = window.scrollY + "px";
       main.appendChild(pane);
       cover = pane;
 
