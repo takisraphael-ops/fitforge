@@ -18,6 +18,44 @@ const check = (label, ok, detail = '') => {
 
 const TABS = ['home', 'nutrition', 'stats', 'library'];
 
+// How much of the screen is actually showing page content.
+//
+// The first version of this measured getBoundingClientRect and nothing else,
+// which is a layout question, not a painting one. It passed while the cover
+// was being clipped out of existence by an ancestor — the screen was blank and
+// the numbers said 82%. Clipping is the whole point here, so it has to walk
+// the ancestors and intersect every box that crops its children.
+const INK = `window.__ink = function () {
+  const vw = innerWidth, vh = innerHeight;
+  let area = 0;
+  const panes = [...document.querySelectorAll('#main > .view, body > .view')];
+  for (const el of panes) {
+    if (!el.children.length) continue;                 // built but not filled
+    const cs = getComputedStyle(el);
+    if (cs.visibility === 'hidden' || cs.display === 'none' || Number(cs.opacity) === 0) continue;
+    let r = el.getBoundingClientRect();
+    let box = { l: r.left, t: r.top, rt: r.right, b: r.bottom };
+    for (let n = el.parentElement; n && n !== document.documentElement; n = n.parentElement) {
+      const ncs = getComputedStyle(n);
+      const clips = /hidden|clip|auto|scroll/.test(ncs.overflow + ncs.overflowX + ncs.overflowY);
+      if (!clips) continue;
+      // A fixed child escapes an ancestor's clipping unless that ancestor
+      // establishes a containing block for it.
+      if (cs.position === 'fixed' &&
+          ncs.transform === 'none' && ncs.filter === 'none' && ncs.perspective === 'none') continue;
+      const nr = n.getBoundingClientRect();
+      box.l = Math.max(box.l, nr.left);
+      box.t = Math.max(box.t, nr.top);
+      box.rt = Math.min(box.rt, nr.right);
+      box.b = Math.min(box.b, nr.bottom);
+    }
+    const w = Math.max(0, Math.min(box.rt, vw) - Math.max(box.l, 0));
+    const h = Math.max(0, Math.min(box.b, vh) - Math.max(box.t, 0));
+    area += w * h;
+  }
+  return Math.round((area / (vw * vh)) * 100);
+};`;
+
 (async () => {
   const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
   const c = await b.newContext({
@@ -55,6 +93,7 @@ const TABS = ['home', 'nutrition', 'stats', 'library'];
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(1800);
     await page.evaluate(() => document.querySelectorAll('.splash').forEach(n => n.remove()));
+    await page.evaluate(INK);
   };
 
   const killOverlays = () => page.evaluate(() => {
@@ -116,7 +155,7 @@ const TABS = ['home', 'nutrition', 'stats', 'library'];
     const mid = await page.evaluate(() => {
       const main = document.querySelector('#main');
       const live = main.querySelector('.view:not(.tab-ghost)');
-      const pane = main.querySelector('.view.tab-ghost');
+      const pane = document.querySelector('body > .view.tab-pane');
       return {
         anim: main.classList.contains('tab-anim'),
         live: live ? live.style.transform : '',
@@ -143,7 +182,7 @@ const TABS = ['home', 'nutrition', 'stats', 'library'];
       const main = document.querySelector('#main');
       const live = main.querySelector('.view:not(.tab-ghost)');
       return {
-        ghosts: main.querySelectorAll('.view.tab-ghost').length,
+        ghosts: document.querySelectorAll('.view.tab-pane').length,
         transform: live ? live.style.transform : 'no view',
         anim: main.classList.contains('tab-anim')
       };
@@ -222,12 +261,7 @@ const TABS = ['home', 'nutrition', 'stats', 'library'];
           touches: type === 'touchend' ? [] : [tt], changedTouches: [tt],
           targetTouches: type === 'touchend' ? [] : [tt] }));
       };
-      const main = document.querySelector('#main');
-      // Total painted children across every view in #main. Zero means an
-      // empty screen.
-      const painted = () => [...main.children]
-        .filter(n => n.classList.contains('view'))
-        .reduce((n, v) => n + v.children.length, 0);
+      const painted = () => window.__ink();
 
       t('touchstart', 340, 430);
       for (let px = 10; px <= 260; px += 20) t('touchmove', 340 - px, 430);
@@ -240,11 +274,12 @@ const TABS = ['home', 'nutrition', 'stats', 'library'];
       }
       return out;
     });
-    const blank = frames.filter(n => n === 0).length;
+    const blank = frames.filter(n => n < 55).length;
     check('no frame of the commit is empty', blank === 0,
-      blank ? `${blank} blank frame(s) of ${frames.length}` : `${frames.length} frames, min ${Math.min(...frames)}`);
+      blank ? `${blank} near-empty frame(s) of ${frames.length}, min ${Math.min(...frames)}%`
+            : `${frames.length} frames, min ${Math.min(...frames)}% covered`);
     check('and it still lands on the next tab', (await activeTab()) === 'nutrition');
-    const left = await page.evaluate(() => document.querySelectorAll('#main .view.tab-ghost').length);
+    const left = await page.evaluate(() => document.querySelectorAll('.view.tab-pane').length);
     check('with the cover taken back off', left === 0, String(left));
   }
 
@@ -267,18 +302,7 @@ const TABS = ['home', 'nutrition', 'stats', 'library'];
           touches: type === 'touchend' ? [] : [tt], changedTouches: [tt],
           targetTouches: type === 'touchend' ? [] : [tt] }));
       };
-      const main = document.querySelector('#main');
-      // Share of the viewport covered by a view that has content in it.
-      const covered = () => {
-        let a = 0;
-        for (const v of main.children) {
-          if (!v.classList || !v.classList.contains('view') || !v.children.length) continue;
-          const r = v.getBoundingClientRect();
-          a += Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0)) *
-               Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0));
-        }
-        return Math.round((a / (innerWidth * innerHeight)) * 100);
-      };
+      const covered = () => window.__ink();
       let low = 100;
       t('touchstart', 340, 430);
       for (let px = 20; px <= 260; px += 20) { t('touchmove', 340 - px, 430); low = Math.min(low, covered()); }
@@ -305,7 +329,7 @@ const TABS = ['home', 'nutrition', 'stats', 'library'];
       const live = document.querySelector('#main .view:not(.tab-ghost)');
       const m = /translate3d\((-?[\d.]+)px/.exec(live ? live.style.transform : '');
       return { px: m ? Math.abs(Number(m[1])) : null,
-               panes: document.querySelectorAll('#main .view.tab-ghost').length };
+               panes: document.querySelectorAll('.view.tab-pane').length };
     });
     check('it moves a little', held.px !== null && held.px > 0, held.px + 'px');
     check('but nowhere near the full 140', held.px !== null && held.px < 90, held.px + 'px');
@@ -326,7 +350,7 @@ const TABS = ['home', 'nutrition', 'stats', 'library'];
     });
     await swipe(-140, { release: false });
     const panes = await page.evaluate(() =>
-      document.querySelectorAll('#main .view.tab-ghost').length);
+      document.querySelectorAll('.view.tab-pane').length);
     check('a stale pane is never shown', panes === 0, String(panes));
     await page.evaluate(() => window.__t('touchend', 190, 420));
     await page.waitForTimeout(1200);
@@ -366,7 +390,7 @@ const TABS = ['home', 'nutrition', 'stats', 'library'];
       t('touchstart', 200, 600);
       for (let i = 1; i <= 10; i++) {
         t('touchmove', 200 - i * 3, 600 - i * 30);
-        if (main.classList.contains('tab-anim') || main.querySelector('.view.tab-ghost')) claimed = true;
+        if (main.classList.contains('tab-anim') || document.querySelector('.view.tab-pane')) claimed = true;
       }
       t('touchend', 170, 300);
       return claimed;
@@ -387,7 +411,7 @@ const TABS = ['home', 'nutrition', 'stats', 'library'];
       const main = document.querySelector('#main');
       t('touchstart', 220, 640);
       t('touchmove', 180, 580);          // 40 across, 60 down, in one event
-      const claimed = main.classList.contains('tab-anim') || !!main.querySelector('.view.tab-ghost');
+      const claimed = main.classList.contains('tab-anim') || !!document.querySelector('.view.tab-pane');
       t('touchend', 180, 580);
       return claimed;
     });
@@ -396,7 +420,7 @@ const TABS = ['home', 'nutrition', 'stats', 'library'];
     await page.waitForTimeout(700);
     await page.waitForTimeout(800);
     check('scrolling does not change tab', (await activeTab()) === before, before);
-    const ghosts = await page.evaluate(() => document.querySelectorAll('#main .view.tab-ghost').length);
+    const ghosts = await page.evaluate(() => document.querySelectorAll('.view.tab-pane').length);
     check('and leaves nothing behind', ghosts === 0, String(ghosts));
   }
 
@@ -427,7 +451,7 @@ const TABS = ['home', 'nutrition', 'stats', 'library'];
     await killOverlays();
     check('tapping a dock item still switches', (await activeTab()) === 'stats');
     const clean = await page.evaluate(() => ({
-      ghosts: document.querySelectorAll('#main .view.tab-ghost').length,
+      ghosts: document.querySelectorAll('.view.tab-pane').length,
       anim: document.querySelector('#main').classList.contains('tab-anim')
     }));
     check('leaving nothing behind', clean.ghosts === 0 && !clean.anim,

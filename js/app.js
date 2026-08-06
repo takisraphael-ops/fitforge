@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=265").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=266").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -2237,7 +2237,6 @@
     const view = $("#main") && $("#main").querySelector(".view:not(.tab-ghost)");
     if (!view) return;
     const clone = view.cloneNode(true);
-    clone.classList.add("tab-ghost");
     // The live view may be mid-drag when this is taken, and cloneNode copies
     // inline styles with it. Left in, the pane would appear already shoved to
     // one side the next time it is used.
@@ -2335,13 +2334,14 @@
         main.classList.add("tab-anim");
         if (pane) {
           pane.style.willChange = "transform";
-          // The pane is absolutely positioned inside #main, so top:0 means the
-          // top of the page, not the top of the screen. Swipe while scrolled
-          // down and it sits above the viewport entirely: the outgoing view
-          // slides off against nothing, which is the flash. Anchor it to where
-          // the eye actually is.
-          pane.style.top = window.scrollY + "px";
-          main.appendChild(pane);
+          // On <body> as a fixed layer, never inside #main. Inside, it was
+          // wrong twice over: top:0 meant the top of the document, so a swipe
+          // made while scrolled put it above the screen; and renderMain()
+          // empties #main on commit, leaving it zero-height with
+          // `overflow: hidden`, which clips every absolutely-positioned child
+          // — the cover included, exactly when it is holding the screen.
+          pane.classList.add("tab-pane");
+          document.body.appendChild(pane);
         }
         view.style.willChange = "transform";
       }
@@ -2403,19 +2403,15 @@
       const { main, pane, dest, sign } = d;
       if (drag && drag.raf) cancelAnimationFrame(drag.raf);
       drag = null;
-      if (pane && pane.parentNode) pane.remove();
 
+      // The pane lives on <body>, so renderMain() cannot touch it: it simply
+      // stays put across the swap, holding the screen while the destination
+      // builds underneath.
+      if (pane) pane.style.transform = "translate3d(0,0,0)";
       switchTab(dest, sign, { animate: false });
 
       const view = main && main.querySelector(".view:not(.tab-ghost)");
       if (!pane || !view) { dropCover(main, pane); return; }
-
-      main.classList.add("tab-anim");
-      pane.style.transform = "translate3d(0,0,0)";
-      // The render just scrolled to the top, so the cover has to follow it
-      // rather than stay where the drag left it.
-      pane.style.top = window.scrollY + "px";
-      main.appendChild(pane);
       cover = pane;
 
       const t0 = performance.now();

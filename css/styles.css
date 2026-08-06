@@ -5516,6 +5516,23 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
   pointer-events: none; z-index: 2;
 }
 
+/* The swipe pager's incoming pane. Fixed to the viewport and hung off <body>
+   rather than absolute inside #main, for two reasons that both end in a blank
+   frame: inside #main, top:0 is the top of the document, so a swipe made
+   while scrolled put it above the screen entirely; and renderMain() empties
+   #main on commit, at which point its height is 0 and `overflow: hidden`
+   clips every absolutely-positioned child — including the pane covering the
+   handover. Opaque, because on commit the real view renders underneath it. */
+.view.tab-pane {
+  position: fixed; top: 0; left: 0; right: 0;
+  max-width: 1280px; margin: 0 auto;    /* matches .app on a wide screen */
+  min-height: 100dvh;
+  padding: 20px var(--page-pad, 24px) 132px;
+  background: var(--bg);
+  pointer-events: none; z-index: 55;    /* under the dock at 60 */
+  overflow: hidden;
+}
+
 /* ============================================================= */
 /* Motion system — shared "alive" micro-interactions (Tiers A/B/C) */
 /* ============================================================= */
