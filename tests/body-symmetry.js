@@ -81,7 +81,10 @@ function zoneBlocks() {
     const end = i + 1 < views.length ? views[i + 1].at : src.length;
     const figure = Math.floor(i / 2) === 0 ? 'male' : 'female';
     const block = src.slice(start, end);
-    for (const m of block.matchAll(/^\s{10}(\w+): \[\n([\s\S]*?)\n\s{10}\],/gm)) {
+    // The trailing comma is optional. The last zone in each `regions` object
+    // does not have one, and requiring it silently skipped that zone — four of
+    // them: both figures' hip_flexors and both figures' back calves.
+    for (const m of block.matchAll(/^\s{10}(\w+): \[\n([\s\S]*?)\n\s{10}\],?$/gm)) {
       if (m[1] === 'silhouette') continue;
       out.push({
         figure,
