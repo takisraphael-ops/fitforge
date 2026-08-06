@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=262").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=263").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -2229,6 +2229,11 @@
     if (!view) return;
     const clone = view.cloneNode(true);
     clone.classList.add("tab-ghost");
+    // The live view may be mid-drag when this is taken, and cloneNode copies
+    // inline styles with it. Left in, the pane would appear already shoved to
+    // one side the next time it is used.
+    clone.style.transform = "";
+    clone.style.willChange = "";
     // Ids would be duplicated the moment this is put back on screen.
     clone.querySelectorAll("[id]").forEach(n => n.removeAttribute("id"));
     paneSnaps.set(tabId, { el: clone, stamp: dataStamp });
@@ -2279,6 +2284,7 @@
 
     let sx = 0, sy = 0, tracking = false, skip = false;
     let drag = null;            // live once the gesture is ours
+    let cover = null;           // the settled pane, held over the handover
 
     // Everything the drag put on screen, undone. Safe to call twice.
     function clearDrag() {
@@ -2303,6 +2309,9 @@
       const main = $("#main");
       const view = main && main.querySelector(".view:not(.tab-ghost)");
       if (!main || !view) return false;
+      // A swipe arriving while the previous handover is still covered takes
+      // the screen from it, rather than stacking a second pane on top.
+      if (cover) { if (cover.parentNode) cover.remove(); cover = null; }
 
       const sign = dx < 0 ? 1 : -1;
       const dest = neighbourTab(dx);
@@ -2359,10 +2368,58 @@
         drag.p = s.v;
         paint();
         if (running) { drag.raf = requestAnimationFrame(frame); return; }
-        clearDrag();
-        if (commit) switchTab(d.dest, d.sign, { animate: false });
+        if (!commit) { clearDrag(); return; }
+        commitTo(d);
       };
       drag.raf = requestAnimationFrame(frame);
+    }
+
+    // Hand the screen over without letting it go blank for a frame.
+    //
+    // renderMain() empties #main and the tab renderers fill it asynchronously,
+    // so between the two there is a frame with nothing painted at all. Take
+    // the settled pane away first and that frame is what you see: a flash,
+    // right at the end of an otherwise smooth drag.
+    //
+    // So the pane stays on as a cover. renderMain wipes it along with
+    // everything else, it goes straight back on top, and it only comes off
+    // once the real view has something in it.
+    function commitTo(d) {
+      const { main, pane, dest, sign } = d;
+      if (drag && drag.raf) cancelAnimationFrame(drag.raf);
+      drag = null;
+      if (pane && pane.parentNode) pane.remove();
+
+      switchTab(dest, sign, { animate: false });
+
+      const view = main && main.querySelector(".view:not(.tab-ghost)");
+      if (!pane || !view) { dropCover(main, pane); return; }
+
+      main.classList.add("tab-anim");
+      pane.style.transform = "translate3d(0,0,0)";
+      main.appendChild(pane);
+      cover = pane;
+
+      const t0 = performance.now();
+      const wait = () => {
+        if (cover !== pane) return;                  // a new gesture took over
+        // Capped: a renderer that never fills must not strand the cover on
+        // top of a live screen it would otherwise swallow every tap for.
+        if (view.children.length > 0 || performance.now() - t0 > 400) {
+          dropCover(main, pane);
+          return;
+        }
+        requestAnimationFrame(wait);
+      };
+      requestAnimationFrame(wait);
+    }
+
+    function dropCover(main, pane) {
+      if (pane && pane.parentNode) pane.remove();
+      if (cover === pane) cover = null;
+      // Only if nothing else is mid-flight — a drag that started while the
+      // cover was up owns the class now.
+      if (main && !drag && !cover) main.classList.remove("tab-anim");
     }
 
     document.addEventListener("touchstart", (e) => {

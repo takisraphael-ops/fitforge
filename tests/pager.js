@@ -166,26 +166,86 @@ const TABS = ['home', 'nutrition', 'stats', 'library'];
   console.log('\n=== 3b. the journey is not played twice ===');
   {
     // The drag has already carried the screen across, so the commit must
-    // render without animating. Counting panes rather than watching for a
-    // second slide: by the time you could sample for one it has often been
-    // and gone, and the count is exact.
+    // render without animating.
+    //
+    // Counting inserted panes used to stand in for this, and stopped meaning
+    // anything once the handover legitimately puts its cover back. The tell
+    // that survives is the unit: animateTabSwitch positions in percentages,
+    // the pager in pixels. A percentage transform appearing anywhere during a
+    // swipe means the dock's slide ran on top of the drag.
     await seed();
     await warmAll();
-    await page.evaluate(() => {
-      window.__panes = 0;
-      window.__obs = new MutationObserver((recs) => {
-        for (const r of recs) for (const n of r.addedNodes) {
-          if (n.nodeType === 1 && n.classList && n.classList.contains('tab-ghost')) window.__panes++;
+    const pcts = await page.evaluate(async () => {
+      const t = (type, cx, cy) => {
+        const target = document.elementFromPoint(cx, cy) || document.body;
+        const tt = new Touch({ identifier: 5, target, clientX: cx, clientY: cy });
+        target.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true,
+          touches: type === 'touchend' ? [] : [tt], changedTouches: [tt],
+          targetTouches: type === 'touchend' ? [] : [tt] }));
+      };
+      const main = document.querySelector('#main');
+      const seen = [];
+      const sample = () => {
+        for (const v of main.children) {
+          const tx = v.style && v.style.transform;
+          if (tx && tx.includes('%')) seen.push(tx);
         }
-      });
-      window.__obs.observe(document.querySelector('#main'), { childList: true });
+      };
+      t('touchstart', 340, 430);
+      for (let px = 10; px <= 260; px += 20) { t('touchmove', 340 - px, 430); sample(); }
+      t('touchend', 80, 430);
+      for (let i = 0; i < 45; i++) {
+        await new Promise(r => requestAnimationFrame(r));
+        sample();
+      }
+      return seen;
     });
-    await swipe(-240);
-    await page.waitForTimeout(1400);
-    const panes = await page.evaluate(() => { window.__obs.disconnect(); return window.__panes; });
     check('the swipe committed', (await activeTab()) === 'nutrition');
-    check('exactly one pane was ever inserted', panes === 1,
-      `${panes} — more than one means the commit animated on top of the drag`);
+    check('no percentage transform ever appears', pcts.length === 0,
+      pcts.length ? `${pcts.length}, first ${pcts[0]} — the commit animated on top of the drag` : 'pixels only');
+  }
+
+  console.log('\n=== 3c. the screen never goes blank at the handover ===');
+  {
+    // renderMain() empties #main and the tab renderers fill it asynchronously.
+    // Removing the settled pane before that lands left exactly one frame with
+    // nothing painted, at the end of an otherwise smooth drag — which is what
+    // a flash is. Sampling after the fact cannot see it, so this records every
+    // frame from release until well past the render.
+    await seed();
+    await warmAll();
+    const frames = await page.evaluate(async () => {
+      const t = (type, cx, cy) => {
+        const target = document.elementFromPoint(cx, cy) || document.body;
+        const tt = new Touch({ identifier: 4, target, clientX: cx, clientY: cy });
+        target.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true,
+          touches: type === 'touchend' ? [] : [tt], changedTouches: [tt],
+          targetTouches: type === 'touchend' ? [] : [tt] }));
+      };
+      const main = document.querySelector('#main');
+      // Total painted children across every view in #main. Zero means an
+      // empty screen.
+      const painted = () => [...main.children]
+        .filter(n => n.classList.contains('view'))
+        .reduce((n, v) => n + v.children.length, 0);
+
+      t('touchstart', 340, 430);
+      for (let px = 10; px <= 260; px += 20) t('touchmove', 340 - px, 430);
+      t('touchend', 80, 430);
+
+      const out = [];
+      for (let i = 0; i < 45; i++) {
+        await new Promise(r => requestAnimationFrame(r));
+        out.push(painted());
+      }
+      return out;
+    });
+    const blank = frames.filter(n => n === 0).length;
+    check('no frame of the commit is empty', blank === 0,
+      blank ? `${blank} blank frame(s) of ${frames.length}` : `${frames.length} frames, min ${Math.min(...frames)}`);
+    check('and it still lands on the next tab', (await activeTab()) === 'nutrition');
+    const left = await page.evaluate(() => document.querySelectorAll('#main .view.tab-ghost').length);
+    check('with the cover taken back off', left === 0, String(left));
   }
 
   console.log('\n=== 4. the ends of the row give, then stop ===');
