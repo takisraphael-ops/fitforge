@@ -47,6 +47,10 @@ window.Progression = (function () {
     const need = gate.sets || 1;
     const qualifying = (sets || []).filter((s) => {
       if (!s || !s.done) return false;
+      // A warm-up cannot clear a rung. The gate asks you to do the thing;
+      // preparing to do it is not the same claim, and a ramp that happens to
+      // hit the rep count would otherwise unlock the next rung for free.
+      if (s.warmup) return false;
       if (gate.holdSec) return Number(s.seconds) >= gate.holdSec;
       if (Number(s.reps) < gate.reps) return false;
       if (gate.addedKg != null && Number(s.weight || 0) < gate.addedKg) return false;

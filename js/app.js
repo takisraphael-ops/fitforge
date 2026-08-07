@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=268").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=269").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -193,7 +193,7 @@
         if (ex.exerciseId === exerciseId) {
           const isCardio = ex.type === "cardio";
           const doneSets = (ex.sets || []).filter(s => {
-            if (!s.done) return false;
+            if (!s.done || U.isWarmup(s)) return false;
             if (ex.type === "hold" || ex.type === "interval" || s.seconds != null) return !!s.seconds;
             if (isCardio || s.durationMin != null) return !!s.durationMin;
             // Bodyweight sets store weight as 0 — still valid if reps logged.
@@ -436,7 +436,7 @@
         const isCardio = ex.type === "cardio";
         const isCustom = ex.type === "custom";
         const doneSets = (ex.sets || []).filter(s => {
-          if (!s.done) return false;
+          if (!s.done || U.isWarmup(s)) return false;
           if (isCustom || s.value != null) return s.value != null && s.value !== "";
           if (isCardio || s.durationMin != null) return !!s.durationMin;
           return s.reps != null && s.reps > 0;
@@ -6199,9 +6199,12 @@
     }
 
     async function onFinishWorkout() {
-      const doneSets = exs.reduce((s, e) => s + (e.sets || []).filter(x => x.done).length, 0);
+      // The celebration reports training, so it reports working sets. A
+      // session of nothing but ramps has nothing to celebrate and falls
+      // through to the plain finish.
+      const doneSets = exs.reduce((s, e) => s + U.workingSets(e.sets).length, 0);
       if (!doneSets) { await finishWorkout(); return; }
-      const volume = Math.round(exs.reduce((s, e) => s + (e.sets || []).filter(x => x.done).reduce((a, x) => a + ((x.weight || 0) * (x.reps || 0)), 0), 0));
+      const volume = Math.round(exs.reduce((s, e) => s + U.volume(U.workingSets(e.sets)), 0));
       const kcal = workoutKcalTotal(w);
       const dur = U.formatDuration(Math.floor((Date.now() - w.startedAt) / 1000));
       showCelebration({
@@ -6572,7 +6575,11 @@
         const hist = await getHistoryFor(first.exerciseId);
         const lastWorking = (() => {
           for (const h of hist) {
-            const best = (h.sets || []).filter(s => s.weight).sort((a, b) => b.weight - a.weight)[0];
+            // The ramp is built up to your working weight, so a previous
+            // warm-up must not be mistaken for one — that would ramp you up
+            // to a ramp.
+            const best = (h.sets || []).filter(s => s.weight && !U.isWarmup(s))
+              .sort((a, b) => b.weight - a.weight)[0];
             if (best) return best.weight;
           }
           return prs.maxWeight || null;
@@ -11093,7 +11100,7 @@
         if (w.date < cutIso) continue;
         for (const entry of (w.exercises || [])) {
           const ex = byId.get(entry.exerciseId); if (!ex || !(ex.category in cnt)) continue;
-          const done = (entry.sets || []).filter(s => s.done).length;
+          const done = U.workingSets(entry.sets).length;
           cnt[ex.category] += done; total += done;
         }
       }
