@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=266").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=267").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -2060,13 +2060,41 @@
       else cleanup();
     };
 
+    // Do not start until there is something to slide in.
+    //
+    // The tab renderers read IndexedDB, so for the first frames after
+    // doRender() the new view is an empty box. Animating then is what makes a
+    // tab change flash: the old view leaves and nothing has arrived to take
+    // its place. At rest the ghost is still square on the screen, so waiting
+    // here shows the page you came from rather than a blank one.
+    //
+    // Capped, because a tab that renders nothing at all must still get out of
+    // the way rather than freeze the app on its predecessor. 900ms covers a
+    // low-end phone: measured under 6x CPU throttling the wait holds the
+    // screen at 82% where removing it drops to 53%. Past about 20x the render
+    // outruns the cap and the old blank returns, which is the deliberate
+    // trade — degrade to the previous behaviour rather than hang on a screen
+    // the user has already left.
+    const READY_CAP = 900;
+    const readyAt = performance.now();
+    const startWhenReady = () => {
+      if (done) return;
+      if (newView.children.length > 0 || performance.now() - readyAt > READY_CAP) {
+        last = performance.now();
+        tabRaf = requestAnimationFrame(frame);
+        return;
+      }
+      tabRaf = requestAnimationFrame(startWhenReady);
+    };
+
     tabAnimating = true;
     tabSpring = s;
     tabCleanup = cleanup;
-    tabRaf = requestAnimationFrame(frame);
-    // Belt and braces, as the fixed-duration version had. Generous enough that
-    // it never truncates a real settle (400ms at these constants).
-    tabGuard = setTimeout(cleanup, 1200);
+    tabRaf = requestAnimationFrame(startWhenReady);
+    // Belt and braces, as the fixed-duration version had. It has to clear the
+    // worst honest case end to end: waiting out READY_CAP and then a full
+    // settle, which is 900ms + 400ms at these constants.
+    tabGuard = setTimeout(cleanup, 2400);
   }
 
   // Finish any tab transition immediately, leaving the destination exactly

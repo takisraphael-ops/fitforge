@@ -17,6 +17,7 @@ const check = (label, ok, detail = '') => {
 };
 
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+const INK = require('./ink.js');
 
 // stepSpring lives inside the app's IIFE, so reach it the way the strength
 // standards suite reaches its tables: lift the source and evaluate it.
@@ -429,6 +430,132 @@ function liftTabConstants() {
     await page.evaluate(() => { window.addEventListener = window.__origAdd; });
     check('three more sheets add no further window pointer listeners',
       afterFour === afterOne, `${afterOne} → ${afterFour}`);
+  }
+
+  console.log('\n=== 10b. no route into a tab blanks the screen ===');
+  {
+    // The pager covers a swipe when it holds a pane. Everything else — a dock
+    // tap, and a swipe whose pane a write has just invalidated — goes through
+    // animateTabSwitch, and that path blanked for exactly the same reason:
+    // during a change #main holds an absolutely-positioned ghost and an empty
+    // new view, so it measures zero and `overflow: hidden` clips the ghost
+    // away. Only the pager route was ever covered, which is why this survived
+    // three rounds of fixing the flash.
+    await reset({ meals: true });
+    await burnLoaders();
+    await page.evaluate(INK);
+
+    const worstDuring = async (label, body) => {
+      await clearOverlays();
+      const low = await page.evaluate(async (src) => {
+        let low = 100, stop = false;
+        const tick = () => { if (!stop) { low = Math.min(low, window.__ink()); requestAnimationFrame(tick); } };
+        requestAnimationFrame(tick);
+        await eval('(' + src + ')()');
+        await new Promise(r => setTimeout(r, 1400));
+        stop = true;
+        return low;
+      }, body.toString());
+      check(label, low >= 55, `worst ${low}% of the screen`);
+      await page.evaluate(() => document.querySelector('[data-testid="dock-home"]').click());
+      await page.waitForTimeout(1200);
+      await clearOverlays();
+    };
+
+    const swipeSrc = async () => {
+      const t = (type, cx, cy) => {
+        const tg = document.elementFromPoint(cx, cy) || document.body;
+        const tt = new Touch({ identifier: 9, target: tg, clientX: cx, clientY: cy });
+        tg.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true,
+          touches: type === 'touchend' ? [] : [tt], changedTouches: [tt],
+          targetTouches: type === 'touchend' ? [] : [tt] }));
+      };
+      t('touchstart', 340, 430);
+      for (let px = 20; px <= 260; px += 20) t('touchmove', 340 - px, 430);
+      t('touchend', 80, 430);
+      await new Promise(r => setTimeout(r, 100));
+    };
+
+    await worstDuring('a dock tap from the top', async () => {
+      window.scrollTo(0, 0);
+      document.querySelector('[data-testid="dock-nutrition"]').click();
+    });
+    await worstDuring('a dock tap while scrolled down', async () => {
+      window.scrollTo(0, 900);
+      await new Promise(r => setTimeout(r, 200));
+      document.querySelector('[data-testid="dock-nutrition"]').click();
+    });
+    await worstDuring('a swipe the pager can serve', swipeSrc);
+    await worstDuring('a swipe a write has just invalidated', async () => {
+      window.scrollTo(0, 0);
+      await Storage.saveMeal({ id: 'inval', date: U.todayISO(), name: 'x', section: 'snack', kcal: 10 });
+      const t = (type, cx, cy) => {
+        const tg = document.elementFromPoint(cx, cy) || document.body;
+        const tt = new Touch({ identifier: 9, target: tg, clientX: cx, clientY: cy });
+        tg.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true,
+          touches: type === 'touchend' ? [] : [tt], changedTouches: [tt],
+          targetTouches: type === 'touchend' ? [] : [tt] }));
+      };
+      t('touchstart', 340, 430);
+      for (let px = 20; px <= 260; px += 20) t('touchmove', 340 - px, 430);
+      t('touchend', 80, 430);
+      await new Promise(r => setTimeout(r, 100));
+    });
+  }
+
+  console.log('\n=== 10c. a slow device still never blanks ===');
+  {
+    // min-height alone fixes this machine; the wait for content only earns
+    // its place on a slower one, where the render outlasts the slide. Without
+    // throttling, removing the wait changes nothing measurable — so this is
+    // the check that stops it being deleted as dead code.
+    const slow = await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block', hasTouch: true });
+    const sp = await slow.newPage();
+    const cdp = await slow.newCDPSession(sp);
+    await sp.goto('http://localhost:8199/index.html', { waitUntil: 'load' });
+    await sp.waitForFunction(() => window.Storage && window.U);
+    await sp.evaluate(async () => {
+      await Storage.clearAll();
+      await Storage.setPref('onboarded', true);
+      // Enough history that a render is real work rather than an empty list.
+      for (let i = 0; i < 40; i++) {
+        const d = new Date(); d.setDate(d.getDate() - i);
+        await Storage.saveWorkout({ id: 'sw' + i, name: 'Push', date: U.todayISO(d), startedAt: d.getTime(),
+          completedAt: d.getTime() + 3.5e6, durationSec: 3400,
+          exercises: [{ exerciseId: 'bench-press-barbell', name: 'Bench', type: 'weighted',
+            sets: [{ weight: 80, reps: 8, done: true }] }] });
+        await Storage.saveMeal({ id: 'sm' + i, date: U.todayISO(d), name: 'Meal',
+          section: 'lunch', kcal: 600, protein: 40, carbs: 60, fat: 20 });
+      }
+    });
+    await sp.reload({ waitUntil: 'load' });
+    await sp.waitForTimeout(2500);
+    await sp.evaluate(() => document.querySelectorAll('.splash').forEach(n => n.remove()));
+    await sp.evaluate(INK);
+    const killSlow = () => sp.evaluate(() => document.querySelectorAll(
+      '.qa-fork-overlay,.modal-overlay,.wsheet-overlay,[data-testid="tab-loader"]').forEach(n => n.remove()));
+    for (const t of ['home', 'nutrition', 'stats', 'library', 'home']) {
+      await killSlow();
+      await sp.evaluate((id) => document.querySelector(`[data-testid="dock-${id}"]`).click(), t);
+      await sp.waitForTimeout(1400);
+      await killSlow();
+      await sp.waitForTimeout(300);
+    }
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
+    await sp.waitForTimeout(500);
+    const low = await sp.evaluate(async () => {
+      let low = 100, stop = false;
+      const tick = () => { if (!stop) { low = Math.min(low, window.__ink()); requestAnimationFrame(tick); } };
+      requestAnimationFrame(tick);
+      window.scrollTo(0, 0);
+      document.querySelector('[data-testid="dock-nutrition"]').click();
+      await new Promise(r => setTimeout(r, 2500));
+      stop = true;
+      return low;
+    });
+    check('a tab change at 6x CPU throttle keeps the screen', low >= 70,
+      `worst ${low}% of the screen`);
+    await slow.close();
   }
 
   console.log('\n=== 11. reduced motion ===');

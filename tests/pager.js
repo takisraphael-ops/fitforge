@@ -18,43 +18,7 @@ const check = (label, ok, detail = '') => {
 
 const TABS = ['home', 'nutrition', 'stats', 'library'];
 
-// How much of the screen is actually showing page content.
-//
-// The first version of this measured getBoundingClientRect and nothing else,
-// which is a layout question, not a painting one. It passed while the cover
-// was being clipped out of existence by an ancestor — the screen was blank and
-// the numbers said 82%. Clipping is the whole point here, so it has to walk
-// the ancestors and intersect every box that crops its children.
-const INK = `window.__ink = function () {
-  const vw = innerWidth, vh = innerHeight;
-  let area = 0;
-  const panes = [...document.querySelectorAll('#main > .view, body > .view')];
-  for (const el of panes) {
-    if (!el.children.length) continue;                 // built but not filled
-    const cs = getComputedStyle(el);
-    if (cs.visibility === 'hidden' || cs.display === 'none' || Number(cs.opacity) === 0) continue;
-    let r = el.getBoundingClientRect();
-    let box = { l: r.left, t: r.top, rt: r.right, b: r.bottom };
-    for (let n = el.parentElement; n && n !== document.documentElement; n = n.parentElement) {
-      const ncs = getComputedStyle(n);
-      const clips = /hidden|clip|auto|scroll/.test(ncs.overflow + ncs.overflowX + ncs.overflowY);
-      if (!clips) continue;
-      // A fixed child escapes an ancestor's clipping unless that ancestor
-      // establishes a containing block for it.
-      if (cs.position === 'fixed' &&
-          ncs.transform === 'none' && ncs.filter === 'none' && ncs.perspective === 'none') continue;
-      const nr = n.getBoundingClientRect();
-      box.l = Math.max(box.l, nr.left);
-      box.t = Math.max(box.t, nr.top);
-      box.rt = Math.min(box.rt, nr.right);
-      box.b = Math.min(box.b, nr.bottom);
-    }
-    const w = Math.max(0, Math.min(box.rt, vw) - Math.max(box.l, 0));
-    const h = Math.max(0, Math.min(box.b, vh) - Math.max(box.t, 0));
-    area += w * h;
-  }
-  return Math.round((area / (vw * vh)) * 100);
-};`;
+const INK = require('./ink.js');
 
 (async () => {
   const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
