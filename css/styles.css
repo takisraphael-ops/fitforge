@@ -5509,14 +5509,12 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
 .wheel-select .wheel-field { width: 100%; }
 
 /* ---- Tab transition (swipe / dock nav) ---- */
-/* The min-height is load-bearing, not padding. During a tab change the only
-   thing in #main is an outgoing ghost — absolutely positioned, so it adds no
-   height — and a new view the renderers have not filled yet. #main therefore
-   measures zero, and `overflow: hidden` on a zero-height box clips the ghost
-   out of existence: the screen goes blank for the frames it takes the
-   destination to arrive. Holding a viewport of height keeps the page you came
-   from on screen until there is something to replace it with. */
-#main.tab-anim { position: relative; overflow: hidden; min-height: 100dvh; }
+/* No min-height here. It carried one for a while, to stop a zero-height #main
+   clipping the outgoing ghost while the new view was still empty — but the
+   new view is never empty now, because switchTab mounts a finished one. It
+   was 100dvh, which is wrong on a phone anyway: dvh tracks the address bar,
+   so a min-height in dvh moves whenever the bar does. */
+#main.tab-anim { position: relative; overflow: hidden; }
 #main.tab-anim > .view { backface-visibility: hidden; }
 .view.tab-ghost {
   position: absolute; top: 0; left: 0; right: 0; width: 100%;
@@ -5533,7 +5531,11 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
 .view.tab-pane {
   position: fixed; top: 0; left: 0; right: 0;
   max-width: 1280px; margin: 0 auto;    /* matches .app on a wide screen */
-  min-height: 100dvh;
+  /* Height comes from JS in pixels. Fixed positioning and dvh is the worst
+     pairing on a phone: dvh tracks the address bar, and a fixed element
+     resizing while the bar animates is visible as the screen changing size
+     under your finger. */
+  min-height: 400px;
   padding: 20px var(--page-pad, 24px) 132px;
   background: var(--bg);
   pointer-events: none; z-index: 55;    /* under the dock at 60 */
@@ -7041,4 +7043,15 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
 }
 @media (prefers-reduced-motion: reduce) {
   .radial-hub, .radial-ringline { animation: none; transition: none; }
+}
+
+
+/* Where a tab is assembled before it is shown. In the document so every
+   measurement a renderer makes — widths, wrapped text, chart boxes — matches
+   what it will get on screen, but far enough aside to be invisible. Not
+   display:none, which would give it no layout at all. */
+.tab-stage {
+  position: fixed; top: 0; left: -20000px;
+  pointer-events: none; z-index: -1;
+  contain: layout paint;
 }

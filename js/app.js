@@ -1630,6 +1630,38 @@
     });
   }
 
+  /** Build the current tab into `container`, which need not be #main. Split
+      out so a tab can be assembled off screen and only shown once finished —
+      see the staging in switchTab. Returns the view and, when the renderer is
+      async, the promise that says it is done. */
+  function buildTabView(container) {
+    const view = el("div", { class: "view" });
+    container.appendChild(view);
+    let rendered;
+    switch (state.tab) {
+      case "home": rendered = renderHome(view); break;
+      case "workout": rendered = renderWorkout(view); break;
+      case "library": rendered = renderLibrary(view); break;
+      case "nutrition": rendered = renderNutrition(view); break;
+      case "stats": case "history": rendered = renderStatsShell(view); break;
+    }
+    return { view, rendered };
+  }
+
+  /** Put an already-finished view into #main with the dock and the usual
+      extras, so a staged tab lands exactly as a freshly rendered one would. */
+  function mountView(view) {
+    applyDaypart();
+    const headerEl = document.getElementById("header");
+    if (headerEl) headerEl.style.display = "none";
+    const main = $("#main");
+    clear(main);
+    main.appendChild(view);
+    renderDock(main);
+    renderRestTimer();
+    requestAnimationFrame(() => applyCountUps(main));
+  }
+
   function renderMain() {
     applyDaypart();
     // No header bar anywhere: it carried the logo and nothing else, and the
@@ -1642,16 +1674,7 @@
     const main = $("#main");
     clear(main);
 
-    const view = el("div", { class: "view" });
-    main.appendChild(view);
-    let rendered;
-    switch (state.tab) {
-      case "home": rendered = renderHome(view); break;
-      case "workout": rendered = renderWorkout(view); break;
-      case "library": rendered = renderLibrary(view); break;
-      case "nutrition": rendered = renderNutrition(view); break;
-      case "stats": case "history": rendered = renderStatsShell(view); break;
-    }
+    const { rendered } = buildTabView(main);
 
     // Bottom dock navigation
     renderDock(main);
@@ -1854,7 +1877,7 @@
   // `animate: false` is for the swipe pager, which has already moved the
   // screen with the finger — animating again would play the same journey
   // twice.
-  function switchTab(id, dir = 0, { animate = true } = {}) {
+  function switchTab(id, dir = 0, { animate = true, onShown = null } = {}) {
     if (id === state.tab) return;
     if (!dir) {
       const a = SWIPE_TABS.indexOf(state.tab === "history" ? "stats" : state.tab);
@@ -1864,21 +1887,84 @@
     // Taken before the tab changes, so a later swipe back has something to
     // show while the real render catches up.
     snapshotPane(state.tab);
-    const doRender = () => {
-      nutritionScrollKey = null; nutritionScrollTop = 0;
-      workoutScrollIdx = 0; workoutScrollTop = 0;
-      state.tab = id;
+
+    // First time this tab is opened this session, play its tailored loader.
+    // The loader covers the whole screen for 1.5s, so on a first visit it *is*
+    // the entrance and the slide is skipped rather than played underneath it.
+    const firstVisit = TAB_LOADERS[id] && !seenTabLoaders.has(id);
+
+    // Build the destination off screen, then show it whole.
+    //
+    // This is the shape a flash kept coming back through. renderMain() empties
+    // #main and the tab renderers fill it afterwards, so there was always a
+    // window with the old page destroyed and the new one not yet built.
+    // Several attempts at waiting for the right moment each picked a signal
+    // that turned out true too early — children exist, height settled —
+    // because the window opens before any of that code gets a say, and how
+    // long it stays open depends on the device, the data and the tab.
+    //
+    // Nothing here waits for the visible page to catch up, because the visible
+    // page is never taken apart: the tab is assembled in a container parked
+    // off to the side, and #main is cleared only at the moment there is a
+    // finished view to put in it.
+    const stage = makeTabStage();
+    nutritionScrollKey = null; nutritionScrollTop = 0;
+    workoutScrollIdx = 0; workoutScrollTop = 0;
+    state.tab = id;
+
+    let staged;
+    try {
+      staged = buildTabView(stage);
+    } catch (e) {
+      // A renderer that throws must not strand the app on the tab being left.
+      stage.remove();
       renderMain();
       window.scrollTo(0, 0);
+      if (firstVisit) { seenTabLoaders.add(id); showTabLoader(id); }
+      if (onShown) onShown();
+      return;
+    }
+
+    const show = () => {
+      if (stage.dataset.spent) return;
+      stage.dataset.spent = "1";
+      const doRender = () => { mountView(staged.view); window.scrollTo(0, 0); };
+      stage.remove();
+      animateTabSwitch((firstVisit || !animate) ? 0 : dir, doRender);
+      if (firstVisit) { seenTabLoaders.add(id); showTabLoader(id); }
+      if (onShown) onShown();
     };
-    // First time this tab is opened this session, play its tailored loader.
-    const firstVisit = TAB_LOADERS[id] && !seenTabLoaders.has(id);
-    // The loader covers the whole screen for 1.5s. Sliding the new view in
-    // underneath it was two motions competing for one moment, and the one you
-    // could actually see won — so on a first visit the loader *is* the
-    // entrance and the slide is skipped.
-    animateTabSwitch((firstVisit || !animate) ? 0 : dir, doRender);
-    if (firstVisit) { seenTabLoaders.add(id); showTabLoader(id); }
+
+    whenTabReady(staged, show);
+  }
+
+  /** A container that is in the document — so widths, wrapped text and
+      anything else a renderer measures come out as they will on screen — but
+      parked far enough aside that nobody sees it being assembled. */
+  function makeTabStage() {
+    const main = $("#main");
+    const stage = el("div", { class: "tab-stage", "aria-hidden": "true" });
+    stage.style.width = ((main && main.clientWidth) || window.innerWidth || 390) + "px";
+    document.body.appendChild(stage);
+    return stage;
+  }
+
+  /** Ready means the renderer's own promise has resolved and the view has
+      stopped growing. Capped, because a tab that never settles still has to
+      appear — better a late transition than a screen you cannot leave. */
+  function whenTabReady({ view, rendered }, done, cap = 1200) {
+    const started = performance.now();
+    let settled = !(rendered && typeof rendered.then === "function");
+    if (!settled) rendered.then(() => { settled = true; }, () => { settled = true; });
+    let lastH = -1, steady = 0;
+    const poll = () => {
+      const h = view.scrollHeight;
+      if (h > 0 && h === lastH) steady++;
+      else { steady = 0; lastH = h; }
+      if ((settled && steady >= 2) || performance.now() - started > cap) { done(); return; }
+      requestAnimationFrame(poll);
+    };
+    requestAnimationFrame(poll);
   }
 
   // ============ Tab loading screens (first visit per tab, per session) ============
@@ -2005,12 +2091,19 @@
 
     const ghost = oldView;
     ghost.classList.add("tab-ghost");
+    // Where the reader actually was. The mount scrolls to the top and the
+    // ghost is positioned from the top of #main, so without this the page you
+    // are leaving snaps to its own first screen before sliding away — you see
+    // a page you were not looking at, which reads as the previous page
+    // flashing up.
+    const leftAt = window.scrollY || 0;
     main.removeChild(ghost);           // detach so renderMain's clear() won't destroy it
     main.classList.add("tab-anim");
 
     doRender();                         // builds the new .view into #main (scrolls to top)
     const newView = main.querySelector(".view");
     if (!newView) { ghost.remove(); main.classList.remove("tab-anim"); return; }
+    if (leftAt) ghost.style.top = (-leftAt) + "px";
     main.appendChild(ghost);            // overlay the outgoing view on top
 
     // A switch arriving mid-flight inherits the velocity of the one it
@@ -2060,41 +2153,17 @@
       else cleanup();
     };
 
-    // Do not start until there is something to slide in.
-    //
-    // The tab renderers read IndexedDB, so for the first frames after
-    // doRender() the new view is an empty box. Animating then is what makes a
-    // tab change flash: the old view leaves and nothing has arrived to take
-    // its place. At rest the ghost is still square on the screen, so waiting
-    // here shows the page you came from rather than a blank one.
-    //
-    // Capped, because a tab that renders nothing at all must still get out of
-    // the way rather than freeze the app on its predecessor. 900ms covers a
-    // low-end phone: measured under 6x CPU throttling the wait holds the
-    // screen at 82% where removing it drops to 53%. Past about 20x the render
-    // outruns the cap and the old blank returns, which is the deliberate
-    // trade — degrade to the previous behaviour rather than hang on a screen
-    // the user has already left.
-    const READY_CAP = 900;
-    const readyAt = performance.now();
-    const startWhenReady = () => {
-      if (done) return;
-      if (newView.children.length > 0 || performance.now() - readyAt > READY_CAP) {
-        last = performance.now();
-        tabRaf = requestAnimationFrame(frame);
-        return;
-      }
-      tabRaf = requestAnimationFrame(startWhenReady);
-    };
-
     tabAnimating = true;
     tabSpring = s;
     tabCleanup = cleanup;
-    tabRaf = requestAnimationFrame(startWhenReady);
-    // Belt and braces, as the fixed-duration version had. It has to clear the
-    // worst honest case end to end: waiting out READY_CAP and then a full
-    // settle, which is 900ms + 400ms at these constants.
-    tabGuard = setTimeout(cleanup, 2400);
+    // Nothing to wait for. switchTab is the only caller and it hands over a
+    // view that is already finished — the rounds of waiting that used to live
+    // here were compensating for a page taken apart before its replacement
+    // existed, which staging removed.
+    tabRaf = requestAnimationFrame(frame);
+    // Belt and braces, as the fixed-duration version had: a full settle is
+    // 400ms at these constants.
+    tabGuard = setTimeout(cleanup, 1200);
   }
 
   // Finish any tab transition immediately, leaving the destination exactly
@@ -2369,6 +2438,8 @@
           // `overflow: hidden`, which clips every absolutely-positioned child
           // — the cover included, exactly when it is holding the screen.
           pane.classList.add("tab-pane");
+          // In pixels, measured now — see the note on .view.tab-pane.
+          pane.style.minHeight = (window.innerHeight || 800) + "px";
           document.body.appendChild(pane);
         }
         view.style.willChange = "transform";
@@ -2435,25 +2506,26 @@
       // The pane lives on <body>, so renderMain() cannot touch it: it simply
       // stays put across the swap, holding the screen while the destination
       // builds underneath.
+      // The pane lives on <body>, so nothing renderMain does can touch it: it
+      // holds the screen from the moment the finger lifts until the staged tab
+      // is mounted. switchTab no longer finishes before it returns, so the
+      // cover comes off on its signal rather than by polling whatever is in
+      // #main — which at this point is still the tab being left.
       if (pane) pane.style.transform = "translate3d(0,0,0)";
-      switchTab(dest, sign, { animate: false });
+      if (!pane) { switchTab(dest, sign, { animate: false }); return; }
 
-      const view = main && main.querySelector(".view:not(.tab-ghost)");
-      if (!pane || !view) { dropCover(main, pane); return; }
       cover = pane;
-
-      const t0 = performance.now();
-      const wait = () => {
-        if (cover !== pane) return;                  // a new gesture took over
-        // Capped: a renderer that never fills must not strand the cover on
-        // top of a live screen it would otherwise swallow every tap for.
-        if (view.children.length > 0 || performance.now() - t0 > 400) {
-          dropCover(main, pane);
-          return;
-        }
-        requestAnimationFrame(wait);
+      let dropped = false;
+      const drop = () => {
+        if (dropped || cover !== pane) return;      // a new gesture took over
+        dropped = true;
+        // A frame later, so the mounted view has painted underneath first.
+        requestAnimationFrame(() => dropCover(main, pane));
       };
-      requestAnimationFrame(wait);
+      switchTab(dest, sign, { animate: false, onShown: drop });
+      // Capped, so a destination that never arrives cannot strand a cover on
+      // top of a live screen, swallowing every tap.
+      setTimeout(drop, 1600);
     }
 
     function dropCover(main, pane) {
