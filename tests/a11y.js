@@ -46,7 +46,13 @@ console.log('=== 1. the pieces exist ===');
 
 (async () => {
   const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
-  const c = await b.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  // Block the service worker, as every other browser suite does. Without it a
+  // version bump can activate a new worker mid-run, the app's own
+  // controllerchange handler reloads the page, and whatever evaluate was in
+  // flight fails with "execution context was destroyed".
+  const c = await b.newContext({
+    viewport: { width: 390, height: 844 }, hasTouch: true, serviceWorkers: 'block'
+  });
   const page = await c.newPage();
   const errs = [];
   page.on('pageerror', (e) => errs.push('PAGEERR: ' + e.message));
