@@ -5532,7 +5532,11 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
 .view.tab-pane {
   position: fixed; top: 0; left: 0; right: 0;
   max-width: 1280px; margin: 0 auto;    /* matches .app on a wide screen */
-  min-height: 100dvh;
+  /* Height comes from JS in pixels, not 100dvh. Fixed positioning and dvh is
+     the worst pairing on a phone: dvh tracks the address bar, and a fixed
+     element resizing while the bar animates is visible as the screen changing
+     size under your finger. */
+  min-height: 400px;
   padding: 20px var(--page-pad, 24px) 132px;
   background: var(--bg);
   pointer-events: none; z-index: 55;    /* under the dock at 60 */

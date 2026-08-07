@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=268").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=269").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -151,7 +151,7 @@
   // and shown at the foot of Settings. There was no way, from a phone, to
   // tell which build you were looking at — which cost several rounds of
   // debugging a fix that turned out never to have deployed.
-  const APP_VERSION = 268;
+  const APP_VERSION = 269;
   const isAccent = (id) => ACCENTS.some(a => a.id === id);
 
   // Keep the browser chrome (iOS status bar, Android task switcher) in step
@@ -2015,12 +2015,19 @@
 
     const ghost = oldView;
     ghost.classList.add("tab-ghost");
+    // Where the reader actually was. doRender scrolls to the top, and the
+    // ghost is positioned from the top of #main, so without this the page you
+    // are leaving snaps to its own first screen before sliding away — you see
+    // a page you were not looking at, which reads as the previous page
+    // flashing up. Offsetting by the old scroll keeps it exactly where it was.
+    const leftAt = window.scrollY || 0;
     main.removeChild(ghost);           // detach so renderMain's clear() won't destroy it
     main.classList.add("tab-anim");
 
     doRender();                         // builds the new .view into #main (scrolls to top)
     const newView = main.querySelector(".view");
     if (!newView) { ghost.remove(); main.classList.remove("tab-anim"); return; }
+    if (leftAt) ghost.style.top = (-leftAt) + "px";
     main.appendChild(ghost);            // overlay the outgoing view on top
 
     // A switch arriving mid-flight inherits the velocity of the one it
@@ -2087,9 +2094,19 @@
     // the user has already left.
     const READY_CAP = 900;
     const readyAt = performance.now();
+    // "Has children" is not the same as "has arrived". The You tab builds a
+    // shell — its header and the Trends/History control — and fills the body
+    // in a later pass, so the child count is non-zero while the screen below
+    // is still empty. That is the case that was reported, and the reason
+    // waiting on children alone did not fix it. Wait for the height to stop
+    // changing instead.
+    let lastH = -1, steady = 0;
     const startWhenReady = () => {
       if (done) return;
-      if (newView.children.length > 0 || performance.now() - readyAt > READY_CAP) {
+      const h = newView.scrollHeight;
+      if (h > 0 && h === lastH) steady++;
+      else { steady = 0; lastH = h; }
+      if (steady >= 2 || performance.now() - readyAt > READY_CAP) {
         last = performance.now();
         tabRaf = requestAnimationFrame(frame);
         return;
@@ -2141,16 +2158,28 @@
     };
   }
 
-  // Let go once the destination has something in it — a frame later, so the
-  // release lands after the new content is laid out rather than in the gap
-  // before it. Capped, so a tab that renders nothing cannot pin the page at
-  // its predecessor's length forever.
-  function releaseWhenFilled(release, cap = 1200) {
+  // Let go once the destination has stopped growing, not merely once it has
+  // started.
+  //
+  // A tab renderer appends in several passes, so "has children" is true long
+  // before the page is its full length. Releasing then lets the document sit
+  // short for a moment and then jump longer — and on a phone the document's
+  // length is what drives the address bar, so the whole screen goes small and
+  // then large again just after the tab has changed. Waiting for the height
+  // to hold still for a few frames costs nothing and removes it.
+  //
+  // Capped, so a tab that renders nothing, or one that never stops growing,
+  // cannot pin the page at its predecessor's length forever.
+  function releaseWhenFilled(release, cap = 1600) {
     const main = $("#main");
     const started = performance.now();
+    let lastH = -1, steady = 0;
     const poll = () => {
       const v = main && main.querySelector(".view:not(.tab-ghost)");
-      if ((v && v.children.length > 0) || performance.now() - started > cap) {
+      const h = v ? v.scrollHeight : 0;
+      if (h > 0 && h === lastH) steady++;
+      else { steady = 0; lastH = h; }
+      if (steady >= 3 || performance.now() - started > cap) {
         requestAnimationFrame(release);
         return;
       }
@@ -2422,6 +2451,9 @@
           // `overflow: hidden`, which clips every absolutely-positioned child
           // — the cover included, exactly when it is holding the screen.
           pane.classList.add("tab-pane");
+          // In pixels, measured now — see the note on .view.tab-pane for why
+          // this cannot be a dvh.
+          pane.style.minHeight = (window.innerHeight || 800) + "px";
           document.body.appendChild(pane);
         }
         view.style.willChange = "transform";
