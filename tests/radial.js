@@ -604,7 +604,10 @@ const check = (label, ok, detail = '') => {
     await page.waitForTimeout(200);
     await dismissAll();
 
-    // Held still, it opens with its three slices.
+    // Held still, it opens with its four slices — the same four on every
+    // exercise type, which is the property that matters. A menu whose second
+    // entry is sometimes Drop set and sometimes something else destroys the
+    // only thing a radial is for, so assert the list rather than its length.
     await page.mouse.move(mb.x, mb.y);
     await page.mouse.down();
     await page.waitForTimeout(HOLD_MS + 180);
@@ -623,8 +626,9 @@ const check = (label, ok, detail = '') => {
       };
     });
     console.log('   ', JSON.stringify(held));
-    check('three slices, the same three on every exercise type',
-      held.open && held.ids.length === 3, JSON.stringify(held.ids));
+    const WANT = ['radial-warmup', 'radial-drop', 'radial-note', 'radial-delete'];
+    check('the same four slices, in the same order, on every exercise type',
+      held.open && JSON.stringify(held.ids) === JSON.stringify(WANT), JSON.stringify(held.ids));
     check('all reachable', held.open && held.unreachable.length === 0, JSON.stringify(held.unreachable));
     await page.screenshot({ path: `${SS}/radial_setrow.png` });
     await page.mouse.up();
