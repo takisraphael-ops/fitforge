@@ -98,14 +98,6 @@ check('every font file is in the precache list', unprecached.length === 0, unpre
 const css = fs.readFileSync(path.join(ROOT, 'css/styles.css'), 'utf8');
 const appjs = fs.readFileSync(path.join(ROOT, 'js/app.js'), 'utf8');
 
-// The version is now stated in four places, and Settings prints one of them.
-// A stale constant there is worse than none: it would name the wrong build to
-// someone trying to work out what they are running.
-const appVer = (appjs.match(/const APP_VERSION = (\d+);/) || [])[1];
-check('app.js states an APP_VERSION', !!appVer, appVer || 'not found');
-check('and it matches the service worker cache', appVer === cacheName,
-  `APP_VERSION ${appVer} vs cache ${cacheName}`);
-
 const defAccent = (appjs.match(/const DEFAULT_ACCENT = "([a-z]+)"/) || [])[1];
 check('app.js names a default accent', !!defAccent, defAccent || 'not found');
 

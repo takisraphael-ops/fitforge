@@ -5509,13 +5509,14 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
 .wheel-select .wheel-field { width: 100%; }
 
 /* ---- Tab transition (swipe / dock nav) ---- */
-/* The height that stops a tab change going blank is pinned from JS, in
-   pixels, by holdMainHeight() — not here. It was 100dvh for one commit, which
-   is wrong on a phone: dvh tracks the browser's address bar, so a min-height
-   in dvh moves whenever the bar does, and a page that grows can show the bar,
-   which changes dvh again. Measuring the outgoing height once, in px, has no
-   such loop. */
-#main.tab-anim { position: relative; overflow: hidden; }
+/* The min-height is load-bearing, not padding. During a tab change the only
+   thing in #main is an outgoing ghost — absolutely positioned, so it adds no
+   height — and a new view the renderers have not filled yet. #main therefore
+   measures zero, and `overflow: hidden` on a zero-height box clips the ghost
+   out of existence: the screen goes blank for the frames it takes the
+   destination to arrive. Holding a viewport of height keeps the page you came
+   from on screen until there is something to replace it with. */
+#main.tab-anim { position: relative; overflow: hidden; min-height: 100dvh; }
 #main.tab-anim > .view { backface-visibility: hidden; }
 .view.tab-ghost {
   position: absolute; top: 0; left: 0; right: 0; width: 100%;
@@ -5532,11 +5533,7 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
 .view.tab-pane {
   position: fixed; top: 0; left: 0; right: 0;
   max-width: 1280px; margin: 0 auto;    /* matches .app on a wide screen */
-  /* Height comes from JS in pixels, not 100dvh. Fixed positioning and dvh is
-     the worst pairing on a phone: dvh tracks the address bar, and a fixed
-     element resizing while the bar animates is visible as the screen changing
-     size under your finger. */
-  min-height: 400px;
+  min-height: 100dvh;
   padding: 20px var(--page-pad, 24px) 132px;
   background: var(--bg);
   pointer-events: none; z-index: 55;    /* under the dock at 60 */
@@ -7044,14 +7041,4 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
 }
 @media (prefers-reduced-motion: reduce) {
   .radial-hub, .radial-ringline { animation: none; transition: none; }
-}
-
-/* Which build you are looking at. Deliberately quiet — it exists to be found
-   when something is wrong, not to be read every day. */
-.settings-version {
-  margin-top: 18px; padding-top: 14px;
-  border-top: 1px solid var(--border);
-  text-align: center; font-size: 11.5px; letter-spacing: 0.06em;
-  color: var(--text-faint);
-  font-variant-numeric: tabular-nums;
 }
