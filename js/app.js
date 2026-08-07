@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=267").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=268").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -146,6 +146,12 @@
     { id: "amber", label: "Amber", swatch: "#f0a23a" }
   ];
   const DEFAULT_ACCENT = "amber";
+
+  // Bumped by tools/bump.js in lockstep with the service worker cache name,
+  // and shown at the foot of Settings. There was no way, from a phone, to
+  // tell which build you were looking at — which cost several rounds of
+  // debugging a fix that turned out never to have deployed.
+  const APP_VERSION = 268;
   const isAccent = (id) => ACCENTS.some(a => a.id === id);
 
   // Keep the browser chrome (iOS status bar, Android task switcher) in step
@@ -1864,6 +1870,9 @@
     // Taken before the tab changes, so a later swipe back has something to
     // show while the real render catches up.
     snapshotPane(state.tab);
+    // Pinned before the render empties #main, released once the destination
+    // has filled it again.
+    const releaseHeight = holdMainHeight();
     const doRender = () => {
       nutritionScrollKey = null; nutritionScrollTop = 0;
       workoutScrollIdx = 0; workoutScrollTop = 0;
@@ -1879,6 +1888,7 @@
     // entrance and the slide is skipped.
     animateTabSwitch((firstVisit || !animate) ? 0 : dir, doRender);
     if (firstVisit) { seenTabLoaders.add(id); showTabLoader(id); }
+    releaseWhenFilled(releaseHeight);
   }
 
   // ============ Tab loading screens (first visit per tab, per session) ============
@@ -2104,6 +2114,49 @@
   // this you come back to a view frozen halfway across the screen.
   function settleTabSwitch() {
     if (tabCleanup) tabCleanup();
+  }
+
+  // Keep the document from collapsing while a tab swaps.
+  //
+  // Mid-change #main holds an absolutely-positioned ghost, which contributes
+  // no height, and a new view the renderers have not filled, which has none
+  // yet — so the page shrinks to nothing and grows back a moment later. On a
+  // desktop that is invisible. On a phone the document's length is what drives
+  // the browser's own address bar in and out, so the whole page appears to
+  // change size, and the scroll position gets clamped on the way down.
+  //
+  // Holding the outgoing length across the swap costs nothing and removes
+  // both. A viewport is the floor, for the case where the outgoing tab was
+  // shorter than the screen.
+  function holdMainHeight() {
+    const main = $("#main");
+    if (!main) return () => {};
+    const h = Math.max(main.offsetHeight, window.innerHeight || 0);
+    main.style.minHeight = h + "px";
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      main.style.minHeight = "";
+    };
+  }
+
+  // Let go once the destination has something in it — a frame later, so the
+  // release lands after the new content is laid out rather than in the gap
+  // before it. Capped, so a tab that renders nothing cannot pin the page at
+  // its predecessor's length forever.
+  function releaseWhenFilled(release, cap = 1200) {
+    const main = $("#main");
+    const started = performance.now();
+    const poll = () => {
+      const v = main && main.querySelector(".view:not(.tab-ghost)");
+      if ((v && v.children.length > 0) || performance.now() - started > cap) {
+        requestAnimationFrame(release);
+        return;
+      }
+      requestAnimationFrame(poll);
+    };
+    requestAnimationFrame(poll);
   }
 
   document.addEventListener("visibilitychange", () => {
@@ -17076,6 +17129,10 @@
         toast(`Today's food room is now ${kcalGoal} kcal based on ${modeLabel}${macroBit}`);
       } } }, "Save")
     );
+    body.appendChild(el("div", {
+      class: "settings-version", "data-testid": "settings-version"
+    }, `FitForge v${APP_VERSION}`));
+
     openModal("Settings", body, footer);
     if (opts.focusBudget) setTimeout(() => {
       goalMode = "manual";
