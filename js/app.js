@@ -871,7 +871,8 @@
       weight: s.weight ?? null,
       reps: s.reps ?? null,
       done: false,
-      drop: !!s.drop
+      drop: !!s.drop,
+      warmup: !!s.warmup
     }));
   }
 
@@ -1720,6 +1721,7 @@
   // next to its own tooltip; on a 34px slice with a word under it, a drawing
   // reads faster than a letter.
   const setIcons = {
+    warmup: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18h3v-4H4z"/><path d="M10 18h3v-8h-3z"/><path d="M16 18h3V6h-3z"/><path d="M3 21h18"/></svg>',
     drop: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h9M4 12h6M4 18h3"/><path d="M18 5v12"/><path d="m14.5 13.5 3.5 3.5 3.5-3.5"/></svg>'
   };
 
@@ -3742,7 +3744,7 @@
           for (const b of BUCKETS) if (b.match.test(m)) buckets.add(b.key);
         }
         if (!buckets.size) continue;
-        const doneSets = ex.sets.filter(s => s.done);
+        const doneSets = U.workingSets(ex.sets);
         const vol = U.volume(doneSets);
         for (const key of buckets) {
           totals[key].sets += doneSets.length;
@@ -5131,7 +5133,7 @@
     // Active workout stays above everything — interrupt context
     if (state.activeWorkout) {
       const active = state.activeWorkout;
-      const doneSets = (active.exercises || []).reduce((s, e) => s + e.sets.filter(x => x.done).length, 0);
+      const doneSets = (active.exercises || []).reduce((s, e) => s + U.workingSets(e.sets).length, 0);
       view.appendChild(el("div", {
         class: "card home-active-workout",
         style: "border-left: 3px solid var(--accent);",
@@ -8222,9 +8224,10 @@
           }
           s.done = true;
           const beforePRs = await getPRsFor(ex.exerciseId);
-          const isDurPR = s.durationMin > (beforePRs.maxDuration || 0);
-          const isDistPR = (s.distanceKm || 0) > (beforePRs.maxDistance || 0);
-          const isKcalPR = (s.kcal || 0) > (beforePRs.maxKcal || 0);
+          const warm = U.isWarmup(s);
+          const isDurPR = !warm && s.durationMin > (beforePRs.maxDuration || 0);
+          const isDistPR = !warm && (s.distanceKm || 0) > (beforePRs.maxDistance || 0);
+          const isKcalPR = !warm && (s.kcal || 0) > (beforePRs.maxKcal || 0);
           s.isPR = isDurPR || isDistPR || isKcalPR;
           s.prTypes = [];
           if (isDurPR) s.prTypes.push("duration");
@@ -8463,10 +8466,15 @@
       U.getMET({ ...(def || {}), met: ex.met ?? def?.met, category: def?.category }),
       bwKg, U.STRENGTH_MIN_PER_SET);
     const beforePRs = await getPRsFor(ex.exerciseId);
+    // A warm-up cannot take a record: it is the same bar you will lift again
+    // properly in a minute, and a trophy on it would mean nothing. Suppressed
+    // here rather than by returning early, because the set still has to be
+    // saved and still buys you a rest — it just does not count.
+    const warm = U.isWarmup(s);
     const e = U.epley(s.weight, s.reps);
-    const isWeightPR = s.weight > beforePRs.maxWeight;
-    const isE1RMPR = e > beforePRs.maxE1RM;
-    const isRepsPR = s.reps > beforePRs.maxReps;
+    const isWeightPR = !warm && s.weight > beforePRs.maxWeight;
+    const isE1RMPR = !warm && e > beforePRs.maxE1RM;
+    const isRepsPR = !warm && s.reps > beforePRs.maxReps;
     s.isPR = isWeightPR || isE1RMPR;
     s.prTypes = [];
     if (isWeightPR) s.prTypes.push("weight");
@@ -8495,7 +8503,7 @@
     const closedKey = toolsKey + ":closed";
     // Open when user expanded, or when note/drop exists — unless user explicitly closed
     const toolsOpen = !expandedSetTools.has(closedKey) && (
-      expandedSetTools.has(toolsKey) || !!(s.note || s.drop)
+      expandedSetTools.has(toolsKey) || !!(s.note || s.drop || s.warmup)
     );
 
     const e1rm = s.done && s.weight && s.reps
@@ -8706,7 +8714,7 @@
 
     const moreBtn = el("button", {
       type: "button",
-      class: "set-more-btn" + (toolsOpen ? " is-open" : "") + ((s.note || s.drop) ? " has-extra" : ""),
+      class: "set-more-btn" + (toolsOpen ? " is-open" : "") + ((s.note || s.drop || s.warmup) ? " has-extra" : ""),
       title: toolsOpen ? "Hide plates, notes and extras" : "Plates, notes and extras",
       "aria-label": toolsOpen ? "Hide set tools" : "Show set tools",
       "aria-expanded": toolsOpen ? "true" : "false",
@@ -8733,8 +8741,16 @@
     tools.appendChild(makeNoteBtn("set-tool-tray"));
     tools.appendChild(toolsMeta);
 
+    // A warm-up does not consume a set number. If it did, an exercise whose
+    // first set was a ramp would read "2, 3, 4" for its three working sets,
+    // and the log would disagree with what the person actually counted.
+    const isWarm = U.isWarmup(s);
+    const setLabel = isWarm
+      ? "W"
+      : String((ex.sets || []).slice(0, si + 1).filter(x => !U.isWarmup(x)).length);
+
     const rowChildren = [
-      el("div", { class: "set-index" }, String(si + 1)),
+      el("div", { class: "set-index" }, setLabel),
       weightCell,
       repsInput,
       e1rmCell,
@@ -8750,6 +8766,7 @@
     const row = el("div", {
       class: `set-row type-${exType}`
         + (s.drop ? " is-drop" : "")
+        + (s.warmup ? " is-warmup" : "")
         + (toolsOpen ? " has-tools-open" : ""),
       "data-testid": `set-row-${si}`
     }, ...rowChildren, tools);
@@ -8796,6 +8813,17 @@
       label: `Set ${si + 1} actions`,
       scrollable: true,
       items: [
+        {
+          key: "warmup", label: s.warmup ? "Working set" : "Warm-up", icon: setIcons.warmup,
+          onPick: async () => {
+            s.warmup = !s.warmup;
+            // A warm-up counts toward nothing, so a record it already claimed
+            // has to be given back rather than left sitting on the row.
+            if (s.warmup) { s.isPR = false; s.prTypes = []; }
+            await Storage.saveWorkout(state.activeWorkout);
+            refreshExerciseBlock(ex);
+          }
+        },
         {
           key: "drop", label: s.drop ? "Undrop" : "Drop set", icon: setIcons.drop,
           onPick: async () => {

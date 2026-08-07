@@ -281,13 +281,31 @@ window.U = {
   // and an exercise entry saved without a `sets` array — an older format, a
   // hand-edited backup — took the History tab blank rather than skipping one
   // row. Guarding here covers every call site at once.
+  // ---- Warm-ups ------------------------------------------------------------
+  // A warm-up is preparation, not training. It stays in the session log and
+  // counts toward nothing: not tonnage, not the muscle map, not sets per week,
+  // not a PR, not an e1RM, not a progression gate.
+  //
+  // The rule lives here rather than at each call site because it is needed in
+  // app.js, body-map.js and progression.js, and three copies of a one-line
+  // predicate is how the three drift apart.
+  isWarmup(s) { return !!(s && s.warmup); },
+
+  /** The sets that count as work: ticked off, and not a warm-up. */
+  workingSets(sets) {
+    return (sets || []).filter(s => s && s.done && !s.warmup);
+  },
+
   volume(sets) {
-    return (sets || []).reduce((sum, s) => sum + ((s.weight || 0) * (s.reps || 0)), 0);
+    return (sets || []).reduce(
+      (sum, s) => sum + (U.isWarmup(s) ? 0 : (s.weight || 0) * (s.reps || 0)), 0);
   },
   bestSet(sets) {
     let best = null;
     for (const s of (sets || [])) {
-      if (!s.done || !s.weight || !s.reps) continue;
+      // A warm-up must never become the best set: it would set the e1RM that
+      // drives the strength tier off a weight you lifted to get ready.
+      if (!s.done || s.warmup || !s.weight || !s.reps) continue;
       const e = U.epley(s.weight, s.reps);
       if (!best || e > best.e1rm) best = { weight: s.weight, reps: s.reps, e1rm: e };
     }

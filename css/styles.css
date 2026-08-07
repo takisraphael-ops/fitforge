@@ -2760,6 +2760,11 @@ input:disabled.input,
 }
 .set-row.is-drop { background: color-mix(in srgb, var(--warn) 8%, transparent); }
 
+/* A warm-up counts toward nothing, so it should not read as loudly as the
+   work. Recede it rather than tint it: no colour is claiming anything. */
+.set-row.is-warmup { background: var(--bg-sunken); opacity: 0.72; }
+.set-row.is-warmup .set-index { color: var(--text-faint); }
+
 .note-btn {
   width: 26px; height: 26px;
   border-radius: var(--radius-sm);

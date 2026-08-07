@@ -924,7 +924,18 @@ window.BodyMap = (function () {
           muscles: (def.muscles && def.muscles.length) ? def.muscles : (ex.muscles || [])
         };
         if (include && !include({ ...merged, id: def.id || ex.exerciseId, type: def.type || ex.type })) continue;
-        const done = (ex.sets || []).filter(s => s.done).length || (ex.sets || []).length || 0;
+        // Warm-ups are excluded before anything is counted, so an exercise
+        // that was only warmed up contributes nothing to the map and nothing
+        // to sets-per-week — that band is working-set guidance, and counting
+        // preparation in it would quietly overstate every muscle.
+        //
+        // U rather than a local copy: the same rule is needed in app.js and
+        // progression.js, and three copies is how three drift apart.
+        const warm = (typeof window !== "undefined" && window.U && window.U.isWarmup)
+          ? window.U.isWarmup
+          : (s) => !!(s && s.warmup);
+        const counted = (ex.sets || []).filter(s => !warm(s));
+        const done = counted.filter(s => s.done).length || counted.length || 0;
         if (!done) continue;
         for (const id of Object.keys(ZONES)) {
           const w8 = zoneWeight(merged, id);

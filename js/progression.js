@@ -60,7 +60,9 @@ window.Progression = (function () {
   function bestEffort(sessions, gate) {
     let best = null;
     for (const ses of sessions) {
-      const done = (ses.sets || []).filter((s) => s && s.done);
+      // A warm-up cannot satisfy a rung: the gate asks for work at a weight,
+      // and preparation at that weight is not the same claim.
+      const done = (ses.sets || []).filter((s) => s && s.done && !s.warmup);
       if (!done.length) continue;
       const score = gate && gate.holdSec
         ? Math.max(...done.map((s) => Number(s.seconds) || 0))
