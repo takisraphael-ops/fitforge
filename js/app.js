@@ -35,6 +35,40 @@
   };
 
   // ============ Bootstrap ============
+  // ---- One tab owns the live workout -------------------------------------
+  //
+  // Two tabs used to hold independent in-memory copies of the same session
+  // and write whole records over each other — log five sets in one tab,
+  // touch the other, and the five sets were gone with no error. The rule
+  // now: claiming the workout makes every other tab drop its copy on the
+  // spot. A tab that cannot write a stale copy cannot destroy anything.
+  const TAB_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const tabChannel = (typeof BroadcastChannel !== "undefined")
+    ? new BroadcastChannel("fitforge-workout")
+    : null;
+
+  function claimActiveWorkout() {
+    if (tabChannel) tabChannel.postMessage({ type: "claim", tab: TAB_ID });
+  }
+
+  function releaseActiveWorkout() {
+    if (!state.activeWorkout) return;
+    state.activeWorkout = null;
+    if (state.workoutInterval) { clearInterval(state.workoutInterval); state.workoutInterval = null; }
+    state.restTimer = null;
+    // Runner overlays hold their own copy of the session; they go too.
+    document.querySelectorAll(".srun, .rest-overlay, [data-testid=\"rest-timer\"]").forEach(n => n.remove());
+    toast("Workout continued in another tab");
+    renderMain();
+  }
+
+  if (tabChannel) {
+    tabChannel.addEventListener("message", (e) => {
+      const msg = e.data || {};
+      if (msg.type === "claim" && msg.tab !== TAB_ID) releaseActiveWorkout();
+    });
+  }
+
   /** The not-being-saved warning. Present exactly while it is true. */
   function updateStorageBanner(health) {
     const existing = document.getElementById("storage-banner");
@@ -65,7 +99,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=274").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=275").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -144,6 +178,8 @@
         } catch (_) { /* non-fatal */ }
         state.activeWorkout = w;
         startWorkoutTimer();
+        // This tab now owns the session; any other tab holding it lets go.
+        claimActiveWorkout();
         // A guided run that was in flight when the app closed picks up exactly
         // where the clock says it should be — including finishing itself and
         // logging the efforts if the whole protocol elapsed while you were away.
@@ -214,7 +250,7 @@
   // and shown at the foot of Settings. There was no way, from a phone, to
   // tell which build you were looking at — which cost several rounds of
   // debugging a fix that turned out never to have deployed.
-  const APP_VERSION = 274;
+  const APP_VERSION = 275;
   const isAccent = (id) => ACCENTS.some(a => a.id === id);
 
   // Keep the browser chrome (iOS status bar, Android task switcher) in step
@@ -6623,6 +6659,8 @@
       return;
     }
     startWorkoutTimer();
+    // A fresh session belongs to the tab that started it.
+    claimActiveWorkout();
     renderMain();
     // Offer movement prep once the session screen is up, so skipping it lands
     // you straight in the workout.

@@ -276,6 +276,66 @@ const check = (label, ok, detail = '') => {
     await c.close();
   }
 
+  console.log('\n=== 7. two tabs cannot destroy each other\'s sets ===');
+  {
+    // The audit's worst finding: each tab held its own copy of the session
+    // and wrote the whole record back — log five sets in tab A, touch tab B,
+    // and the five sets were gone. The rule now is single ownership: the tab
+    // that claims the workout makes every other tab drop its copy.
+    const c = await b.newContext(ctxOpts);
+    const A = await c.newPage();
+    await A.goto('http://localhost:8199/index.html', { waitUntil: 'load' });
+    await A.waitForFunction(() => window.Storage && window.U);
+    await A.evaluate(async () => {
+      await Storage.clearAll();
+      for (const [k, v] of Object.entries({ onboarded: true, guidedSets: false, warmupPrompt: false, radialDiscovered: true })) await Storage.setPref(k, v);
+      await Storage.saveWorkout({ id: 'shared', name: 'Shared', date: U.todayISO(), startedAt: Date.now(),
+        exercises: [{ exerciseId: 'bench-press-barbell', name: 'Bench', type: 'weighted',
+          sets: [{ weight: 60, reps: 5, done: false }, { weight: 60, reps: 5, done: false }] }] });
+      await Storage.setPref('activeWorkoutId', 'shared');
+    });
+    await A.reload({ waitUntil: 'load' });
+    await A.waitForTimeout(2400);
+    await A.evaluate(() => document.querySelectorAll('.splash').forEach(n => n.remove()));
+    await A.evaluate(() => document.querySelector('.home-active-workout .btn-primary')?.click());
+    await A.waitForTimeout(1400);
+    const aHasSession = await A.evaluate(() => !!document.querySelector('[data-testid="set-row-0"]'));
+    check('tab A holds the live session', aHasSession);
+
+    // Tab B opens and resumes the same workout — it claims ownership.
+    const B = await c.newPage();
+    await B.goto('http://localhost:8199/index.html', { waitUntil: 'load' });
+    await B.waitForFunction(() => window.Storage && window.U);
+    await B.waitForTimeout(2400);
+    await B.evaluate(() => document.querySelectorAll('.splash').forEach(n => n.remove()));
+    await A.waitForTimeout(800);
+    const aReleased = await A.evaluate(() => ({
+      session: !!document.querySelector('[data-testid="set-row-0"]'),
+      toast: document.body.textContent.includes('another tab')
+    }));
+    check('tab A lets go the moment B claims', aReleased.session === false, JSON.stringify(aReleased));
+
+    // B logs a set; then A — now holding nothing — cannot clobber it.
+    await B.evaluate(() => document.querySelector('.home-active-workout .btn-primary')?.click());
+    await B.waitForTimeout(1400);
+    await B.evaluate(() => {
+      const btn = document.querySelector('[data-testid="set-done-0"]');
+      btn?.scrollIntoView({ block: 'center' });
+      btn?.click();
+    });
+    await B.waitForTimeout(1200);
+    // Anything tab A does now goes through a null activeWorkout — poke its UI.
+    await A.evaluate(() => document.querySelector('[data-testid="dock-home"]')?.click());
+    await A.waitForTimeout(1200);
+    const final = await B.evaluate(async () => {
+      const w = await Storage.getWorkout('shared');
+      return { doneSets: w.exercises[0].sets.filter(s => s.done).length };
+    });
+    check("B's logged set survives A's activity", final.doneSets === 1, `${final.doneSets} done sets`);
+    await A.evaluate(async () => { await Storage.clearAll(); });
+    await c.close();
+  }
+
   await b.close();
   console.log(`\n${fails === 0 ? 'ALL PASS' : fails + ' FAILED'}`);
   process.exit(fails === 0 ? 0 : 1);
