@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=271").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=272").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -151,7 +151,7 @@
   // and shown at the foot of Settings. There was no way, from a phone, to
   // tell which build you were looking at — which cost several rounds of
   // debugging a fix that turned out never to have deployed.
-  const APP_VERSION = 271;
+  const APP_VERSION = 272;
   const isAccent = (id) => ACCENTS.some(a => a.id === id);
 
   // Keep the browser chrome (iOS status bar, Android task switcher) in step
@@ -342,6 +342,9 @@
     let maxDuration = 0, maxDistance = 0, maxKcal = 0;
     let maxValue = 0, minValue = 0, maxSeconds = 0, totalHoldSec = 0;
     let maxWeightDate = null, maxE1RMDate = null;
+    // Warm-ups never reach this loop: getHistoryFor drops them at the door,
+    // so a done ramp set cannot raise maxWeight/maxSeconds and deny the next
+    // genuine lift its record. tests/warmup-sets.js pins that behaviour.
     for (const h of history) {
       for (const s of h.sets) {
         if (s.seconds != null && s.seconds !== "") {
@@ -8027,8 +8030,42 @@
       el("span", { class: "set-done-label" }, s.done ? "Done" : "Log")
     );
 
-    return el("div", { class: "set-row type-interval" },
-      el("div", { class: "set-index" }, String(si + 1)),
+    // Same numbering rule as the weighted rows: a warm-up effort shows W and
+    // consumes no number, so the efforts you count are the ones numbered.
+    const isWarm = U.isWarmup(s);
+    const setLabel = isWarm
+      ? "W"
+      : String((ex.sets || []).slice(0, si + 1).filter(x => !U.isWarmup(x)).length);
+    // No tools tray on this row, so the "···" opens its menu on a press
+    // rather than a hold — hold is the price of a shortcut, not of the only
+    // way in. One slice, because Warm-up is the only extra an interval has:
+    // notes and drops don't exist here, and the efforts are prescribed by
+    // the plan rather than deletable.
+    const moreBtn = el("button", {
+      type: "button",
+      class: "set-more-btn" + (isWarm ? " has-extra" : ""),
+      title: "Interval actions",
+      "aria-label": `Interval ${si + 1} actions`,
+      "data-testid": `set-more-${si}`
+    }, "···");
+    attachRadial(moreBtn, {
+      label: `Interval ${si + 1} actions`,
+      press: true,
+      items: [
+        {
+          key: "warmup", label: s.warmup ? "Working effort" : "Warm-up", icon: setIcons.warmup,
+          onPick: async () => {
+            s.warmup = !s.warmup;
+            await Storage.saveWorkout(state.activeWorkout);
+            refreshExerciseBlock(ex);
+          }
+        }
+      ]
+    });
+
+    return el("div", { class: "set-row type-interval" + (isWarm ? " is-warmup" : ""),
+      "data-testid": `set-row-${si}` },
+      el("div", { class: "set-index" }, setLabel),
       el("div", { class: "ivl-effort" },
         el("span", { class: `ivl-dot ivl-${s.intensity || "moderate"}` }),
         el("span", { class: "ivl-effort-label" }, s.label || intens)
@@ -8037,7 +8074,7 @@
         secInput,
         el("span", { class: "hold-unit" }, "sec")
       ),
-      el("div", { class: "set-row-actions" }, doneBtn)
+      el("div", { class: "set-row-actions" }, moreBtn, doneBtn)
     );
   }
 
@@ -8100,22 +8137,62 @@
       el("span", { class: "set-done-label" }, s.done ? "Held" : "Done")
     );
 
-    const row = el("div", { class: "set-row type-hold" },
-      el("div", { class: "set-index" }, String(si + 1)),
-      el("div", { class: "hold-input-wrap" },
-        secInput,
-        el("span", { class: "hold-unit" }, perSide ? "sec / side" : "sec")
-      ),
-      el("div", { class: "set-row-actions" }, doneBtn)
-    );
-    // Double-tap the index to delete this hold (matches the other set types).
-    row.addEventListener("dblclick", async (e) => {
-      e.preventDefault();
-      if (ex.sets.length <= 1) return;
+    // Same numbering rule as the weighted rows: a warm-up hold shows W and
+    // consumes no number. It matters most here of anywhere — the movement
+    // ladders gate on hold seconds, and an easy 20s before a max dead hang
+    // must not read as the attempt.
+    const isWarm = U.isWarmup(s);
+    const setLabel = isWarm
+      ? "W"
+      : String((ex.sets || []).slice(0, si + 1).filter(x => !U.isWarmup(x)).length);
+
+    const tryDelete = async () => {
+      if (ex.sets.length <= 1) { toast("An exercise needs at least one set"); return; }
       if (!(await confirmDialog("Delete this hold?", { title: "Delete hold?", okLabel: "Delete", danger: true }))) return;
       ex.sets.splice(si, 1);
       await Storage.saveWorkout(state.activeWorkout);
       refreshExerciseBlock(ex);
+    };
+
+    // No tools tray on this row, so the "···" opens its menu on a press
+    // rather than a hold. Two slices — the two things a hold actually
+    // supports. Notes and drops don't exist here.
+    const moreBtn = el("button", {
+      type: "button",
+      class: "set-more-btn" + (isWarm ? " has-extra" : ""),
+      title: "Hold actions",
+      "aria-label": `Hold ${si + 1} actions`,
+      "data-testid": `set-more-${si}`
+    }, "···");
+    attachRadial(moreBtn, {
+      label: `Hold ${si + 1} actions`,
+      press: true,
+      items: [
+        {
+          key: "warmup", label: s.warmup ? "Working hold" : "Warm-up", icon: setIcons.warmup,
+          onPick: async () => {
+            s.warmup = !s.warmup;
+            await Storage.saveWorkout(state.activeWorkout);
+            refreshExerciseBlock(ex);
+          }
+        },
+        { key: "delete", label: "Delete", icon: icons.trash, onPick: tryDelete }
+      ]
+    });
+
+    const row = el("div", { class: "set-row type-hold" + (isWarm ? " is-warmup" : ""),
+      "data-testid": `set-row-${si}` },
+      el("div", { class: "set-index" }, setLabel),
+      el("div", { class: "hold-input-wrap" },
+        secInput,
+        el("span", { class: "hold-unit" }, perSide ? "sec / side" : "sec")
+      ),
+      el("div", { class: "set-row-actions" }, moreBtn, doneBtn)
+    );
+    // Double-tap the index to delete this hold (matches the other set types).
+    row.addEventListener("dblclick", async (e) => {
+      e.preventDefault();
+      tryDelete();
     });
     return row;
   }
@@ -10962,7 +11039,7 @@
         s.lastDate = w.date; // chronological → last assignment is the most recent
         let sessionBestE1RM = 0;
         for (const set of (entry.sets || [])) {
-          if (!set.done) continue;
+          if (!set.done || U.isWarmup(set)) continue;
           if (set.weight != null && set.reps) {
             const e = U.epley(set.weight, set.reps);
             if (e > sessionBestE1RM) sessionBestE1RM = e;

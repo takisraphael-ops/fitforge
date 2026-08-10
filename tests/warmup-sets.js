@@ -431,7 +431,185 @@ const APP = fs.readFileSync(path.join(ROOT, 'js', 'app.js'), 'utf8');
     check('warm-up rows keep their tools tray shut', trays === 0, `${trays} open`);
   }
 
-  console.log('\n=== 7. nothing downstream still counts a raw done set ===');
+  console.log('\n=== 7. holds and intervals carry the mark too ===');
+  {
+    // The mark matters most on holds — the movement ladders gate on hold
+    // seconds, so an easy 20s before a max dead hang must not read as the
+    // attempt. These rows have no tools tray, so their "···" opens the menu
+    // on a press rather than a hold.
+    await page.evaluate(async () => {
+      await Storage.clearAll();
+      for (const [k, v] of Object.entries({
+        onboarded: true, sex: 'male', dob: '1990-01-01', heightCm: 180,
+        guidedSets: false, warmupPrompt: false, radialDiscovered: true
+      })) await Storage.setPref(k, v);
+      await Storage.saveWorkout({
+        id: 'hw', name: 'Hang day', date: U.todayISO(), startedAt: Date.now(),
+        exercises: [
+          { exerciseId: 'dead-hang', name: 'Dead Hang', type: 'hold',
+            sets: [{ seconds: 20, done: true }, { seconds: 45, done: true }] },
+          { exerciseId: 'assault-bike', name: 'Bike', type: 'interval',
+            sets: [{ seconds: 30, intensity: 'easy', done: false }, { seconds: 60, intensity: 'hard', done: false }] }
+        ]
+      });
+      await Storage.setPref('activeWorkoutId', 'hw');
+    });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(2400);
+    await page.evaluate(() => document.querySelectorAll('.splash').forEach(n => n.remove()));
+    await page.evaluate(() => document.querySelector('.home-active-workout .btn-primary')?.click());
+    await page.waitForTimeout(1600);
+
+    // Press the ··· on a row inside a given exercise block, slide to a slice.
+    const pressPick = async (exIdx, rowIdx, sliceId) => {
+      const box = await page.evaluate(({ exIdx, rowIdx }) => {
+        const blk = document.querySelector(`.exercise-block[data-ex-idx="${exIdx}"]`);
+        const btn = blk && blk.querySelector(`[data-testid="set-row-${rowIdx}"] .set-more-btn`);
+        if (!btn) return null;
+        btn.scrollIntoView({ block: 'center' });
+        const r = btn.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      }, { exIdx, rowIdx });
+      if (!box) return { ok: false, why: 'no ··· on the row' };
+      await page.mouse.move(box.x, box.y);
+      await page.mouse.down();
+      await page.waitForTimeout(400);
+      const slices = await page.evaluate(() =>
+        [...document.querySelectorAll('.radial-slice')].map(n => n.dataset.testid));
+      const sb = await page.evaluate((id) => {
+        const s = document.querySelector(`[data-testid="${id}"]`);
+        if (!s) return null;
+        const r = s.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      }, sliceId);
+      if (sb) { await page.mouse.move(sb.x, sb.y, { steps: 8 }); await page.waitForTimeout(120); }
+      await page.mouse.up();
+      await page.waitForTimeout(900);
+      return { ok: !!sb, slices };
+    };
+    const rowsOf = (exIdx) => page.evaluate((i) => {
+      const blk = document.querySelector(`.exercise-block[data-ex-idx="${i}"]`);
+      return [...blk.querySelectorAll('[data-testid^="set-row-"]')].map(r => ({
+        idx: (r.querySelector('.set-index') || {}).textContent,
+        warm: r.classList.contains('is-warmup')
+      }));
+    }, exIdx);
+
+    const hold = await pressPick(0, 0, 'radial-warmup');
+    check('a press on the hold row\'s ··· offers Warm-up and Delete',
+      hold.ok && JSON.stringify(hold.slices) === '["radial-warmup","radial-delete"]',
+      JSON.stringify(hold.slices || hold.why));
+    const holdRows = await rowsOf(0);
+    check('the warm-up hold reads W and the max attempt renumbers to 1',
+      JSON.stringify(holdRows) === '[{"idx":"W","warm":true},{"idx":"1","warm":false}]',
+      JSON.stringify(holdRows));
+
+    const ivl = await pressPick(1, 0, 'radial-warmup');
+    check('a press on the interval row\'s ··· offers Warm-up',
+      ivl.ok && JSON.stringify(ivl.slices) === '["radial-warmup"]',
+      JSON.stringify(ivl.slices || ivl.why));
+    const ivlRows = await rowsOf(1);
+    check('the warm-up effort reads W and the work renumbers',
+      JSON.stringify(ivlRows) === '[{"idx":"W","warm":true},{"idx":"1","warm":false}]',
+      JSON.stringify(ivlRows));
+
+    const stored = await page.evaluate(async () => {
+      const w = await Storage.getWorkout('hw');
+      return w.exercises.map(e => e.sets.map(s => !!s.warmup).join(','));
+    });
+    check('both marks survive to storage',
+      JSON.stringify(stored) === '["true,false","true,false"]', JSON.stringify(stored));
+  }
+
+  console.log('\n=== 8. records read history around the warm-ups ===');
+  {
+    // getPRsFor sums records out of saved history, and a done warm-up lives
+    // in that history. Without the guard, a 220 kg ramp set in last week's
+    // log raises maxWeight — and today's genuine 200 kg lift, a real PR over
+    // the real 100 kg best, is silently denied its badge.
+    await page.evaluate(async () => {
+      await Storage.clearAll();
+      for (const [k, v] of Object.entries({
+        onboarded: true, sex: 'male', dob: '1990-01-01', heightCm: 180,
+        guidedSets: false, warmupPrompt: false, radialDiscovered: true
+      })) await Storage.setPref(k, v);
+      const d = new Date(); d.setDate(d.getDate() - 5);
+      await Storage.saveWorkout({
+        id: 'past', name: 'Push', date: U.todayISO(d), startedAt: d.getTime(),
+        completedAt: d.getTime() + 3600e3,
+        exercises: [{ exerciseId: 'bench-press-barbell', name: 'Bench', type: 'weighted',
+          sets: [
+            { weight: 220, reps: 1, done: true, warmup: true },
+            { weight: 100, reps: 5, done: true }
+          ] }]
+      });
+      await Storage.saveWorkout({
+        id: 'now', name: 'Push', date: U.todayISO(), startedAt: Date.now(),
+        exercises: [{ exerciseId: 'bench-press-barbell', name: 'Bench', type: 'weighted',
+          sets: [{ weight: 200, reps: 1, done: false }] }]
+      });
+      await Storage.setPref('activeWorkoutId', 'now');
+    });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(2400);
+    await page.evaluate(() => document.querySelectorAll('.splash').forEach(n => n.remove()));
+    await page.evaluate(() => document.querySelector('.home-active-workout .btn-primary')?.click());
+    await page.waitForTimeout(1600);
+    await page.evaluate(() => {
+      const btn = document.querySelector('[data-testid="set-done-0"]');
+      btn?.scrollIntoView({ block: 'center' });
+      btn?.click();
+    });
+    await page.waitForTimeout(1200);
+    const pr = await page.evaluate(async () => {
+      const w = await Storage.getWorkout('now');
+      const s = w.exercises[0].sets[0];
+      return { isPR: !!s.isPR, types: (s.prTypes || []).join(',') };
+    });
+    check('a real 200 beats the real 100, despite a 220 warm-up in history',
+      pr.isPR === true && pr.types.includes('weight'), JSON.stringify(pr));
+
+    // The learning centre's per-exercise stats read the same history through
+    // a second door. A 90s warm-up hold must not become "best hold 90s".
+    await page.evaluate(async () => {
+      const d = new Date(); d.setDate(d.getDate() - 2);
+      await Storage.setPref('activeWorkoutId', null);
+      await Storage.saveWorkout({
+        id: 'mob', name: 'Stretch', date: U.todayISO(d), startedAt: d.getTime(),
+        completedAt: d.getTime() + 1800e3,
+        exercises: [{ exerciseId: 'mob-pigeon', name: 'Pigeon Pose', type: 'hold',
+          sets: [
+            { seconds: 90, done: true, warmup: true },
+            { seconds: 45, done: true }
+          ] }]
+      });
+    });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(2400);
+    await page.evaluate(() => document.querySelectorAll('.splash,[data-testid="tab-loader"]').forEach(n => n.remove()));
+    // The Learn dock button forks first: Learning Centre or body map.
+    await page.evaluate(() => document.querySelector('[data-testid="dock-library"]').click());
+    await page.waitForTimeout(700);
+    await page.evaluate(() => document.querySelector('[data-testid="learn-fork-centre"]')?.click());
+    await page.waitForTimeout(2200);
+    await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"]').forEach(n => n.remove()));
+    await page.evaluate(() => {
+      const inp = document.querySelector('input[aria-label="Search the exercise library"]');
+      if (!inp) return;
+      inp.value = 'pigeon';
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForTimeout(900);
+    const label = await page.evaluate(() => {
+      const card = [...document.querySelectorAll('.exercise-card-top')]
+        .find(n => /Pigeon Pose/i.test(n.textContent));
+      return card ? card.textContent.replace(/Pigeon Pose/i, '').trim() : null;
+    });
+    check('the library calls the best hold 45s, not the 90s warm-up',
+      label != null && /45s/.test(label) && !/90s/.test(label), String(label));
+  }
+
+  console.log('\n=== 9. nothing downstream still counts a raw done set ===');
   {
     // The failure this catches is a new counter added later that filters on
     // `.done` alone. Every set counter that feeds a training number has to
