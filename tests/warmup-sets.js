@@ -431,7 +431,7 @@ const APP = fs.readFileSync(path.join(ROOT, 'js', 'app.js'), 'utf8');
     check('warm-up rows keep their tools tray shut', trays === 0, `${trays} open`);
   }
 
-  console.log('\n=== 7. holds and intervals carry the mark too ===');
+  console.log('\n=== 7. holds, intervals and cardio carry the mark too ===');
   {
     // The mark matters most on holds — the movement ladders gate on hold
     // seconds, so an easy 20s before a max dead hang must not read as the
@@ -449,7 +449,13 @@ const APP = fs.readFileSync(path.join(ROOT, 'js', 'app.js'), 'utf8');
           { exerciseId: 'dead-hang', name: 'Dead Hang', type: 'hold',
             sets: [{ seconds: 20, done: true }, { seconds: 45, done: true }] },
           { exerciseId: 'assault-bike', name: 'Bike', type: 'interval',
-            sets: [{ seconds: 30, intensity: 'easy', done: false }, { seconds: 60, intensity: 'hard', done: false }] }
+            sets: [{ seconds: 30, intensity: 'easy', done: false }, { seconds: 60, intensity: 'hard', done: false }] },
+          // The cardio row's warm-up jog, carrying a record it must hand back.
+          { exerciseId: 'run', name: 'Running', type: 'cardio',
+            sets: [
+              { durationMin: 10, done: true, isPR: true, prTypes: ['duration'] },
+              { durationMin: 30, done: false }
+            ] }
         ]
       });
       await Storage.setPref('activeWorkoutId', 'hw');
@@ -513,12 +519,28 @@ const APP = fs.readFileSync(path.join(ROOT, 'js', 'app.js'), 'utf8');
       JSON.stringify(ivlRows) === '[{"idx":"W","warm":true},{"idx":"1","warm":false}]',
       JSON.stringify(ivlRows));
 
+    const run = await pressPick(2, 0, 'radial-warmup');
+    check('a press on the cardio row\'s ··· offers Warm-up, Note and Delete',
+      run.ok && JSON.stringify(run.slices) === '["radial-warmup","radial-note","radial-delete"]',
+      JSON.stringify(run.slices || run.why));
+    const runRows = await rowsOf(2);
+    check('the warm-up jog reads W and the run renumbers',
+      JSON.stringify(runRows) === '[{"idx":"W","warm":true},{"idx":"1","warm":false}]',
+      JSON.stringify(runRows));
+
     const stored = await page.evaluate(async () => {
       const w = await Storage.getWorkout('hw');
-      return w.exercises.map(e => e.sets.map(s => !!s.warmup).join(','));
+      return {
+        marks: w.exercises.map(e => e.sets.map(s => !!s.warmup).join(',')),
+        // The jog arrived holding a duration record; marking it warm must
+        // hand the record back, same as the weighted rows.
+        jog: (({ isPR, prTypes }) => ({ isPR: !!isPR, types: (prTypes || []).join(',') }))(w.exercises[2].sets[0])
+      };
     });
-    check('both marks survive to storage',
-      JSON.stringify(stored) === '["true,false","true,false"]', JSON.stringify(stored));
+    check('all three marks survive to storage',
+      JSON.stringify(stored.marks) === '["true,false","true,false","true,false"]', JSON.stringify(stored.marks));
+    check('the marked jog hands back its record',
+      stored.jog.isPR === false && stored.jog.types === '', JSON.stringify(stored.jog));
   }
 
   console.log('\n=== 8. records read history around the warm-ups ===');

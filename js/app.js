@@ -40,7 +40,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=272").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=273").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -151,7 +151,7 @@
   // and shown at the foot of Settings. There was no way, from a phone, to
   // tell which build you were looking at — which cost several rounds of
   // debugging a fix that turned out never to have deployed.
-  const APP_VERSION = 272;
+  const APP_VERSION = 273;
   const isAccent = (id) => ACCENTS.some(a => a.id === id);
 
   // Keep the browser chrome (iOS status bar, Android task switcher) in step
@@ -8400,26 +8400,64 @@
       } }
     });
 
-    const row = el("div", { class: "set-row type-cardio" + (showDist ? "" : " no-dist") + (isPR ? " is-pr" : "") + (s.kcalManual ? " has-manual-kcal" : "") },
-      el("div", { class: "set-index" }, String(si + 1)),
-      durInput,
-      distInput,
-      kcalInput,
-      el("div", { class: "set-row-actions" }, noteBtn, doneBtn)
-    );
-    if (isPR) {
-      row.appendChild(el("span", { class: "pr-badge", style: "position:absolute; margin-left: -60px; margin-top: -18px" }, "PR"));
-    }
-    if (s.note) row.appendChild(el("div", { class: "set-note-inline" }, s.note));
+    // Same numbering rule as every other row: a warm-up shows W and consumes
+    // no number. A warm-up jog before intervals is the ordinary case here.
+    const isWarm = U.isWarmup(s);
+    const setLabel = isWarm
+      ? "W"
+      : String((ex.sets || []).slice(0, si + 1).filter(x => !U.isWarmup(x)).length);
 
     const tryDelete = async () => {
-      if (ex.sets.length <= 1) return;
+      if (ex.sets.length <= 1) { toast("An exercise needs at least one set"); return; }
       if (await confirmDialog("Delete this interval?", { title: "Delete interval?", okLabel: "Delete", danger: true })) {
         ex.sets.splice(si, 1);
         await Storage.saveWorkout(state.activeWorkout);
         refreshExerciseBlock(ex);
       }
     };
+
+    // No tools tray on this row either, so the "···" opens on a press. Note
+    // lives in the menu rather than as a third row button — the row is four
+    // inputs wide already, and every button here is paid for in kcal digits.
+    // Marking a set warm hands back any record it had already taken.
+    const moreBtn = el("button", {
+      type: "button",
+      class: "set-more-btn" + ((isWarm || s.note) ? " has-extra" : ""),
+      title: "Interval actions",
+      "aria-label": `Interval ${si + 1} actions`,
+      "data-testid": `set-more-${si}`
+    }, "···");
+    attachRadial(moreBtn, {
+      label: `Interval ${si + 1} actions`,
+      press: true,
+      items: [
+        {
+          key: "warmup", label: s.warmup ? "Working effort" : "Warm-up", icon: setIcons.warmup,
+          onPick: async () => {
+            s.warmup = !s.warmup;
+            if (s.warmup) { s.isPR = false; s.prTypes = []; }
+            await Storage.saveWorkout(state.activeWorkout);
+            refreshExerciseBlock(ex);
+          }
+        },
+        { key: "note", label: s.note ? "Edit note" : "Note", icon: icons.note, onPick: () => noteBtn.click() },
+        { key: "delete", label: "Delete", icon: icons.trash, onPick: tryDelete }
+      ]
+    });
+
+    const row = el("div", { class: "set-row type-cardio" + (showDist ? "" : " no-dist") + (isPR ? " is-pr" : "") + (s.kcalManual ? " has-manual-kcal" : "") + (isWarm ? " is-warmup" : ""),
+      "data-testid": `set-row-${si}` },
+      el("div", { class: "set-index" }, setLabel),
+      durInput,
+      distInput,
+      kcalInput,
+      el("div", { class: "set-row-actions" }, moreBtn, doneBtn)
+    );
+    if (isPR) {
+      row.appendChild(el("span", { class: "pr-badge", style: "position:absolute; margin-left: -60px; margin-top: -18px" }, "PR"));
+    }
+    if (s.note) row.appendChild(el("div", { class: "set-note-inline" }, s.note));
+
     row.addEventListener("dblclick", (e) => { e.preventDefault(); tryDelete(); });
     const indexCell = row.firstChild;
     let lastTap = 0;
