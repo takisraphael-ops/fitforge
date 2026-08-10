@@ -322,7 +322,116 @@ const APP = fs.readFileSync(path.join(ROOT, 'js', 'app.js'), 'utf8');
       afterMark.isPR === false && afterMark.types === '', afterMark.types || 'cleared');
   }
 
-  console.log('\n=== 6. nothing downstream still counts a raw done set ===');
+  console.log('\n=== 6. the ramp becomes W rows, and the card can pull one ===');
+  {
+    // The pre-session sheet computes a ramp into your first lift and used to
+    // throw it away. This drives the real route: history at 100 kg → start a
+    // session through the picker → the sheet appears → one tap logs the ramp
+    // as warm-up sets. Then the card's own "+ Warm-up" for everything else.
+    await page.evaluate(async () => {
+      await Storage.clearAll();
+      for (const [k, v] of Object.entries({
+        onboarded: true, sex: 'male', dob: '1990-01-01', heightCm: 180, guidedSets: false
+      })) await Storage.setPref(k, v);
+      const d = new Date(); d.setDate(d.getDate() - 3);
+      await Storage.saveWorkout({
+        id: 'h1', name: 'Push', date: U.todayISO(d), startedAt: d.getTime(),
+        completedAt: d.getTime() + 3600e3,
+        exercises: [{ exerciseId: 'bench-press-barbell', name: 'Barbell Bench Press', type: 'weighted',
+          sets: [{ weight: 100, reps: 5, done: true }] }]
+      });
+    });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(2400);
+    await page.evaluate(() => document.querySelectorAll('.splash').forEach(n => n.remove()));
+
+    await page.evaluate(() => document.querySelector('[data-testid="dock-fab"]').click());
+    await page.waitForTimeout(900);
+    await page.evaluate(() => document.querySelector('[data-testid="quick-start-workout"]')?.click());
+    await page.waitForTimeout(2400);
+    await page.evaluate(() => {
+      const inp = document.querySelector('input[aria-label="Search exercises to add"]');
+      if (!inp) return;
+      inp.value = 'barbell bench';
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForTimeout(700);
+    await page.evaluate(() => {
+      [...document.querySelectorAll('.xrow')].find(r => /Barbell Bench Press/i.test(r.textContent))?.click();
+    });
+    await page.waitForTimeout(500);
+    await page.evaluate(() => document.querySelector('[data-testid="xpick-cta"]')?.click());
+    await page.waitForTimeout(2600);
+
+    const sheet = await page.evaluate(() => ({
+      up: !!document.querySelector('[data-testid="warmup"]'),
+      btn: !!document.querySelector('[data-testid="warmup-log-ramp"]')
+    }));
+    check('the pre-session sheet offers to log its ramp', sheet.up && sheet.btn, JSON.stringify(sheet));
+
+    await page.evaluate(() => document.querySelector('[data-testid="warmup-log-ramp"]')?.click());
+    await page.waitForTimeout(900);
+    const logged = await page.evaluate(async () => {
+      const id = await Storage.getPref('activeWorkoutId', null);
+      const w = id ? await Storage.getWorkout(id) : null;
+      const sets = w ? w.exercises[0].sets : [];
+      const btn = document.querySelector('[data-testid="warmup-log-ramp"]');
+      return {
+        shape: sets.map(s => `${s.weight ?? '·'}${s.warmup ? 'W' : ''}`).join(','),
+        warmCount: sets.filter(s => s.warmup).length,
+        // Ramp weights must sit below the working weight they build to.
+        underWorking: sets.filter(s => s.warmup).every(s => s.weight > 0 && s.weight < 100),
+        undone: sets.filter(s => s.warmup).every(s => !s.done),
+        disabled: btn ? btn.disabled : null
+      };
+    });
+    check('one tap writes the ramp in as warm-up sets', logged.warmCount === 3, logged.shape);
+    check('every ramp set is under the working weight and unticked',
+      logged.underWorking && logged.undone, logged.shape);
+    check('the button spends itself, so a second tap stacks nothing', logged.disabled === true);
+    await page.evaluate(() => document.querySelector('[data-testid="warmup-log-ramp"]')?.click());
+    await page.waitForTimeout(500);
+    const stacked = await page.evaluate(async () => {
+      const id = await Storage.getPref('activeWorkoutId', null);
+      return (await Storage.getWorkout(id)).exercises[0].sets.length;
+    });
+    check('and the set count holds', stacked === 4, `${stacked} sets`);
+
+    await page.evaluate(() => document.querySelector('[data-testid="warmup-go"]')?.click());
+    await page.waitForTimeout(900);
+    const rows = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid^="set-row-"]')].map(r =>
+        (r.querySelector('.set-index') || {}).textContent).join(','));
+    check('the card reads W,W,W,1', rows === 'W,W,W,1', rows);
+
+    // The card's own pull, for exercises the ramp never reaches. It lands
+    // after the warm-ups, never in the middle of the work.
+    await page.evaluate(() => {
+      const btn = document.querySelector('[data-testid="add-warmup-set"]');
+      btn?.scrollIntoView({ block: 'center' });
+      btn?.click();
+    });
+    await page.waitForTimeout(900);
+    const pulled = await page.evaluate(async () => {
+      const id = await Storage.getPref('activeWorkoutId', null);
+      const sets = (await Storage.getWorkout(id)).exercises[0].sets;
+      return {
+        shape: sets.map(s => (s.warmup ? 'W' : 'k')).join(''),
+        blank: sets[3] && sets[3].warmup && sets[3].weight == null && !sets[3].done
+      };
+    });
+    check('"+ Warm-up" inserts after the warm-ups, before the work', pulled.shape === 'WWWWk', pulled.shape);
+    check('and arrives blank and unticked', pulled.blank === true);
+
+    // A warm-up must not auto-open the tools tray — three ramp rows each
+    // dragging one open would bury the working sets in chrome.
+    const trays = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid^="set-row-"]')]
+        .filter(r => r.classList.contains('has-tools-open')).length);
+    check('warm-up rows keep their tools tray shut', trays === 0, `${trays} open`);
+  }
+
+  console.log('\n=== 7. nothing downstream still counts a raw done set ===');
   {
     // The failure this catches is a new counter added later that filters on
     // `.done` alone. Every set counter that feeds a training number has to
