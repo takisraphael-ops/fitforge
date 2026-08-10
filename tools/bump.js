@@ -43,7 +43,10 @@ if (next === current) {
 // sw.js: only the cache name — its asset list is derived from it.
 const writes = [
   ['index.html', index.replace(/\?v=\d+/g, `?v=${next}`)],
-  ['js/app.js', app.replace(/sw\.js\?v=\d+/g, `sw.js?v=${next}`)],
+  // Two places in app.js now: the service worker query, and the constant
+  // Settings prints so a build can be identified from the device itself.
+  ['js/app.js', app.replace(/sw\.js\?v=\d+/g, `sw.js?v=${next}`)
+                   .replace(/const APP_VERSION = \d+;/, `const APP_VERSION = ${next};`)],
   ['sw.js', sw.replace(/fitforge-v\d+/g, `fitforge-v${next}`)]
 ];
 for (const [f, body] of writes) fs.writeFileSync(p(f), body);

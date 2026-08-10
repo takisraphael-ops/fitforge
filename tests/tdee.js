@@ -184,6 +184,16 @@ const check = (label, ok, detail = '') => {
     const shown = await openSettings();
     check('the card is on the settings screen', !!shown);
     if (!shown) throw new Error('calibration card missing — section 4 proves nothing without it');
+
+    // While the modal is up: the build line at its foot. version-check proves
+    // the constant matches the service worker; this proves the line is
+    // actually rendered — a constant nothing prints identifies no build.
+    const appjs = require('fs').readFileSync(require('path').join(__dirname, '..', 'js', 'app.js'), 'utf8');
+    const srcVer = (appjs.match(/const APP_VERSION = (\d+);/) || [])[1];
+    const verLine = await page.evaluate(() =>
+      document.querySelector('[data-testid="settings-version"]')?.textContent || null);
+    check('Settings prints the build at its foot', verLine === `FitForge v${srcVer}`,
+      `${verLine} vs source ${srcVer}`);
     const measured = (shown.text.match(/maintenance near (\d+)/) || [])[1];
     check('it reports a measured maintenance', !!measured, measured || shown.text);
     check('and offers to set the tweak', !!shown.apply, String(shown.apply));
