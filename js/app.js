@@ -164,6 +164,10 @@
     if (active) {
       const w = await Storage.getWorkout(active);
       if (w && !w.completedAt) {
+        // Repair the shape at the door. A workout without an exercises array
+        // (older build, hand-edited import) crashed the renderer — silently,
+        // until the crash started being surfaced, which is how this was found.
+        if (!Array.isArray(w.exercises)) w.exercises = [];
         // Fix any cardio exercises that older builds saved as weighted (kg/reps).
         try {
           const all = typeof EXERCISE_DB !== "undefined" ? EXERCISE_DB : [];
