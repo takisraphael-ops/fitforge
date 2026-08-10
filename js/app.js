@@ -6593,6 +6593,7 @@
         if (lastWorking > 20) {
           ramp = {
             name: first.name,
+            exerciseId: first.exerciseId,
             working: lastWorking,
             sets: RAMP_STEPS.map(r => ({
               // Round to the nearest 2.5kg so it's actually loadable.
@@ -6636,6 +6637,30 @@
             el("div", { class: "warmup-item-sub" }, r.label)),
           el("div", { class: "warmup-item-dose" }, U.weightUnit())
         ));
+      }
+      // The sheet used to show these numbers and then throw them away: doing
+      // the ramp meant re-typing every one of them through the set menu. One
+      // tap now writes them into the exercise as W rows, ready to tick off.
+      // Hidden if the exercise already carries warm-ups, so the button cannot
+      // stack a second ramp on top of one logged a moment ago.
+      const target = (workout.exercises || []).find(e => e.exerciseId === plan.ramp.exerciseId);
+      if (target && !(target.sets || []).some(s => U.isWarmup(s))) {
+        const logBtn = el("button", {
+          class: "btn btn-block warmup-log-ramp", type: "button",
+          "data-testid": "warmup-log-ramp",
+          on: { click: async () => {
+            if (logBtn.disabled) return;
+            logBtn.disabled = true;
+            target.sets = [
+              ...plan.ramp.sets.map(r => ({ weight: r.weight, reps: r.reps, done: false, warmup: true })),
+              ...(target.sets || [])
+            ];
+            await Storage.saveWorkout(workout);
+            logBtn.textContent = `Added to ${plan.ramp.name} ✓`;
+            refreshExerciseBlock(target);
+          } }
+        }, "Log ramp as warm-up sets");
+        list.appendChild(logBtn);
       }
     }
 
@@ -7925,6 +7950,16 @@
           await Storage.saveWorkout(state.activeWorkout);
           refreshExerciseBlock(ex);
         } } }, el("span", { html: icons.plus }), "Add set"),
+        // A warm-up you can pull, for the exercises the pre-session ramp never
+        // reaches. Inserted after any warm-ups already there, never into the
+        // middle of the work, and left blank — the app knows your working
+        // weight, not what you warm up with.
+        el("button", { class: "btn add-set-btn add-warmup-btn", "data-testid": "add-warmup-set", on: { click: async () => {
+          const at = ex.sets.findIndex(s => !U.isWarmup(s));
+          ex.sets.splice(at < 0 ? ex.sets.length : at, 0, { weight: null, reps: null, done: false, warmup: true });
+          await Storage.saveWorkout(state.activeWorkout);
+          refreshExerciseBlock(ex);
+        } } }, el("span", { html: icons.plus }), "Warm-up"),
         ex.sets.length > 1 ? el("span", { class: "text-xs text-faint" }, "Double-tap the set number to delete") : null
       );
       body.appendChild(controls);
@@ -8514,9 +8549,13 @@
     const placeholderReps = prevSet && prevSet.reps != null ? `${prevSet.reps}` : "";
     const toolsKey = `${state.activeWorkout?.id || "aw"}:${ex.exerciseId || ex.name}:${si}`;
     const closedKey = toolsKey + ":closed";
-    // Open when user expanded, or when note/drop exists — unless user explicitly closed
+    // Open when user expanded, or when note/drop exists — unless user
+    // explicitly closed. A warm-up deliberately does not auto-open the tray:
+    // the tray shows what a note or drop says, but a warm-up's whole state is
+    // already the W badge and the greyed row. Three ramp sets each dragging a
+    // tray open would bury the working sets in chrome.
     const toolsOpen = !expandedSetTools.has(closedKey) && (
-      expandedSetTools.has(toolsKey) || !!(s.note || s.drop || s.warmup)
+      expandedSetTools.has(toolsKey) || !!(s.note || s.drop)
     );
 
     const e1rm = s.done && s.weight && s.reps
