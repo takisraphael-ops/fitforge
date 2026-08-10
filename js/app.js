@@ -65,7 +65,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=273").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=274").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -214,7 +214,7 @@
   // and shown at the foot of Settings. There was no way, from a phone, to
   // tell which build you were looking at — which cost several rounds of
   // debugging a fix that turned out never to have deployed.
-  const APP_VERSION = 273;
+  const APP_VERSION = 274;
   const isAccent = (id) => ACCENTS.some(a => a.id === id);
 
   // Keep the browser chrome (iOS status bar, Android task switcher) in step
@@ -2055,7 +2055,20 @@
   function whenTabReady({ view, rendered }, done, cap = 1200) {
     const started = performance.now();
     let settled = !(rendered && typeof rendered.then === "function");
-    if (!settled) rendered.then(() => { settled = true; }, () => { settled = true; });
+    // A rejected renderer still mounts — hiding a crash behind a frozen stage
+    // would be worse — but it mounts wearing the error card, not silently
+    // truncated at wherever the throw happened to land.
+    if (!settled) rendered.then(() => { settled = true; }, (err) => {
+      settled = true;
+      console.error("tab render failed", err);
+      if (!view.querySelector('[data-testid="render-error"]')) {
+        view.appendChild(el("div", { class: "card render-error", "data-testid": "render-error", style: "margin: 24px 16px" },
+          el("div", { class: "card-title" }, "This screen hit a problem"),
+          el("p", { class: "text-sm text-muted" },
+            "Your data is safe — the screen just failed to draw fully. Reloading usually clears it."),
+          el("button", { class: "btn btn-primary", on: { click: () => location.reload() } }, "Reload")));
+      }
+    });
     let lastH = -1, steady = 0;
     const poll = () => {
       const h = view.scrollHeight;
@@ -17593,7 +17606,7 @@
     const lastLine = status.lastAt
       ? `Last file: ${formatBackupWhen(status.lastAt)}`
       : "Export a JSON file you can keep in Files or Drive.";
-    return el("div", { class: "card backup-cta-card" },
+    return el("div", { class: "card backup-cta-card", "data-testid": "backup-cta" },
       el("div", { class: "row-between", style: "gap: 10px; align-items: flex-start" },
         el("div", { style: "flex: 1; min-width: 0" },
           el("div", { class: "card-title", style: "margin: 0 0 4px 0" }, "Back up your data"),

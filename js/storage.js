@@ -19,22 +19,35 @@ window.Storage = (function () {
   let usePersistent = !!engine;
   let openPromise = null;
   let openAttempts = 0;
-  // Writes that landed in memory while IndexedDB was unavailable. Counted so
-  // the app can say "you are not being saved" out loud, and drained back into
-  // the database the moment it opens — before this, a transient failure window
-  // (another tab holding a versionchange lock, a slow first open) swallowed
-  // writes permanently: they sat in `mem`, reads went to IDB, nothing flushed.
-  let memWrites = 0;
+  // After a burst of failed opens, pause retries briefly instead of giving
+  // up for good. The old behaviour flipped to memory permanently after three
+  // strikes — and during a transient outage (another tab's lock, a slow
+  // disk), background reads alone could burn all three, leaving the session
+  // in silent memory mode forever even after the engine recovered.
+  const RETRY_BACKOFF_MS = 5000;
+  let retryAfter = 0;
+  // Writes that landed in memory while IndexedDB was unavailable are drained
+  // back into the database the moment it opens — before this, a transient
+  // failure window (another tab holding a versionchange lock, a slow first
+  // open) swallowed writes permanently: they sat in `mem`, reads went to IDB,
+  // nothing flushed. The at-risk count is derived from the maps rather than
+  // accumulated, because a record written and then deleted inside one outage
+  // is two events but zero surviving entries — a counter would drift.
   let persistGranted = null;
   const healthListeners = [];
   function notifyHealth() {
     const h = storageHealth();
     for (const cb of healthListeners) { try { cb(h); } catch (_) {} }
   }
+  function pendingMemCount() {
+    let n = 0;
+    for (const s of STORES) n += mem[s].size + memDeletes[s].size;
+    return n;
+  }
   function storageHealth() {
     return {
       engine: (usePersistent && db) ? "idb" : "memory",
-      pendingMemWrites: memWrites,
+      pendingMemWrites: pendingMemCount(),
       persistGranted
     };
   }
@@ -76,6 +89,7 @@ window.Storage = (function () {
     if (!usePersistent) return Promise.resolve(null);
     if (db) return Promise.resolve(db);
     if (openPromise) return openPromise;
+    if (Date.now() < retryAfter) return Promise.resolve(null);
 
     openPromise = new Promise((resolve) => {
       openAttempts += 1;
@@ -83,9 +97,7 @@ window.Storage = (function () {
       try {
         req = engine.open(DB_NAME, DB_VERSION);
       } catch (e) {
-        // Transient open failures: allow a couple of retries later.
-        if (openAttempts >= 3) usePersistent = false;
-        openPromise = null;
+        if (openAttempts >= 3) { retryAfter = Date.now() + RETRY_BACKOFF_MS; openAttempts = 0; }
         return resolve(null);
       }
 
@@ -102,6 +114,9 @@ window.Storage = (function () {
 
       req.onsuccess = () => {
         db = req.result;
+        // A successful open forgives everything that came before it.
+        openAttempts = 0;
+        retryAfter = 0;
         db.onversionchange = () => {
           try { db.close(); } catch (_) {}
           db = null;
@@ -114,19 +129,26 @@ window.Storage = (function () {
       };
 
       req.onerror = () => {
-        // Don't permanently disable on first failure — clear promise so next call retries.
-        openPromise = null;
-        if (openAttempts >= 3) usePersistent = false;
+        // Never permanently disable — back off, then let the next call retry.
+        if (openAttempts >= 3) { retryAfter = Date.now() + RETRY_BACKOFF_MS; openAttempts = 0; }
         resolve(null);
       };
 
       // Blocked = another tab holds a versionchange lock. Keep persistent mode;
       // next call can retry. Do NOT flip to memory or we silently lose data.
       req.onblocked = () => {
-        openPromise = null;
         resolve(null);
       };
     });
+
+    // Clear the cached promise on ANY null resolution, in one place. The old
+    // code nulled it inside each failure path, which worked for the async
+    // ones — but the synchronous engine.open() throw ran inside the promise
+    // executor, before `openPromise =` had assigned, so its null was
+    // immediately overwritten by the constructor's own return value. That
+    // cached a forever-null promise: one failed attempt, and every later
+    // call "retried" against the corpse. The retry comment was a lie.
+    openPromise.then((d) => { if (!d) openPromise = null; });
 
     return openPromise;
   }
@@ -134,7 +156,7 @@ window.Storage = (function () {
   /** Flush memory-held writes into a freshly opened database, best-effort.
       A record that fails to write stays in `mem` for the next attempt. */
   async function drainMem(d) {
-    if (!memWrites) return;
+    if (!pendingMemCount()) return;
     const op = (store, run) => new Promise((res, rej) => {
       const tx = d.transaction(store, "readwrite");
       run(tx.objectStore(store));
@@ -147,14 +169,12 @@ window.Storage = (function () {
         try {
           await op(store, (s) => s.put(value));
           mem[store].delete(key);
-          memWrites = Math.max(0, memWrites - 1);
         } catch (_) { /* keep it in mem; retry on the next open */ }
       }
       for (const key of [...memDeletes[store]]) {
         try {
           await op(store, (s) => s.delete(key));
           memDeletes[store].delete(key);
-          memWrites = Math.max(0, memWrites - 1);
         } catch (_) { /* keep the tombstone; retry on the next open */ }
       }
     }
@@ -168,7 +188,6 @@ window.Storage = (function () {
       const key = memKey(store, payload);
       if (key == null) throw new Error(`Cannot save ${store}: missing key`);
       mem[store].set(key, payload);
-      memWrites += 1;
       notifyHealth();
       return payload;
     }
@@ -193,7 +212,6 @@ window.Storage = (function () {
       // Tombstone it, or a delete made during a memory window is undone the
       // moment the database reopens still holding the record.
       memDeletes[store].add(key);
-      memWrites += 1;
       notifyHealth();
       return;
     }

@@ -55,7 +55,8 @@ const SUITES = [
   { name: 'nav-motion', file: 'nav-motion.js', needsServer: true },
   { name: 'pager', file: 'pager.js', needsServer: true },
   { name: 'body-figure', file: 'body-figure.js', needsServer: true },
-  { name: 'warmup-sets', file: 'warmup-sets.js', needsServer: true }
+  { name: 'warmup-sets', file: 'warmup-sets.js', needsServer: true },
+  { name: 'durability', file: 'durability.js', needsServer: true }
 ];
 
 const up = () => new Promise((resolve) => {
