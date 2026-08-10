@@ -18,6 +18,7 @@ const VERSIONED = [
 // a query, so they must be cached without one.
 const STATIC = [
   "./manifest.webmanifest", "./icons/icon-192.svg", "./icons/icon-512.svg",
+  "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png",
   "./fonts/inter-latin.woff2", "./fonts/inter-latin-ext.woff2"
 ];
 const PRECACHE = [

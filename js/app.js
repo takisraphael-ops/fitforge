@@ -35,6 +35,31 @@
   };
 
   // ============ Bootstrap ============
+  /** The not-being-saved warning. Present exactly while it is true. */
+  function updateStorageBanner(health) {
+    const existing = document.getElementById("storage-banner");
+    const inMemory = health.engine === "memory" || health.pendingMemWrites > 0;
+    if (!inMemory) {
+      if (existing) {
+        existing.remove();
+        document.body.classList.remove("has-storage-banner");
+        toast("Storage recovered — everything held in memory has been saved");
+      }
+      return;
+    }
+    if (existing) return;
+    const banner = el("div", { id: "storage-banner", "data-testid": "storage-banner", role: "alert" },
+      el("strong", {}, "Nothing is being saved. "),
+      el("span", {}, "This browser is blocking storage — export a backup before closing. "),
+      el("button", {
+        class: "storage-banner-btn", type: "button",
+        on: { click: () => exportData() }
+      }, "Export now")
+    );
+    document.body.appendChild(banner);
+    document.body.classList.add("has-storage-banner");
+  }
+
   async function init() {
     // Register service worker for PWA. Poll for updates so bug fixes propagate.
     if ("serviceWorker" in navigator) {
@@ -60,20 +85,42 @@
         reg.update().catch(() => {});
         setInterval(() => reg.update().catch(() => {}), 5 * 60 * 1000);
       }).catch(() => {});
-      // When a new SW takes control, reload once so the new app.js runs.
+      // When a new SW takes control, reload once so the new app.js runs — but
+      // never out from under a live session. Updates poll every 5 minutes and
+      // workouts run longer than that, so without this gate a deploy lands
+      // mid-set: the sets survive (autosave), but the rest timer and any open
+      // form do not. Mid-workout the reload waits for the session to end.
       let reloaded = false;
-      navigator.serviceWorker.addEventListener("controllerchange", () => {
+      let pendingReload = false;
+      const reloadForUpdate = () => {
         if (reloaded) return;
+        if (state.activeWorkout) { pendingReload = true; return; }
         reloaded = true;
         location.reload();
+      };
+      navigator.serviceWorker.addEventListener("controllerchange", reloadForUpdate);
+      document.addEventListener("visibilitychange", () => {
+        if (pendingReload && document.hidden && !state.activeWorkout) {
+          reloaded = true;
+          location.reload();
+        }
       });
     }
     await Storage.open();
     // Wrapped before anything writes, so no change can slip past unstamped
     // and leave a swipe showing a pane built from data that has since moved.
     watchStorageWrites();
-    // Best-effort: ask browser not to evict workout data under storage pressure.
-    try { await Storage.requestPersistent(); } catch (_) {}
+    // Ask the browser not to evict this origin's data under storage pressure,
+    // and keep the answer: Settings shows it, because "protected" versus
+    // "evictable" is the difference between keeping a year of history and
+    // losing it to a storage sweep the user was never warned about.
+    try { state.persistGranted = await Storage.requestPersistent(); } catch (_) { state.persistGranted = false; }
+    // Catch the install prompt where the platform offers one, so Settings can
+    // present "Install app" instead of a paragraph of browser-menu directions.
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      state.installPrompt = e;
+    });
     state.prefs = await loadPrefs();
     initA11yRegions();
     applyAccent(state.prefs.accent);
@@ -124,9 +171,25 @@
     migrateTimedHolds();
     render();
     initTabSwipe();
-    if (!Storage.isPersistent()) {
-      setTimeout(() => toast("Storage is temporary in this browser — export a backup after workouts"), 600);
-    }
+    // A browser that is not persisting data gets a banner that stays, not a
+    // toast that fades in 2 seconds under the splash. The banner also appears
+    // mid-session if writes start landing in memory, and comes down on its
+    // own if the database recovers and the held writes drain back in.
+    Storage.onStorageHealth(updateStorageBanner);
+    updateStorageBanner(Storage.storageHealth());
+    // A rejected renderer or a thrown handler used to be a console line and a
+    // blank screen. Surface it: the user learns their last action may not
+    // have saved, instead of finding out from a hole in their history.
+    let lastErrToast = 0;
+    const surfaceError = (err) => {
+      console.error(err);
+      const now = Date.now();
+      if (now - lastErrToast < 30000) return;
+      lastErrToast = now;
+      toast("Something went wrong — the last action may not have saved");
+    };
+    window.addEventListener("unhandledrejection", (e) => surfaceError(e.reason));
+    window.addEventListener("error", (e) => surfaceError(e.error || e.message));
     // First run: greet new users with the guided setup quiz rather than the dense
     // settings form. Only auto-opens once (until profile is complete or skipped).
     if (!state.prefs.onboarded && !U.profileComplete(state.prefs) && !state.activeWorkout) {
@@ -1684,7 +1747,17 @@
     const main = $("#main");
     clear(main);
 
-    const { rendered } = buildTabView(main);
+    // #main is already emptied, so a renderer that throws here used to leave
+    // a blank screen with no dock and no way out but knowing to reload. The
+    // page must always end this function navigable: an error state and the
+    // dock, never a void.
+    let rendered = null;
+    try {
+      ({ rendered } = buildTabView(main));
+    } catch (err) {
+      console.error("renderMain failed", err);
+      renderMainError(main);
+    }
 
     // Bottom dock navigation
     renderDock(main);
@@ -1693,10 +1766,26 @@
     renderRestTimer();
 
     // Roll the big stat numbers up once they're on screen. Tab renderers are
-    // async, so wait for the render to settle before the numbers exist.
+    // async, so wait for the render to settle before the numbers exist. A
+    // rejected renderer surfaces instead of silently truncating the tab.
     const rollUp = () => requestAnimationFrame(() => applyCountUps(main));
-    if (rendered && typeof rendered.then === "function") rendered.then(rollUp, rollUp);
-    else rollUp();
+    if (rendered && typeof rendered.then === "function") {
+      rendered.then(rollUp, (err) => {
+        console.error("tab render failed", err);
+        if (!main.querySelector(".render-error")) renderMainError(main);
+        rollUp();
+      });
+    } else rollUp();
+  }
+
+  /** The screen a failed render shows instead of a void. */
+  function renderMainError(main) {
+    main.appendChild(el("div", { class: "view render-error", "data-testid": "render-error" },
+      el("div", { class: "card", style: "margin: 24px 16px" },
+        el("div", { class: "card-title" }, "This screen hit a problem"),
+        el("p", { class: "text-sm text-muted" },
+          "Your data is safe — the screen just failed to draw. Reloading usually clears it."),
+        el("button", { class: "btn btn-primary", on: { click: () => location.reload() } }, "Reload"))));
   }
 
   // ============ Bottom dock ============
@@ -5170,6 +5259,14 @@
       const hero = buildTodayWorkoutHero({ plan, tplById, exById, completed });
       hero.classList.add("home-bleed");
       view.appendChild(hero);
+    }
+
+    // 2b) Back up your data — surfaced only when actually due (never exported,
+    // a week stale, or 10 workouts on). The always-visible half of the
+    // reminder; the every-10-workouts dialog on finish is the other half.
+    const backupStatus = getBackupStatus(completed.length);
+    if (backupStatus.needsBackup) {
+      view.appendChild(renderHomeBackupCard(backupStatus));
     }
 
     // 3) Today — food room hero + stacked macro balance bar
@@ -17142,6 +17239,7 @@
 
       el("div", { class: "form-row mt-16" }, el("div", { style: "flex:1" },
         el("label", { class: "label" }, "Backup & restore"),
+        buildStorageHealthRow(),
         el("div", { class: "text-xs text-muted mb-8" },
           `Last backup: ${formatBackupWhen(state.prefs.lastBackupAt)}` +
           (state.prefs.lastBackupAt
@@ -17408,6 +17506,71 @@
     }
     if (snoozed) needsBackup = false;
     return { completed, sinceWorkouts, lastAt, daysSince: days, needsBackup, reason, hasData, snoozed };
+  }
+
+  /** True when the app is running as an installed PWA rather than a browser tab. */
+  function isInstalled() {
+    return !!(
+      (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+      window.navigator.standalone === true
+    );
+  }
+
+  /** iOS Safari's own share-sheet is the only install path; there is no
+      beforeinstallprompt there, so detect the platform to give real steps. */
+  function isIOS() {
+    return /iP(hone|ad|od)/.test(navigator.platform || "") ||
+      (/Macintosh/.test(navigator.userAgent || "") && "ontouchend" in document);
+  }
+
+  /** The storage-durability row in Settings: is data protected, and — if the
+      platform can be safer — how to make it so. Honest about the difference
+      between an installed app and an evictable tab. */
+  function buildStorageHealth() {
+    const health = Storage.storageHealth ? Storage.storageHealth() : { engine: "idb", persistGranted: state.persistGranted };
+    if (health.engine === "memory" || (health.pendingMemWrites || 0) > 0) {
+      return { tone: "bad", title: "Not saving to this device",
+        detail: "This browser is blocking storage. Export a backup now — data entered this session will be lost when you close the app." };
+    }
+    if (isInstalled()) {
+      return { tone: "good", title: "Installed — data is protected",
+        detail: "Your data is stored on this device. Keep exporting a backup now and then in case the app is uninstalled." };
+    }
+    if (isIOS()) {
+      return { tone: "warn", title: "Add to Home Screen to keep your data",
+        detail: "In a Safari tab, iOS can erase everything after 7 days without a visit. Tap Share, then “Add to Home Screen” — the installed app keeps its data. Until then, export backups often." };
+    }
+    if (state.installPrompt) {
+      return { tone: "warn", title: "Install FitForge to protect your data", canInstall: true,
+        detail: "Running in a browser tab, your data can be cleared by the browser. Install the app to keep it safe on this device." };
+    }
+    if (state.persistGranted) {
+      return { tone: "good", title: "Storage marked persistent",
+        detail: "The browser has agreed not to evict your data under storage pressure. A backup is still worth keeping off-device." };
+    }
+    return { tone: "warn", title: "Data lives in this browser only",
+      detail: "The browser has not guaranteed persistence, so clearing site data or a storage sweep would erase everything. Install the app from your browser menu, and export backups often." };
+  }
+
+  function buildStorageHealthRow() {
+    const s = buildStorageHealth();
+    const row = el("div", { class: `storage-health tone-${s.tone}`, "data-testid": "storage-health" },
+      el("div", { class: "storage-health-title" }, s.title),
+      el("div", { class: "storage-health-detail" }, s.detail)
+    );
+    if (s.canInstall) {
+      row.appendChild(el("button", {
+        class: "btn btn-primary btn-sm mt-8", "data-testid": "install-app",
+        on: { click: async () => {
+          const p = state.installPrompt;
+          if (!p) return;
+          state.installPrompt = null;
+          try { p.prompt(); await p.userChoice; } catch (_) {}
+          renderMain();
+        } }
+      }, "Install app"));
+    }
+    return row;
   }
 
   function formatBackupWhen(iso) {

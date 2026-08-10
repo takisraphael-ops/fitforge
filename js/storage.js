@@ -19,6 +19,28 @@ window.Storage = (function () {
   let usePersistent = !!engine;
   let openPromise = null;
   let openAttempts = 0;
+  // Writes that landed in memory while IndexedDB was unavailable. Counted so
+  // the app can say "you are not being saved" out loud, and drained back into
+  // the database the moment it opens — before this, a transient failure window
+  // (another tab holding a versionchange lock, a slow first open) swallowed
+  // writes permanently: they sat in `mem`, reads went to IDB, nothing flushed.
+  let memWrites = 0;
+  let persistGranted = null;
+  const healthListeners = [];
+  function notifyHealth() {
+    const h = storageHealth();
+    for (const cb of healthListeners) { try { cb(h); } catch (_) {} }
+  }
+  function storageHealth() {
+    return {
+      engine: (usePersistent && db) ? "idb" : "memory",
+      pendingMemWrites: memWrites,
+      persistGranted
+    };
+  }
+  function onStorageHealth(cb) {
+    if (typeof cb === "function") healthListeners.push(cb);
+  }
   const mem = {
     workouts: new Map(),
     meals: new Map(),
@@ -30,6 +52,9 @@ window.Storage = (function () {
     supplements: new Map(),
     supplementLogs: new Map()
   };
+
+  const memDeletes = {};
+  for (const s of STORES) memDeletes[s] = new Set();
 
   function memKey(store, value) {
     if (store === "prefs") return value.key;
@@ -82,7 +107,10 @@ window.Storage = (function () {
           db = null;
           openPromise = null;
         };
-        resolve(db);
+        // Anything written to memory while the database was unavailable is
+        // newer than what the database holds — drain it in before anyone
+        // reads, or those writes are silently lost the moment reads resume.
+        drainMem(db).then(() => resolve(db));
       };
 
       req.onerror = () => {
@@ -103,6 +131,36 @@ window.Storage = (function () {
     return openPromise;
   }
 
+  /** Flush memory-held writes into a freshly opened database, best-effort.
+      A record that fails to write stays in `mem` for the next attempt. */
+  async function drainMem(d) {
+    if (!memWrites) return;
+    const op = (store, run) => new Promise((res, rej) => {
+      const tx = d.transaction(store, "readwrite");
+      run(tx.objectStore(store));
+      tx.oncomplete = res;
+      tx.onerror = () => rej(tx.error);
+      tx.onabort = () => rej(tx.error);
+    });
+    for (const store of STORES) {
+      for (const [key, value] of [...mem[store]]) {
+        try {
+          await op(store, (s) => s.put(value));
+          mem[store].delete(key);
+          memWrites = Math.max(0, memWrites - 1);
+        } catch (_) { /* keep it in mem; retry on the next open */ }
+      }
+      for (const key of [...memDeletes[store]]) {
+        try {
+          await op(store, (s) => s.delete(key));
+          memDeletes[store].delete(key);
+          memWrites = Math.max(0, memWrites - 1);
+        } catch (_) { /* keep the tombstone; retry on the next open */ }
+      }
+    }
+    notifyHealth();
+  }
+
   async function put(store, value) {
     const payload = cloneForStore(value);
     const d = await open();
@@ -110,6 +168,8 @@ window.Storage = (function () {
       const key = memKey(store, payload);
       if (key == null) throw new Error(`Cannot save ${store}: missing key`);
       mem[store].set(key, payload);
+      memWrites += 1;
+      notifyHealth();
       return payload;
     }
     return new Promise((res, rej) => {
@@ -130,6 +190,11 @@ window.Storage = (function () {
     const d = await open();
     if (!d) {
       mem[store].delete(key);
+      // Tombstone it, or a delete made during a memory window is undone the
+      // moment the database reopens still holding the record.
+      memDeletes[store].add(key);
+      memWrites += 1;
+      notifyHealth();
       return;
     }
     return new Promise((res, rej) => {
@@ -347,20 +412,25 @@ window.Storage = (function () {
 
   function isPersistent() { return usePersistent && !!db; }
 
-  /** Ask the browser to keep this origin's data when possible (best-effort). */
+  /** Ask the browser to keep this origin's data when possible (best-effort).
+      The verdict is kept, not discarded — Settings shows it, because the
+      difference between "protected" and "evictable" is the difference between
+      keeping a year of training history and losing it to a storage sweep. */
   async function requestPersistent() {
     try {
-      if (!navigator.storage || !navigator.storage.persist) return false;
+      if (!navigator.storage || !navigator.storage.persist) { persistGranted = false; return false; }
       const already = await navigator.storage.persisted();
-      if (already) return true;
-      return await navigator.storage.persist();
+      if (already) { persistGranted = true; return true; }
+      persistGranted = await navigator.storage.persist();
+      return persistGranted;
     } catch (_) {
+      persistGranted = false;
       return false;
     }
   }
 
   return {
-    open, isPersistent, requestPersistent,
+    open, isPersistent, requestPersistent, storageHealth, onStorageHealth,
     saveWorkout, getWorkouts, deleteWorkout, getWorkout,
     saveMeal, getMeals, deleteMeal,
     saveCustomExercise, getCustomExercises, deleteCustomExercise,
