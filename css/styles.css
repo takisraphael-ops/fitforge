@@ -2743,6 +2743,32 @@ input:disabled.input,
   padding: 4px 6px;
   min-width: 0;
 }
+/* RPE selector in the set tools tray — quiet until it carries a value. */
+.rpe-select {
+  width: auto; min-height: 26px; padding: 2px 6px;
+  font-size: 11px; font-weight: 700;
+  color: var(--text-faint);
+}
+.rpe-select.has-rpe { color: var(--accent); border-color: var(--accent); }
+
+/* Rest target chip in the exercise header; accent when it overrides default. */
+.rest-target-chip { cursor: pointer; font-variant-numeric: tabular-nums; }
+.rest-target-chip.is-custom { color: var(--accent); border-color: var(--accent); }
+
+/* Reorder arrows — compact, and dead-looking when they can't move further. */
+.move-ex-btn[disabled] { opacity: 0.25; pointer-events: none; }
+
+/* The what-to-load-next line: one sentence, grounded in last session. */
+.prog-hint {
+  font-size: 12px; line-height: 1.45;
+  padding: 7px 10px; margin: 0 0 8px;
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  color: var(--text-muted);
+}
+.prog-hint.prog-hold { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 7%, transparent); }
+
 .drop-toggle {
   width: 26px; height: 26px;
   border-radius: var(--radius-sm);

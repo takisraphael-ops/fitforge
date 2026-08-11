@@ -7790,6 +7790,37 @@
     afterExerciseChange();
   }
 
+  /** What to load next session, from data the app already holds. Double
+      progression, stated with its evidence: 8+ reps on the top working set
+      earns one plate-step more; short of 8, the next rep is the target; an
+      e1RM that dipped last session earns a repeat, not a raise. Warm-ups are
+      excluded like everywhere else. Returns null rather than guessing when
+      there is no completed history to stand on. */
+  function progressionHint(history, exType) {
+    if (exType !== "weighted" && exType !== "weighted_bodyweight") return null;
+    const top = (sets) => {
+      let best = null;
+      for (const s of (sets || [])) {
+        if (s.warmup || !s.reps || s.weight == null || s.weight <= 0) continue;
+        const e = U.epley(s.weight, s.reps);
+        if (!best || e > best.e) best = { w: s.weight, r: s.reps, e };
+      }
+      return best;
+    };
+    const last = history[0] && top(history[0].sets);
+    if (!last) return null;
+    const prevTop = history[1] && top(history[1].sets);
+    const disp = (kg) => `${U.trimNum(U.toDisplayWeight(kg))} ${U.weightUnit()}`;
+    if (prevTop && prevTop.e > last.e * 1.02) {
+      return { kind: "hold", text: `Top set ${disp(last.w)} × ${last.r} last time, down on the session before — repeat it before adding weight` };
+    }
+    if (last.r >= 8) {
+      const next = U.trimNum(U.toDisplayWeight(last.w) + U.weightStep());
+      return { kind: "add-weight", text: `Top set ${disp(last.w)} × ${last.r} last time — try ${next} ${U.weightUnit()}` };
+    }
+    return { kind: "add-rep", text: `Top set ${disp(last.w)} × ${last.r} last time — aim ${last.r + 1} reps at ${disp(last.w)}` };
+  }
+
   /** The rest this exercise gets when a set is logged: its own target if one
       is set, the global default otherwise. */
   function restTargetFor(exerciseId) {
@@ -8009,6 +8040,19 @@
         ),
         fillBtn
       ));
+    }
+
+    // What to load next — the single most useful sentence the existing data
+    // can produce, shown only when there is history to back it.
+    {
+      const hint = progressionHint(history, exType);
+      if (hint) {
+        body.appendChild(el("div", {
+          class: `prog-hint prog-${hint.kind}`,
+          "data-testid": "progression-hint",
+          "data-kind": hint.kind
+        }, hint.text));
+      }
     }
 
     // Approx burn rate for this exercise
