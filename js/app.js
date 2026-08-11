@@ -99,7 +99,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=275").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=276").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -254,7 +254,7 @@
   // and shown at the foot of Settings. There was no way, from a phone, to
   // tell which build you were looking at — which cost several rounds of
   // debugging a fix that turned out never to have deployed.
-  const APP_VERSION = 275;
+  const APP_VERSION = 276;
   const isAccent = (id) => ACCENTS.some(a => a.id === id);
 
   // Keep the browser chrome (iOS status bar, Android task switcher) in step
@@ -14687,6 +14687,14 @@
     return "snack";
   }
 
+  /** A weight a kitchen scale could plausibly show, or 0. Bounded so a
+      fat-fingered 18000 cannot poison the day's totals unnoticed. */
+  function clampGrams(v) {
+    const n = Math.round(Number(v));
+    if (!Number.isFinite(n) || n < 1) return 0;
+    return Math.min(n, 2000);
+  }
+
   async function qaLogMeal(name, macros, section, dateHint) {
     const date = dateHint || U.todayISO();
     const meal = {
@@ -14821,6 +14829,43 @@
           el("span", { class: "qa-portion-kcal" }, `\u2248 ${mac.kcal}`)
         ));
       });
+
+      // The scale row. Every entry is stored per-100 g, so any weight is an
+      // exact scale, not an estimate \u2014 this is what turns "180 g chicken,
+      // 250 g rice" from mental arithmetic into typing two numbers.
+      const gramsI = el("input", {
+        class: "input qa-grams-input", type: "number", inputmode: "numeric",
+        min: "1", max: "2000", step: "1", value: String(entry.g[1]),
+        "data-testid": "qa-grams-input",
+        "aria-label": `Weight in grams of ${entry.name}`
+      });
+      const preview = el("span", { class: "qa-grams-preview", "data-testid": "qa-grams-preview" });
+      const logBtn = el("button", {
+        class: "btn btn-primary qa-grams-log", "data-testid": "qa-grams-log",
+        on: { click: async () => {
+          const grams = clampGrams(gramsI.value);
+          if (!grams) { toast("Enter a weight in grams"); return; }
+          const mac = MS.macrosFor(entry, grams);
+          close();
+          await qaLogMeal(`${entry.name} (${grams} g)`, mac, section, dateHint);
+        } }
+      }, "Log");
+      const updatePreview = () => {
+        const grams = clampGrams(gramsI.value);
+        if (!grams) { preview.textContent = "\u2014"; return; }
+        const mac = MS.macrosFor(entry, grams);
+        preview.textContent = `\u2248 ${mac.kcal} kcal \u00b7 P ${Math.round(mac.protein)} \u00b7 C ${Math.round(mac.carbs)} \u00b7 F ${Math.round(mac.fat)}`;
+      };
+      gramsI.addEventListener("input", updatePreview);
+      updatePreview();
+      const gramsRow = el("div", { class: "qa-grams-row", "data-testid": "qa-grams-row" },
+        el("span", { class: "qa-grams-label" }, "Weighed it?"),
+        gramsI,
+        el("span", { class: "qa-grams-unit" }, "g"),
+        preview,
+        logBtn
+      );
+
       const adjust = el("button", {
         class: "qa-adjust", "data-testid": "qa-adjust",
         on: {
@@ -14834,7 +14879,7 @@
           }
         }
       }, "Adjust before logging");
-      return el("div", {}, row, adjust);
+      return el("div", {}, row, gramsRow, adjust);
     }
 
     function resultRow(entry) {

@@ -56,7 +56,8 @@ const SUITES = [
   { name: 'pager', file: 'pager.js', needsServer: true },
   { name: 'body-figure', file: 'body-figure.js', needsServer: true },
   { name: 'warmup-sets', file: 'warmup-sets.js', needsServer: true },
-  { name: 'durability', file: 'durability.js', needsServer: true }
+  { name: 'durability', file: 'durability.js', needsServer: true },
+  { name: 'grams', file: 'grams.js', needsServer: true }
 ];
 
 const up = () => new Promise((resolve) => {
