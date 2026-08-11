@@ -2491,6 +2491,9 @@ input:disabled.input,
   cursor: pointer;
 }
 .stats-record-row:first-of-type { border-top: none; }
+/* The per-lift e1RM trend, drawn rather than implied. */
+.stats-record-spark { flex: none; width: 64px; height: 24px; opacity: 0.9; }
+.stats-record-spark svg { display: block; width: 64px; height: 24px; }
 .stats-record-row:hover .stats-record-name { color: var(--accent); }
 .stats-record-main { min-width: 0; flex: 1; }
 .stats-record-name {

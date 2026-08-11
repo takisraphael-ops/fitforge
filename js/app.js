@@ -505,6 +505,18 @@
    * Strength: max load, e1RM, reps, session count, last trained.
    * Cardio: max duration / distance.
    */
+  /** "Today" / "3d ago" / "2w ago" — shared by the library grid and the
+      records ledger. */
+  function daysAgoLabel(dateIso) {
+    if (!dateIso) return null;
+    const d = Math.round((Date.parse(U.todayISO()) - Date.parse(dateIso)) / 86400000);
+    if (d <= 0) return "Today";
+    if (d === 1) return "Yesterday";
+    if (d < 7) return `${d}d ago`;
+    if (d < 30) return `${Math.floor(d / 7)}w ago`;
+    return `${Math.floor(d / 30)}mo ago`;
+  }
+
   async function computeExerciseRecords() {
     const [workouts, allExercises] = await Promise.all([
       Storage.getWorkouts(),
@@ -538,6 +550,9 @@
           metric: null,
           sessionCount: 0,
           lastTrained: null,
+          // Session-best e1RM per completed workout, chronological — the
+          // per-lift trend the records ledger draws.
+          e1rmSeries: [],
           isCardio: type === "cardio",
           isCustom: type === "custom"
         };
@@ -546,7 +561,8 @@
       return r;
     };
 
-    const completed = workouts.filter(w => w.completedAt);
+    const completed = workouts.filter(w => w.completedAt)
+      .sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
     for (const w of completed) {
       for (const ex of (w.exercises || [])) {
         const isCardio = ex.type === "cardio";
@@ -586,6 +602,7 @@
           continue;
         }
 
+        let sessionBestE1RM = 0;
         for (const s of doneSets) {
           const wgt = Number(s.weight) || 0;
           const reps = Number(s.reps) || 0;
@@ -597,6 +614,7 @@
           if (reps > r.maxReps) r.maxReps = reps;
           if (wgt > 0 && reps > 0) {
             const e1 = U.epley(wgt, reps);
+            if (e1 > sessionBestE1RM) sessionBestE1RM = e1;
             if (e1 > r.maxE1RM) {
               r.maxE1RM = e1;
               r.maxE1RMDate = w.date;
@@ -605,6 +623,7 @@
             }
           }
         }
+        if (sessionBestE1RM > 0) r.e1rmSeries.push(Math.round(sessionBestE1RM));
         const vol = U.volume(doneSets);
         if (vol > r.maxVolume) r.maxVolume = vol;
       }
@@ -621,31 +640,6 @@
   }
 
   /** Highlight main lifts for the hero PR strip (deadlift, squat, bench, OHP…). */
-  function pickHeroRecords(records, limit = 2) {
-    const strength = records.filter(r => !r.isCardio && r.maxWeight > 0);
-    if (!strength.length) return [];
-    const priority = [
-      /deadlift/i, /bench/i, /squat/i, /overhead|ohp|military press|shoulder press/i,
-      /row/i, /pull.?up/i, /rdl|romanian/i
-    ];
-    const picked = [];
-    const used = new Set();
-    for (const re of priority) {
-      const hit = strength.find(r => re.test(r.name) && !used.has(r.exerciseId));
-      if (hit) {
-        picked.push(hit);
-        used.add(hit.exerciseId);
-      }
-      if (picked.length >= limit) return picked;
-    }
-    for (const r of strength) {
-      if (used.has(r.exerciseId)) continue;
-      picked.push(r);
-      used.add(r.exerciseId);
-      if (picked.length >= limit) break;
-    }
-    return picked;
-  }
 
   function weekBoundsISO(ref = new Date()) {
     // Monday-start week in local time
@@ -11645,15 +11639,6 @@
         if (sessionBestE1RM > 0) s.series.push(Math.round(sessionBestE1RM));
       }
     }
-    const daysAgoLabel = (dateIso) => {
-      if (!dateIso) return null;
-      const d = Math.round((Date.parse(U.todayISO()) - Date.parse(dateIso)) / 86400000);
-      if (d <= 0) return "Today";
-      if (d === 1) return "Yesterday";
-      if (d < 7) return `${d}d ago`;
-      if (d < 30) return `${Math.floor(d / 7)}w ago`;
-      return `${Math.floor(d / 30)}mo ago`;
-    };
     const prLabelFor = (s) => {
       if (!s) return null;
       if (s.bestWeight > 0) return U.formatWeight(s.bestWeight, { space: false, round: true });
@@ -15613,15 +15598,6 @@
     const records = await computeExerciseRecords();
     const strengthRecords = records.filter(r => !r.isCardio && (r.maxWeight > 0 || r.maxE1RM > 0 || r.maxReps > 0));
     const cardioRecords = records.filter(r => r.isCardio && (r.maxDuration > 0 || r.maxDistance > 0));
-    const heroes = pickHeroRecords(records, 2);
-
-    // Weekly workout goal (Mon–Sun)
-    const workouts = (await Storage.getWorkouts()).filter(w => w.completedAt);
-    const { start: weekStart, end: weekEnd } = weekBoundsISO();
-    const weekWorkouts = workouts.filter(w => w.date >= weekStart && w.date <= weekEnd);
-    const weekGoal = Math.max(1, parseInt(state.prefs?.weeklyWorkoutGoal, 10) || 4);
-    const weekDone = weekWorkouts.length;
-    const weekPct = Math.min(100, Math.round((weekDone / weekGoal) * 100));
 
     // Active session progress
     let sessionSetsDone = 0, sessionSetsTotal = 0, sessionRepsDone = 0, sessionRepsTarget = 0;
@@ -15646,88 +15622,9 @@
       el("div", { class: "text-sm text-muted" }, "Personal records and weekly training pace")
     ));
 
-    // ---- Hero PRs (reference-style large max weights) ----
-    const heroCard = el("div", { class: "card stats-hero-card" });
-    heroCard.appendChild(el("div", { class: "card-title" }, "Personal records"));
-    if (heroes.length === 0) {
-      heroCard.appendChild(el("div", { class: "text-sm text-faint" },
-        "Log completed sets to unlock max-weight records. Deadlift, bench, squat and OHP are prioritised when present."));
-    } else {
-      const row = el("div", { class: "stats-hero-row" });
-      for (const h of heroes) {
-        const shortName = (h.name || "Lift").replace(/\s*\(.*?\)\s*/g, " ").trim();
-        row.appendChild(el("button", {
-          class: "stats-hero-pr",
-          type: "button",
-          on: { click: () => openExerciseDetail(h.exerciseId, h) }
-        },
-          el("div", { class: "stats-hero-value" },
-            el("span", { class: "stats-hero-num" }, String(h.maxWeight)),
-            el("span", { class: "stats-hero-unit" }, U.weightUnit())
-          ),
-          el("div", { class: "stats-hero-label" }, shortName.toUpperCase()),
-          h.maxWeightDate
-            ? el("div", { class: "stats-hero-date" }, U.formatDate(h.maxWeightDate))
-            : null
-        ));
-      }
-      // If only one hero, still fill layout
-      if (heroes.length === 1) {
-        row.appendChild(el("div", { class: "stats-hero-pr placeholder" },
-          el("div", { class: "stats-hero-value" },
-            el("span", { class: "stats-hero-num text-faint" }, "—")
-          ),
-          el("div", { class: "stats-hero-label text-faint" }, "NEXT PR")
-        ));
-      }
-      heroCard.appendChild(row);
-    }
-    view.appendChild(heroCard);
-
-    // ---- Weekly goal ring ----
-    const ringCard = el("div", { class: "card stats-week-card" });
-    const ringWrap = el("div", { class: "stats-ring-wrap" });
-    const size = 148;
-    const stroke = 10;
-    const r = (size - stroke) / 2;
-    const c = 2 * Math.PI * r;
-    const offset = c * (1 - weekPct / 100);
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
-    svg.setAttribute("class", "stats-ring");
-    svg.setAttribute("width", String(size));
-    svg.setAttribute("height", String(size));
-    const bg = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    bg.setAttribute("cx", String(size / 2));
-    bg.setAttribute("cy", String(size / 2));
-    bg.setAttribute("r", String(r));
-    bg.setAttribute("fill", "none");
-    bg.setAttribute("stroke", "var(--border)");
-    bg.setAttribute("stroke-width", String(stroke));
-    const fg = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    fg.setAttribute("cx", String(size / 2));
-    fg.setAttribute("cy", String(size / 2));
-    fg.setAttribute("r", String(r));
-    fg.setAttribute("fill", "none");
-    fg.setAttribute("stroke", "var(--accent)");
-    fg.setAttribute("stroke-width", String(stroke));
-    fg.setAttribute("stroke-linecap", "round");
-    fg.setAttribute("stroke-dasharray", String(c));
-    fg.setAttribute("stroke-dashoffset", String(offset));
-    fg.setAttribute("transform", `rotate(-90 ${size / 2} ${size / 2})`);
-    svg.appendChild(bg);
-    svg.appendChild(fg);
-    ringWrap.appendChild(svg);
-    ringWrap.appendChild(el("div", { class: "stats-ring-center" },
-      el("div", { class: "stats-ring-icon", html: icons.dumbbell }),
-      el("div", { class: "stats-ring-pct" }, `${weekPct}%`),
-      el("div", { class: "stats-ring-label" }, "Weekly goal")
-    ));
-    ringCard.appendChild(ringWrap);
-    ringCard.appendChild(el("div", { class: "text-sm text-muted text-center mt-8" },
-      `${weekDone} of ${weekGoal} workouts this week · Mon–Sun`
-    ));
-    view.appendChild(ringCard);
+    // The hero tiles and the weekly-goal ring used to live here. The tiles
+    // repeated the top of the records list sixty pixels above it; the ring
+    // repeated Home's Week ledger cell. One number, one place.
 
     // ---- Current session (if active) ----
     if (state.activeWorkout && sessionSetsTotal > 0) {
@@ -15787,8 +15684,8 @@
 
       const card = el("div", { class: "card" });
       card.appendChild(el("div", { class: "row-between", style: "margin-bottom: 10px; gap: 8px" },
-        el("div", { class: "card-title", style: "margin:0" }, "All records"),
-        el("div", { class: "text-xs text-faint" }, `${list.length} exercise${list.length === 1 ? "" : "s"}`)
+        el("div", { class: "card-title", style: "margin:0" }, "Records"),
+        el("div", { class: "text-xs text-faint" }, `${list.length} exercise${list.length === 1 ? "" : "s"} · best, trend, last trained`)
       ));
 
       const chips = el("div", { class: "stats-filter-row" });
@@ -15858,22 +15755,33 @@
             )
           ));
         } else {
+          // Best on the right, the story on the left: when it was last
+          // trained and how often, with the e1RM trend drawn — not implied.
+          // e1RM is an estimate by definition, so it says ≈ and rounds to a
+          // whole unit; "e1RM 103.74kg" was false precision.
           const sub = [
-            rec.maxE1RM ? `e1RM ${U.formatWeight(rec.maxE1RM, { space: false })}` : null,
-            rec.maxWeightDate ? U.formatDate(rec.maxWeightDate) : null,
-            rec.sessionCount ? `${rec.sessionCount}×` : null
+            rec.lastTrained ? `last ${daysAgoLabel(rec.lastTrained)}` : null,
+            rec.sessionCount ? `${rec.sessionCount} session${rec.sessionCount === 1 ? "" : "s"}` : null,
+            rec.maxE1RM ? `e1RM ≈ ${Math.round(U.toDisplayWeight(rec.maxE1RM))} ${U.weightUnit()}` : null
           ].filter(Boolean).join(" · ");
+          const series = rec.e1rmSeries || [];
+          const spark = series.length >= 2
+            ? el("div", { class: "stats-record-spark", "data-testid": "records-spark", "aria-hidden": "true" },
+                sparkline(series.slice(-12), { width: 64, height: 24 }))
+            : null;
           card.appendChild(el("button", {
             type: "button",
             class: "stats-record-row",
+            "data-testid": `records-row-${rec.exerciseId}`,
             on: { click: () => openExerciseDetail(rec.exerciseId, rec) }
           },
             el("div", { class: "stats-record-main" },
               el("div", { class: "stats-record-name" }, shortLabel(rec.name)),
               el("div", { class: "stats-record-meta" }, sub || "Strength")
             ),
+            spark,
             el("div", { class: "stats-record-value" },
-              rec.maxWeight > 0 ? String(rec.maxWeight) : (rec.maxReps ? String(rec.maxReps) : "—"),
+              rec.maxWeight > 0 ? String(U.trimNum(U.toDisplayWeight(rec.maxWeight))) : (rec.maxReps ? String(rec.maxReps) : "—"),
               el("span", { class: "stats-record-unit" }, rec.maxWeight > 0 ? U.weightUnit() : (rec.maxReps ? "reps" : ""))
             )
           ));
