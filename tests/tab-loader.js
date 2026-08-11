@@ -105,24 +105,22 @@ const HOLD_MS = 1500;   // what showTabLoader waits before dismissing itself
     `pointer-events: ${passthrough.after}`);
   await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"]').forEach(n => n.remove()));
 
-  // === 3b. Learn shows its fork instead of a loader, never both ===
+  // === 3b. Learn lands on the hub — one tap, one destination, no fork ===
   //
-  // The fork is already a full-screen interstitial. Playing the tab loader
-  // after it would put two of them back to back on one tap, so the fork
-  // navigates with jumpTo — destination, no journey — and the loader is
-  // deliberately skipped. This asserts the pair cannot both appear.
-  console.log('\n=== 3b. the Learn fork replaces the loader rather than preceding it ===');
+  // The full-screen fork is gone: the dock goes straight to the tab, whose
+  // hub carries the fork's two destinations as jump tiles. One interstitial
+  // maximum on that tap — the tab's own loader, same as every other tab.
+  console.log('\n=== 3b. Learn lands on the hub, no fork in the way ===');
   await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"]').forEach(n => n.remove()));
   await page.evaluate(() => document.querySelector('[data-testid="dock-home"]').click());
   await sleep(900);
   await page.evaluate(() => document.querySelector('[data-testid="dock-library"]').click());
-  await sleep(500);
-  check('tapping Learn raises the fork', !!(await page.$('[data-testid="learn-fork"]')));
-  check('and no loader is stacked underneath it', !(await loaderUp()));
-  await page.evaluate(() => document.querySelector('[data-testid="learn-fork-centre"]').click());
-  await sleep(900);
-  check('choosing a side lands on the tab', !!(await page.$('[data-testid="learn-section"]')));
-  check('still with no loader', !(await loaderUp()));
+  await sleep(2600);
+  await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"]').forEach(n => n.remove()));
+  check('no fork sheet appears', !(await page.$('[data-testid="learn-fork"]')));
+  check('the tab landed on the hub', !!(await page.$('[data-testid="learn-hub"]')));
+  check('with the reading right there', !!(await page.$('[data-testid="learn-section"]')));
+  check('and no loader left standing', !(await loaderUp()));
 
   // === 4. the Nutrition shine animates transform, not layout ===
   console.log('\n=== 4. the saved-meals shine does not reflow every frame ===');
