@@ -99,7 +99,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=278").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=279").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -258,7 +258,7 @@
   // and shown at the foot of Settings. There was no way, from a phone, to
   // tell which build you were looking at — which cost several rounds of
   // debugging a fix that turned out never to have deployed.
-  const APP_VERSION = 278;
+  const APP_VERSION = 279;
   const isAccent = (id) => ACCENTS.some(a => a.id === id);
 
   // Keep the browser chrome (iOS status bar, Android task switcher) in step
@@ -1937,7 +1937,7 @@
       items: [
         { key: "today", label: "Today", icon: navIcons.today, onPick: () => jumpTo("home", () => scrollToTestId("home-section-today")) },
         { key: "week", label: "This week", icon: navIcons.week, onPick: () => jumpTo("home", () => scrollToTestId("home-section-week")) },
-        { key: "trends", label: "Trends", icon: navIcons.trend, onPick: () => jumpTo("home", () => scrollToTestId("home-section-trends")) }
+        { key: "trends", label: "Trends", icon: navIcons.trend, onPick: () => jumpTo("home", () => openTrendsAndScroll()) }
       ]
     },
     nutrition: {
@@ -5257,6 +5257,17 @@
     );
   }
 
+  /** Trends starts folded; anything that points a user at it opens it first,
+      then scrolls — a jump that lands on a closed drawer helps nobody. */
+  async function openTrendsAndScroll() {
+    if (!state.prefs.homeTrendsOpen) {
+      state.prefs.homeTrendsOpen = true;
+      await Storage.setPref("homeTrendsOpen", true);
+      renderMainKeepScroll();
+    }
+    setTimeout(() => scrollToTestId("home-section-trends"), 80);
+  }
+
   /** The day ledger: the three numbers that change decisions mid-day, riding
       at the base of whichever tier-1 block leads the page. Fuel is what's
       left to eat, Body is this morning against last week, Week is sessions
@@ -5267,8 +5278,11 @@
     const est = personal ? "" : "≈ ";
     const goal = Math.round(energy.goal || 0);
     const left = goal - Math.round(todaysKcal || 0);
-    const pGoal = Math.round(macroGoals?.protein || 0);
+    const pGoal = Math.round(macroGoals?.goals?.protein || 0);
     const pLeft = Math.max(0, pGoal - Math.round(todayMacros?.protein || 0));
+    // No protein goal resolved → say nothing about protein, per the house
+    // rule — "P 0 g" would be a number the app can't stand behind.
+    const proteinBit = pGoal > 0 ? ` · P ${pLeft}g` : "";
 
     // Bodyweight: latest entry, and the change against the closest entry at
     // least five days older — a week-ish trend, from whatever was logged.
@@ -5297,27 +5311,20 @@
     return el("div", { class: "day-ledger", "data-testid": "day-ledger" },
       cell("Fuel",
         left >= 0 ? `${est}${left.toLocaleString("en-GB")}` : `${est}${Math.abs(left).toLocaleString("en-GB")}`,
-        left >= 0 ? `kcal left · P ${pLeft} g to go` : `kcal over · P ${pLeft} g to go`,
+        (left >= 0 ? "kcal left" : "kcal over") + proteinBit,
         "ledger-fuel",
         () => scrollToTestId("home-section-today")),
       cell("Body",
         latest ? `${U.trimNum(U.toDisplayWeight(latest.kg))} ${U.weightUnit()}` : "—",
         latest
           ? (delta == null ? "log daily for a trend"
-            : `${delta > 0 ? "▲" : delta < 0 ? "▼" : "="} ${U.trimNum(Math.abs(U.toDisplayWeight(latest.kg) - U.toDisplayWeight(latest.kg - delta)))} ${U.weightUnit()} this wk`)
+            : `${delta > 0 ? "▲" : delta < 0 ? "▼" : "="} ${(Math.round(Math.abs(U.toDisplayWeight(delta)) * 10) / 10) || "0"} ${U.weightUnit()} this wk`)
           : "no weigh-in yet",
         "ledger-body",
-        async () => {
-          if (!state.prefs.homeTrendsOpen) {
-            state.prefs.homeTrendsOpen = true;
-            await Storage.setPref("homeTrendsOpen", true);
-            renderMainKeepScroll();
-          }
-          setTimeout(() => scrollToTestId("home-section-trends"), 80);
-        }),
+        () => openTrendsAndScroll()),
       cell("Week",
         `${weekCount} of ${weekGoal}`,
-        weekCount >= weekGoal ? "sessions — done" : `session${weekGoal - weekCount === 1 ? "" : "s"} · ${weekGoal - weekCount} to go`,
+        weekCount >= weekGoal ? "sessions — done" : `sessions · ${weekGoal - weekCount} to go`,
         "ledger-week",
         () => scrollToTestId("home-section-week"))
     );
