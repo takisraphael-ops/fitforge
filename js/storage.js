@@ -317,6 +317,14 @@ window.Storage = (function () {
 
   // ==== Prefs ====
   async function setPref(key, value) { return put("prefs", { key, value }); }
+  /** Every pref in one transaction. Boot used to issue ~40 sequential reads
+      for these — one IDB round-trip per preference, serialised. */
+  async function getAllPrefs() {
+    const rows = await getAll("prefs");
+    const bag = {};
+    for (const r of rows) if (r && r.key != null) bag[r.key] = r.value;
+    return bag;
+  }
   async function getPref(key, defaultVal) {
     const p = await get("prefs", key);
     return p ? p.value : defaultVal;

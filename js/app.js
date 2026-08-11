@@ -211,6 +211,10 @@
     migrateTimedHolds();
     render();
     initTabSwipe();
+    // The app is on screen — release the splash (it enforces its own minimum
+    // hold so fast boots don't strobe, and falls back to a timer if this
+    // call never comes).
+    try { if (window.__ffSplashDone) window.__ffSplashDone(); } catch (_) {}
     // A browser that is not persisting data gets a banner that stays, not a
     // toast that fades in 2 seconds under the splash. The banner also appears
     // mid-session if writes start landing in memory, and comes down on its
@@ -678,87 +682,106 @@
   }
 
   async function loadPrefs() {
+    // One transaction for the whole preference bag. This used to be ~40
+    // sequential awaits — one IDB round-trip per preference, serialised —
+    // which was most of the storage work the app did at boot.
+    const bag = await Storage.getAllPrefs();
+    const pick = (k, d) => (k in bag ? bag[k] : d);
     // Push the unit system into U before anything reads it. Doing it here
     // rather than at the two call sites means an import cannot leave the app
     // rendering pounds against a restored metric profile.
-    const units = await Storage.getPref("units", U.DEFAULT_UNITS);
+    const units = pick("units", U.DEFAULT_UNITS);
     U.setUnits(units);
     return {
       units,
-      profileName: await Storage.getPref("profileName", ""),
-      kcalGoal: await Storage.getPref("kcalGoal", 2200),
+      profileName: pick("profileName", ""),
+      kcalGoal: pick("kcalGoal", 2200),
       // auto = Mifflin/TDEE budget; manual = user override
-      kcalGoalMode: await Storage.getPref("kcalGoalMode", "auto"),
-      sex: await Storage.getPref("sex", null),
-      age: await Storage.getPref("age", null),
+      kcalGoalMode: pick("kcalGoalMode", "auto"),
+      sex: pick("sex", null),
+      age: pick("age", null),
       // Date of birth (yyyy-mm-dd). Preferred over `age`, which stays for
       // profiles created before DOB existed.
-      dob: await Storage.getPref("dob", null),
+      dob: pick("dob", null),
       // Which figure the body map draws ("male" | "female"); defaults to sex.
-      bodyMapSex: await Storage.getPref("bodyMapSex", null),
+      bodyMapSex: pick("bodyMapSex", null),
       // Set the first time the hold menu is opened. Only controls whether the
       // quick sheet still teaches the shortcut. This list is explicit, so a
       // pref written but not read here is written to nowhere the app can see.
-      radialDiscovered: !!(await Storage.getPref("radialDiscovered", false)),
-      heightCm: await Storage.getPref("heightCm", null),
+      radialDiscovered: !!(pick("radialDiscovered", false)),
+      heightCm: pick("heightCm", null),
       // Lifestyle / NEAT only — training burn optional (default off for real-world accuracy)
-      activityLevel: await Storage.getPref("activityLevel", "light"),
-      goalIntent: await Storage.getPref("goalIntent", U.DEFAULT_GOAL_INTENT),
-      kcalOffset: await Storage.getPref("kcalOffset", U.DEFAULT_KCAL_OFFSET),
+      activityLevel: pick("activityLevel", "light"),
+      goalIntent: pick("goalIntent", U.DEFAULT_GOAL_INTENT),
+      kcalOffset: pick("kcalOffset", U.DEFAULT_KCAL_OFFSET),
       // When false (default): show training estimate but do not raise food room
-      includeTrainingInFoodRoom: !!(await Storage.getPref("includeTrainingInFoodRoom", false)),
+      includeTrainingInFoodRoom: !!(pick("includeTrainingInFoodRoom", false)),
       // Macro goals: auto from bodyweight + kcal budget, or full manual P/C/F
-      macroGoalMode: await Storage.getPref("macroGoalMode", "auto"),
+      macroGoalMode: pick("macroGoalMode", "auto"),
       // null means "never chosen", which is what lets the goal drive it —
       // see U.resolveProteinPerKg. Defaulting this to 1.8 would make every
       // user look like someone who had deliberately picked 1.8.
-      proteinPerKg: await Storage.getPref("proteinPerKg", null),
-      fatPercent: await Storage.getPref("fatPercent", U.DEFAULT_FAT_PERCENT),
-      proteinGoal: await Storage.getPref("proteinGoal", 0),
-      carbsGoal: await Storage.getPref("carbsGoal", 0),
-      fatGoal: await Storage.getPref("fatGoal", 0),
-      weeklyWorkoutGoal: await Storage.getPref("weeklyWorkoutGoal", 4),
-      defaultRestSec: await Storage.getPref("defaultRestSec", 90),
+      proteinPerKg: pick("proteinPerKg", null),
+      fatPercent: pick("fatPercent", U.DEFAULT_FAT_PERCENT),
+      proteinGoal: pick("proteinGoal", 0),
+      carbsGoal: pick("carbsGoal", 0),
+      fatGoal: pick("fatGoal", 0),
+      weeklyWorkoutGoal: pick("weeklyWorkoutGoal", 4),
+      defaultRestSec: pick("defaultRestSec", 90),
       // Per-exercise rest targets ({exerciseId: seconds}). The 3-minute squat
       // rest and the 45-second curl rest were the same number before this.
-      restTargets: (await Storage.getPref("restTargets", null)) || {},
+      restTargets: (pick("restTargets", null)) || {},
       // Log strength sets through the big one-tap runner rather than the row
       // of small inputs. Default on; the classic list is always one tap away
       // and stays the way to edit anything already logged.
-      guidedSets: (await Storage.getPref("guidedSets", true)) !== false,
+      guidedSets: (pick("guidedSets", true)) !== false,
       // Equipment the user actually has. Empty = not set, so nothing is hidden.
-      myKit: (await Storage.getPref("myKit", null)) || [],
+      myKit: (pick("myKit", null)) || [],
       // Offline-first data safety: remind to export a backup every N logged workouts
-      backupReminder: !!(await Storage.getPref("backupReminder", true)),
+      backupReminder: !!(pick("backupReminder", true)),
       // Count of completed workouts at the last export/dismiss, so the reminder
       // fires once per BACKUP_REMINDER_EVERY new workouts rather than repeatedly.
-      lastBackupWorkoutCount: Number(await Storage.getPref("lastBackupWorkoutCount", 0)) || 0,
+      lastBackupWorkoutCount: Number(pick("lastBackupWorkoutCount", 0)) || 0,
       // ISO timestamp of last successful export (null if never backed up).
-      lastBackupAt: await Storage.getPref("lastBackupAt", null),
+      lastBackupAt: pick("lastBackupAt", null),
       // ISO timestamp: hide Home backup CTA until this time (snooze).
-      backupSnoozedUntil: await Storage.getPref("backupSnoozedUntil", null),
+      backupSnoozedUntil: pick("backupSnoozedUntil", null),
       // First-run guided setup: once shown/finished/skipped we don't auto-open again.
-      onboarded: !!(await Storage.getPref("onboarded", false)),
+      onboarded: !!(pick("onboarded", false)),
       // Weekly split/program: { mon: templateId | "rest", ... } (missing = open day).
-      weeklyPlan: await Storage.getPref("weeklyPlan", {}),
+      weeklyPlan: pick("weeklyPlan", {}),
       // Offer a guided warm-up before a session (dynamic prep + ramp sets).
-      warmupPrompt: !!(await Storage.getPref("warmupPrompt", true)),
+      warmupPrompt: !!(pick("warmupPrompt", true)),
       // Meal reminder times: { breakfast: "08:00", ... } — only sections the user opted in.
-      mealReminders: await Storage.getPref("mealReminders", {}),
+      mealReminders: pick("mealReminders", {}),
       // Eating pattern chosen as a guideline, and its rule ({start,end} /
       // {days,cap}). Null = none, which is the default and stays the default:
       // the app never picks one for you.
-      dietPlanId: await Storage.getPref("dietPlanId", null),
-      dietPlanConfig: await Storage.getPref("dietPlanConfig", {}),
+      dietPlanId: pick("dietPlanId", null),
+      dietPlanConfig: pick("dietPlanConfig", {}),
       // The one-line prompt on Nutrition, once dismissed, stays dismissed.
-      dietPlanPromptSeen: !!(await Storage.getPref("dietPlanPromptSeen", false)),
-      theme: await Storage.getPref("theme", null),
+      dietPlanPromptSeen: !!(pick("dietPlanPromptSeen", false)),
+      theme: pick("theme", null),
       // Accent colour — a separate axis from light/dark.
-      accent: await Storage.getPref("accent", null)
+      accent: pick("accent", null)
     };
   }
 
   // Prompt a backup after this many newly logged workouts (offline data safety).
+  // Sanity bounds for user-typed numbers. The heaviest barbell lift ever
+  // recorded is ~501 kg; 635 leaves strongman headroom. Anything past these
+  // is a typo, not training data — and one typo poisons PRs, e1RM, TDEE and
+  // every chart axis with no way to find the bad record later.
+  const SANITY = {
+    liftKg: 635,
+    reps: 200,
+    bwKgMin: 25,
+    bwKgMax: 400,
+    mealKcal: 10000,
+    macroG: 1500,
+    cardioMin: 1440
+  };
+
   const BACKUP_REMINDER_EVERY = 10;
   // Also surface a Home CTA when the last export is older than this many days.
   const BACKUP_STALE_DAYS = 7;
@@ -4183,6 +4206,11 @@
     const saveBtn = el("button", { class: "btn btn-primary btn-sm", on: { click: async () => {
       const kg = U.fromDisplayWeight(wI.value);
       if (kg == null || isNaN(kg) || kg <= 0) return toast("Enter a valid weight");
+      // A 1,000 kg bodyweight would silently rescale TDEE, strength tiers
+      // and every trend chart. Human bounds only.
+      if (kg < SANITY.bwKgMin || kg > SANITY.bwKgMax) {
+        return toast(`Bodyweight must be between ${U.trimNum(U.toDisplayWeight(SANITY.bwKgMin))} and ${U.trimNum(U.toDisplayWeight(SANITY.bwKgMax))} ${U.weightUnit()}`);
+      }
       await Storage.saveBodyweight({ date: today, kg });
       toast("Weight logged");
       renderMainKeepScroll();
@@ -7655,7 +7683,7 @@
           }
         } else if (isCardio) {
           const dur = s.durationMin != null ? Number(s.durationMin) : NaN;
-          if (dur > 0) {
+          if (dur > 0 && dur <= SANITY.cardioMin) {
             s.done = true;
             if (s.kcal == null) {
               try {
@@ -7678,6 +7706,9 @@
           const weight = s.weight == null || s.weight === "" ? null : Number(s.weight);
           const reps = s.reps == null || s.reps === "" ? null : Number(s.reps);
           const isBw = ex.type === "bodyweight";
+          // The same sanity gate as a hand-logged set: Finish's sweep must
+          // not quietly commit a typo the Done button would have refused.
+          if (weight > SANITY.liftKg || reps > SANITY.reps) continue;
           if (reps > 0 && (isBw || weight > 0 || weight === 0 && ex.type === "weighted_bodyweight")) {
             s.done = true;
             if (weight == null) s.weight = isBw ? 0 : weight;
@@ -8060,7 +8091,7 @@
     if (!isHold) {
       const kpm = U.kcalPerMin({ ...defForMet, type: exType, category: def?.category || (isCardio ? "cardio" : defForMet.category) }, bwKg);
       body.appendChild(el("div", { class: "text-xs text-faint", style: "margin-bottom:8px" },
-        `≈ ${kpm} kcal/min at ${bwKg}kg` + (isCardio ? " · type your machine/watch reading to override" : " · estimate from effort")));
+        `≈ ${kpm} kcal/min at ${U.trimNum(U.toDisplayWeight(bwKg))}${U.weightUnit()}` + (isCardio ? " · type your machine/watch reading to override" : " · estimate from effort")));
     }
 
     if (isInterval) {
@@ -8625,6 +8656,7 @@
           if (!s.intensity) s.intensity = "moderate";
           if (distInput) s.distanceKm = U.fromDisplayDistance(distInput.value);
           if (!s.durationMin || s.durationMin <= 0) { toast("Enter duration in minutes first"); return; }
+          if (s.durationMin > SANITY.cardioMin) { toast("Check the duration — more than 24 hours can't be right"); return; }
           // Prefer typed machine/watch kcal; fall back to MET estimate.
           const kcal = resolveKcal();
           if (kcal == null || kcal <= 0) {
@@ -8902,6 +8934,15 @@
     s.reps = r == null ? null : Math.trunc(r);
     if (!s.reps || (!isBodyweight && !s.weight && exType !== "weighted_bodyweight")) {
       toast("Enter weight and reps first");
+      return false;
+    }
+    // Sanity gate at the one place a set becomes done. A fat-fingered
+    // 1,000,000 used to sail through and poison PRs, e1RM projections and
+    // every chart axis, with no way to find the bad record later. Refuse
+    // rather than clamp — clamping stores a number the user never meant.
+    if ((s.weight != null && s.weight > SANITY.liftKg) || s.reps > SANITY.reps) {
+      toast(`Check the numbers — over ${U.trimNum(U.toDisplayWeight(SANITY.liftKg))} ${U.weightUnit()} or ${SANITY.reps} reps can't be right`);
+      s.done = false;
       return false;
     }
     if (!isBodyweight && !s.weight) s.weight = 0;
@@ -12225,7 +12266,7 @@
           ) : null
         ),
         el("div", { class: "text-xs text-faint mt-8" },
-          `Based on MET ${U.baseMET(ex)} at your bodyweight (${bwKg}kg). Estimates only — actual burn varies.`)
+          `Based on MET ${U.baseMET(ex)} at your bodyweight (${U.trimNum(U.toDisplayWeight(bwKg))}${U.weightUnit()}). Estimates only — actual burn varies.`)
       ),
       // PRs
       isCardio
@@ -15253,6 +15294,12 @@
         if (proteinI.value !== "" && protein == null) return toast("Enter a valid protein amount");
         if (carbsI.value !== "" && carbs == null) return toast("Enter a valid carbs amount");
         if (fatI.value !== "" && fat == null) return toast("Enter a valid fat amount");
+        // One typo here skews the day, the trend line, and the TDEE
+        // calibration that trusts these logs. Refuse the impossible.
+        if (kcal > SANITY.mealKcal) return toast(`Check the calories — a single meal over ${SANITY.mealKcal} kcal can't be right`);
+        if ((protein || 0) > SANITY.macroG || (carbs || 0) > SANITY.macroG || (fat || 0) > SANITY.macroG) {
+          return toast(`Check the macros — over ${SANITY.macroG} g of one macro can't be right`);
+        }
         const mealDate = dateI.value || U.todayISO();
         const mealTime = U.normalizeMealTime(timeI.value) || U.defaultMealTimeForSection(sectionS.value, mealDate);
         const meal = {
@@ -17200,7 +17247,7 @@
         const fmtAdj = (n) => (n > 0 ? `+${n}` : String(n));
         const movementExtra = Math.max(0, (calc.tdee || 0) - (calc.bmr || 0));
         const detailBits = [
-          `${weightKg} kg`,
+          `${U.trimNum(U.toDisplayWeight(weightKg))} ${U.weightUnit()}`,
           `body baseline ${calc.bmr}`,
           `activity +${movementExtra}`,
           `hold-weight ${calc.maintenance}`
@@ -17413,7 +17460,7 @@
           el("div", {
             class: "settings-bw-readout" + (bwLogged ? "" : " is-missing"),
             "data-testid": "settings-bw-readout"
-          }, bwLogged ? `${weightKg} kg (from Home)` : "Not logged yet — use Home → Bodyweight")
+          }, bwLogged ? `${U.trimNum(U.toDisplayWeight(weightKg))} ${U.weightUnit()} (from Home)` : "Not logged yet — use Home → Bodyweight")
         )
       ),
 

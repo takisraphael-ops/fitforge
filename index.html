@@ -30,18 +30,25 @@
       var s = document.getElementById("splash");
       if (!s) return;
       var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      // The choreography in styles.css finishes at ~1.2s; this holds it just
-      // long enough to land. It was 3500, which left 1.3s of a finished
-      // animation sitting there before a 600ms fade — over four seconds
-      // between tapping the icon and reaching the app, every single launch.
-      var hold = reduce ? 300 : 1400;
+      // Dismissed when the app says it's ready, not on a fixed clock. The
+      // old 1400ms hold was disconnected from readiness in both directions:
+      // a fast boot (~200ms) sat behind a finished animation, and a slow one
+      // dropped the user onto a half-rendered page. A short floor keeps the
+      // mark from strobing on fast boots; the 4s ceiling is a failsafe so a
+      // crashed boot can't strand the splash forever.
+      var minHold = reduce ? 250 : 700;
+      var started = Date.now();
       var t;
       function done() {
         clearTimeout(t);
         s.classList.add("splash-done");
         setTimeout(function () { if (s.parentNode) s.parentNode.removeChild(s); }, 400);
       }
-      t = setTimeout(done, hold);
+      window.__ffSplashDone = function () {
+        var wait = Math.max(0, minHold - (Date.now() - started));
+        setTimeout(done, wait);
+      };
+      t = setTimeout(done, 4000);
       s.addEventListener("click", done);
     })();
   </script>
