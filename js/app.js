@@ -99,7 +99,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=280").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=281").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -258,7 +258,7 @@
   // and shown at the foot of Settings. There was no way, from a phone, to
   // tell which build you were looking at — which cost several rounds of
   // debugging a fix that turned out never to have deployed.
-  const APP_VERSION = 280;
+  const APP_VERSION = 281;
   const isAccent = (id) => ACCENTS.some(a => a.id === id);
 
   // Keep the browser chrome (iOS status bar, Android task switcher) in step
@@ -15760,9 +15760,9 @@
           // e1RM is an estimate by definition, so it says ≈ and rounds to a
           // whole unit; "e1RM 103.74kg" was false precision.
           const sub = [
-            rec.lastTrained ? `last ${daysAgoLabel(rec.lastTrained)}` : null,
+            rec.lastTrained ? daysAgoLabel(rec.lastTrained) : null,
             rec.sessionCount ? `${rec.sessionCount} session${rec.sessionCount === 1 ? "" : "s"}` : null,
-            rec.maxE1RM ? `e1RM ≈ ${Math.round(U.toDisplayWeight(rec.maxE1RM))} ${U.weightUnit()}` : null
+            rec.maxE1RM ? `e1RM ≈${Math.round(U.toDisplayWeight(rec.maxE1RM))}${U.weightUnit()}` : null
           ].filter(Boolean).join(" · ");
           const series = rec.e1rmSeries || [];
           const spark = series.length >= 2

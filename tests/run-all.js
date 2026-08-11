@@ -61,7 +61,8 @@ const SUITES = [
   { name: 'training-quality', file: 'training-quality.js', needsServer: true },
   { name: 'integrity', file: 'integrity.js', needsServer: true },
   { name: 'home-ledger', file: 'home-ledger.js', needsServer: true },
-  { name: 'learn-hub', file: 'learn-hub.js', needsServer: true }
+  { name: 'learn-hub', file: 'learn-hub.js', needsServer: true },
+  { name: 'records-ledger', file: 'records-ledger.js', needsServer: true }
 ];
 
 const up = () => new Promise((resolve) => {
