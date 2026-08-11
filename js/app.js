@@ -719,6 +719,9 @@
       fatGoal: await Storage.getPref("fatGoal", 0),
       weeklyWorkoutGoal: await Storage.getPref("weeklyWorkoutGoal", 4),
       defaultRestSec: await Storage.getPref("defaultRestSec", 90),
+      // Per-exercise rest targets ({exerciseId: seconds}). The 3-minute squat
+      // rest and the 45-second curl rest were the same number before this.
+      restTargets: (await Storage.getPref("restTargets", null)) || {},
       // Log strength sets through the big one-tap runner rather than the row
       // of small inputs. Default on; the classic list is always one tap away
       // and stays the way to edit anything already logged.
@@ -7763,6 +7766,72 @@
     await maybePromptBackup();
   }
 
+  /** Move an exercise up or down the session without touching its sets.
+      Before this, the only way past a taken squat rack was remove-and-re-add,
+      which discarded everything already logged. */
+  async function moveExercise(idx, dir) {
+    const list = state.activeWorkout.exercises;
+    const to = idx + dir;
+    if (to < 0 || to >= list.length) return;
+    const [moved] = list.splice(idx, 1);
+    list.splice(to, 0, moved);
+    // Supersets are an adjacency pact; a move that separates the pair
+    // dissolves it rather than leaving a phantom link across the page.
+    const groups = {};
+    list.forEach((e, i) => {
+      if (!e.supersetGroup) return;
+      (groups[e.supersetGroup] = groups[e.supersetGroup] || []).push(i);
+    });
+    for (const [g, idxs] of Object.entries(groups)) {
+      const adjacent = idxs.every((v, i) => i === 0 || v === idxs[i - 1] + 1);
+      if (!adjacent) for (const e of list) if (e.supersetGroup === g) e.supersetGroup = null;
+    }
+    await Storage.saveWorkout(state.activeWorkout);
+    afterExerciseChange();
+  }
+
+  /** The rest this exercise gets when a set is logged: its own target if one
+      is set, the global default otherwise. */
+  function restTargetFor(exerciseId) {
+    const own = Number((state.prefs.restTargets || {})[exerciseId]);
+    if (Number.isFinite(own) && own >= 10) return own;
+    return state.prefs.defaultRestSec || 90;
+  }
+
+  /** Pick a rest target for one exercise. Plain buttons, not a wheel — this
+      is a set-once decision, and the options are the whole vocabulary of
+      real rest prescriptions. */
+  function openRestTargetPicker(ex) {
+    const current = (state.prefs.restTargets || {})[ex.exerciseId] || null;
+    const OPTIONS = [30, 45, 60, 90, 120, 150, 180, 240, 300];
+    const body = el("div", { class: "rest-target-list", "data-testid": "rest-target-list" });
+    const save = async (secs) => {
+      const map = { ...(state.prefs.restTargets || {}) };
+      if (secs == null) delete map[ex.exerciseId];
+      else map[ex.exerciseId] = secs;
+      state.prefs.restTargets = map;
+      await Storage.setPref("restTargets", map);
+      closeModal();
+      toast(secs == null
+        ? `${ex.name} rests use the default again`
+        : `${ex.name} rest target: ${U.formatTime(secs)}`);
+      afterExerciseChange();
+    };
+    body.appendChild(el("button", {
+      class: "btn btn-block" + (current == null ? " btn-primary" : ""),
+      "data-testid": "rest-target-default",
+      on: { click: () => save(null) }
+    }, `Default · ${U.formatTime(state.prefs.defaultRestSec || 90)}`));
+    for (const secs of OPTIONS) {
+      body.appendChild(el("button", {
+        class: "btn btn-block mt-8" + (current === secs ? " btn-primary" : ""),
+        "data-testid": `rest-target-${secs}`,
+        on: { click: () => save(secs) }
+      }, U.formatTime(secs)));
+    }
+    openModal(`Rest after ${ex.name} sets`, body);
+  }
+
   async function renderExerciseBlock(ex, idx) {
     // Fetch previous session sets and PRs to show hints
     const history = await getHistoryFor(ex.exerciseId);
@@ -7856,6 +7925,26 @@
       ),
       el("div", { class: "row" },
         typeControl,
+        // Rest target chip — only where the rest timer actually runs.
+        (!isCardio && !isHold && !isInterval) ? el("button", {
+          class: "chip chip-sm rest-target-chip" + ((state.prefs.restTargets || {})[ex.exerciseId] ? " is-custom" : ""),
+          title: "Rest after each set of this exercise",
+          "data-testid": "rest-target-chip",
+          on: { click: () => openRestTargetPicker(ex) }
+        }, `⏱ ${U.formatTime(restTargetFor(ex.exerciseId))}`) : null,
+        // Reorder — the squat rack being taken should not cost logged sets.
+        state.activeWorkout.exercises.length > 1 ? el("button", {
+          class: "icon-btn move-ex-btn", title: "Move up", "data-testid": "move-ex-up",
+          disabled: idx === 0 ? "disabled" : undefined,
+          html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m18 15-6-6-6 6"/></svg>',
+          on: { click: () => moveExercise(idx, -1) }
+        }) : null,
+        state.activeWorkout.exercises.length > 1 ? el("button", {
+          class: "icon-btn move-ex-btn", title: "Move down", "data-testid": "move-ex-down",
+          disabled: idx === state.activeWorkout.exercises.length - 1 ? "disabled" : undefined,
+          html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>',
+          on: { click: () => moveExercise(idx, 1) }
+        }) : null,
         nextEx && !isCardio ? el("button", {
           class: "icon-btn",
           title: ex.supersetGroup && ex.supersetGroup === nextEx.supersetGroup ? "Unlink superset" : "Link with next",
@@ -8822,7 +8911,7 @@
     // already the W badge and the greyed row. Three ramp sets each dragging a
     // tray open would bury the working sets in chrome.
     const toolsOpen = !expandedSetTools.has(closedKey) && (
-      expandedSetTools.has(toolsKey) || !!(s.note || s.drop)
+      expandedSetTools.has(toolsKey) || !!(s.note || s.drop || s.rpe)
     );
 
     const e1rm = s.done && s.weight && s.reps
@@ -9031,9 +9120,35 @@
       } }
     });
 
+    // RPE — how hard the set actually was, on the 6-10 scale lifters use.
+    // Optional and honest: unset means unset, never a guessed default.
+    const makeRpeSel = () => {
+      const sel = el("select", {
+        class: "input input-sm rpe-select" + (s.rpe ? " has-rpe" : ""),
+        title: "RPE — rated effort for this set (10 = nothing left)",
+        "data-testid": `set-rpe-${si}`
+      });
+      sel.appendChild(el("option", { value: "" }, "RPE –"));
+      for (let r = 6; r <= 10; r += 0.5) {
+        const opt = el("option", { value: String(r) }, `RPE ${r}`);
+        if (s.rpe === r) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      sel.addEventListener("change", async () => {
+        s.rpe = sel.value ? Number(sel.value) : undefined;
+        if (s.rpe) {
+          expandedSetTools.add(toolsKey);
+          expandedSetTools.delete(closedKey);
+        }
+        await Storage.saveWorkout(state.activeWorkout);
+        refreshExerciseBlock(ex);
+      });
+      return sel;
+    };
+
     const moreBtn = el("button", {
       type: "button",
-      class: "set-more-btn" + (toolsOpen ? " is-open" : "") + ((s.note || s.drop || s.warmup) ? " has-extra" : ""),
+      class: "set-more-btn" + (toolsOpen ? " is-open" : "") + ((s.note || s.drop || s.warmup || s.rpe) ? " has-extra" : ""),
       title: toolsOpen ? "Hide plates, notes and extras" : "Plates, notes and extras",
       "aria-label": toolsOpen ? "Hide set tools" : "Show set tools",
       "aria-expanded": toolsOpen ? "true" : "false",
@@ -9058,6 +9173,7 @@
     if (trayPlates) tools.appendChild(trayPlates);
     tools.appendChild(makeDropBtn("set-tool-tray"));
     tools.appendChild(makeNoteBtn("set-tool-tray"));
+    tools.appendChild(makeRpeSel());
     tools.appendChild(toolsMeta);
 
     // A warm-up does not consume a set number. If it did, an exercise whose
@@ -9193,7 +9309,7 @@
 
   function startRestTimer(exerciseId) {
     maybeRequestNotifyPermission();
-    const secs = state.prefs.defaultRestSec || 90;
+    const secs = restTargetFor(exerciseId);
     state.restTimer = { endsAt: Date.now() + secs * 1000, exerciseId, totalSec: secs };
     if (state.restInterval) clearInterval(state.restInterval);
     // Queue the chime on the shared audio clock now, inside the tap that
