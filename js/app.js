@@ -5072,7 +5072,7 @@
           el("button", { class: "hero-quiet-link", type: "button", "data-testid": "hero-pick-session-noplan",
             on: { click: () => { goTab("workout"); setTimeout(openSessionsSheet, 260); } } }, "Pick a session"),
           el("span", { class: "hero-quiet-sep" }, "·"),
-          el("button", { class: "hero-quiet-link", type: "button",
+          el("button", { class: "hero-quiet-link", type: "button", "data-testid": "hero-just-start",
             on: { click: () => goTab("workout") } }, "Just start")
         )
       );

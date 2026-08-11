@@ -50,7 +50,9 @@ const check = (label, ok, detail = '') => {
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(1500);
     await page.evaluate(() => document.querySelectorAll('[data-testid="tab-loader"],.splash').forEach(n => n.remove()));
-    for (const t of ['hero-start-workout', 'hero-start-focus', 'empty-muscle-start-workout']) {
+    // empty-muscle-start-workout now lives inside the folded Trends
+    // chapter; the planner pitch's own picker link is the visible route.
+    for (const t of ['hero-start-workout', 'hero-start-focus', 'hero-just-start', 'empty-muscle-start-workout']) {
       const el = await page.$(`[data-testid="${t}"]`);
       if (el) { await el.click(); break; }
     }
