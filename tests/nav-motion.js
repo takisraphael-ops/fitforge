@@ -234,8 +234,14 @@ function liftTabConstants() {
     // page is given no animation frames at all.
     const r = await page.evaluate(async () => {
       document.querySelector('[data-testid="dock-nutrition"]').click();
-      await new Promise(res => setTimeout(res, 50));
-      const mid = !!document.querySelector('.view.tab-ghost');
+      // Poll for the in-flight ghost rather than sampling one instant: under
+      // suite load the switch can start a frame or two late, and a single
+      // 50ms snapshot flaked on exactly that.
+      let mid = false;
+      for (let i = 0; i < 30 && !mid; i++) {
+        await new Promise(res => setTimeout(res, 10));
+        mid = !!document.querySelector('.view.tab-ghost');
+      }
       Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
       document.dispatchEvent(new Event('visibilitychange'));
       await new Promise(res => setTimeout(res, 60));

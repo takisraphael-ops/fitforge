@@ -60,7 +60,8 @@ const SUITES = [
   { name: 'grams', file: 'grams.js', needsServer: true },
   { name: 'training-quality', file: 'training-quality.js', needsServer: true },
   { name: 'integrity', file: 'integrity.js', needsServer: true },
-  { name: 'home-ledger', file: 'home-ledger.js', needsServer: true }
+  { name: 'home-ledger', file: 'home-ledger.js', needsServer: true },
+  { name: 'learn-hub', file: 'learn-hub.js', needsServer: true }
 ];
 
 const up = () => new Promise((resolve) => {

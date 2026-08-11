@@ -99,7 +99,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=279").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=280").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -258,7 +258,7 @@
   // and shown at the foot of Settings. There was no way, from a phone, to
   // tell which build you were looking at — which cost several rounds of
   // debugging a fix that turned out never to have deployed.
-  const APP_VERSION = 279;
+  const APP_VERSION = 280;
   const isAccent = (id) => ACCENTS.some(a => a.id === id);
 
   // Keep the browser chrome (iOS status bar, Android task switcher) in step
@@ -11561,7 +11561,9 @@
       const hits = items
         .map(it => ({ it, s: scoreOf(it, q) }))
         .filter(x => x.s > 0)
-        .sort((a, b) => b.s - a.s || (a.it.kind === "exercise" ? -1 : 1) || a.it.name.localeCompare(b.it.name))
+        .sort((a, b) => b.s - a.s
+          || (a.it.kind === b.it.kind ? 0 : a.it.kind === "exercise" ? -1 : 1)
+          || a.it.name.localeCompare(b.it.name))
         .slice(0, 8);
       if (!hits.length) {
         results.appendChild(el("div", { class: "hub-result-empty", "data-testid": "hub-no-results" },
