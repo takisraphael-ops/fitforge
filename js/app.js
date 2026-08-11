@@ -761,6 +761,8 @@
       dietPlanConfig: pick("dietPlanConfig", {}),
       // The one-line prompt on Nutrition, once dismissed, stays dismissed.
       dietPlanPromptSeen: !!(pick("dietPlanPromptSeen", false)),
+      // Home's Trends chapter: reference material, collapsed until asked for.
+      homeTrendsOpen: !!(pick("homeTrendsOpen", false)),
       theme: pick("theme", null),
       // Accent colour — a separate axis from light/dark.
       accent: pick("accent", null)
@@ -5255,6 +5257,94 @@
     );
   }
 
+  /** The day ledger: the three numbers that change decisions mid-day, riding
+      at the base of whichever tier-1 block leads the page. Fuel is what's
+      left to eat, Body is this morning against last week, Week is sessions
+      against the goal. Each cell is also a door to its own section — the
+      ledger doubles as the page's table of contents. Estimates keep their ≈,
+      per the house rule: never show a number the app can't stand behind. */
+  function buildLedgerStrip({ energy, todaysKcal, macroGoals, todayMacros, personal, bwEntries, weekCount }) {
+    const est = personal ? "" : "≈ ";
+    const goal = Math.round(energy.goal || 0);
+    const left = goal - Math.round(todaysKcal || 0);
+    const pGoal = Math.round(macroGoals?.protein || 0);
+    const pLeft = Math.max(0, pGoal - Math.round(todayMacros?.protein || 0));
+
+    // Bodyweight: latest entry, and the change against the closest entry at
+    // least five days older — a week-ish trend, from whatever was logged.
+    const sorted = (bwEntries || []).filter(b => b.kg > 0).sort((a, b) => (a.date < b.date ? -1 : 1));
+    const latest = sorted[sorted.length - 1] || null;
+    let delta = null;
+    if (latest) {
+      const cutoff = new Date(latest.date); cutoff.setDate(cutoff.getDate() - 5);
+      const cutIso = U.todayISO(cutoff);
+      const older = [...sorted].reverse().find(b => b.date <= cutIso);
+      if (older) delta = latest.kg - older.kg;
+    }
+
+    const weekGoal = Math.max(1, Number(state.prefs.weeklyWorkoutGoal) || 4);
+
+    const cell = (label, value, sub, testid, onTap) => el("button", {
+      class: "ledger-cell", type: "button", "data-testid": testid,
+      "aria-label": `${label}: ${value}, ${sub}. Jump to section`,
+      on: { click: onTap }
+    },
+      el("span", { class: "ledger-label" }, label),
+      el("span", { class: "ledger-value" }, value),
+      el("span", { class: "ledger-sub" }, sub)
+    );
+
+    return el("div", { class: "day-ledger", "data-testid": "day-ledger" },
+      cell("Fuel",
+        left >= 0 ? `${est}${left.toLocaleString("en-GB")}` : `${est}${Math.abs(left).toLocaleString("en-GB")}`,
+        left >= 0 ? `kcal left · P ${pLeft} g to go` : `kcal over · P ${pLeft} g to go`,
+        "ledger-fuel",
+        () => scrollToTestId("home-section-today")),
+      cell("Body",
+        latest ? `${U.trimNum(U.toDisplayWeight(latest.kg))} ${U.weightUnit()}` : "—",
+        latest
+          ? (delta == null ? "log daily for a trend"
+            : `${delta > 0 ? "▲" : delta < 0 ? "▼" : "="} ${U.trimNum(Math.abs(U.toDisplayWeight(latest.kg) - U.toDisplayWeight(latest.kg - delta)))} ${U.weightUnit()} this wk`)
+          : "no weigh-in yet",
+        "ledger-body",
+        async () => {
+          if (!state.prefs.homeTrendsOpen) {
+            state.prefs.homeTrendsOpen = true;
+            await Storage.setPref("homeTrendsOpen", true);
+            renderMainKeepScroll();
+          }
+          setTimeout(() => scrollToTestId("home-section-trends"), 80);
+        }),
+      cell("Week",
+        `${weekCount} of ${weekGoal}`,
+        weekCount >= weekGoal ? "sessions — done" : `session${weekGoal - weekCount === 1 ? "" : "s"} · ${weekGoal - weekCount} to go`,
+        "ledger-week",
+        () => scrollToTestId("home-section-week"))
+    );
+  }
+
+  /** The planner pitch, once it has been ignored. A user three workouts in
+      who never picked a split has voted with their feet: they get one quiet
+      row, not a full-screen sales pitch every launch. */
+  function buildCompactPlanRow() {
+    return el("div", { class: "card plan-compact-row", "data-testid": "today-hero-compact" },
+      el("div", { class: "row-between", style: "gap: 10px; align-items: center" },
+        el("div", { style: "flex:1; min-width: 0" },
+          el("div", { class: "card-title", style: "margin: 0 0 2px" }, "No plan set"),
+          el("div", { class: "text-xs text-faint" }, "Training freestyle works — a weekly split fills Home with your next session.")
+        ),
+        el("button", {
+          class: "btn btn-sm", "data-testid": "compact-build-week",
+          on: { click: openWeeklyPlanQuiz }
+        }, "Build week"),
+        el("button", {
+          class: "btn btn-primary btn-sm", "data-testid": "compact-pick-session",
+          on: { click: () => goTab("workout") }
+        }, "Train now")
+      )
+    );
+  }
+
   async function renderHome(view) {
     const [workouts, meals] = await Promise.all([Storage.getWorkouts(), Storage.getMeals()]);
     const completed = workouts.filter(w => w.completedAt);
@@ -5338,10 +5428,26 @@
     }
 
     // 2) Today's training — plan-driven hero (hidden while a workout is active).
-    // Tier 1: the one block on Home that breaks the page inset.
-    if (!state.activeWorkout) {
+    // Tier 1: the one block on Home that breaks the page inset. The day
+    // ledger rides at its base so the first screen answers train, fuel,
+    // body and week in one glance.
+    const ledger = buildLedgerStrip({
+      energy, todaysKcal, macroGoals, todayMacros, personal,
+      bwEntries: await Storage.getBodyweights(),
+      weekCount: weekWorkouts.length
+    });
+    if (state.activeWorkout) {
+      // The active card leads; the ledger follows as its own quiet card.
+      view.appendChild(el("div", { class: "card day-ledger-card" }, ledger));
+    } else if (!planHasAny(plan) && completed.length >= 3) {
+      // The planner pitch has been ignored three workouts running — demote
+      // it to one row and let the ledger lead.
+      view.appendChild(el("div", { class: "card day-ledger-card" }, ledger));
+      view.appendChild(buildCompactPlanRow());
+    } else {
       const hero = buildTodayWorkoutHero({ plan, tplById, exById, completed });
       hero.classList.add("home-bleed");
+      hero.appendChild(ledger);
       view.appendChild(hero);
     }
 
@@ -5430,10 +5536,32 @@
     const weekStrip = buildWeekStrip(completed, plan);
     view.appendChild(homeSection("This week", "home-section-week", weekStrip, weekStats, weekDuo));
 
-    // 5) Trends — longer-range signals, secondary to action + today
-    const trends = homeSection(
-      "Trends",
-      "home-section-trends",
+    // 5) Trends — longer-range signals, secondary to action + today.
+    // Reference material on a monthly clock, so it starts folded: the
+    // content still renders (the ledger's Body cell and the nav jump both
+    // land here), it just stops costing two screens of daily scroll.
+    const trendsOpen = !!state.prefs.homeTrendsOpen;
+    const trends = el("section", {
+      class: "home-section home-chapter-quiet" + (trendsOpen ? "" : " is-collapsed"),
+      "data-testid": "home-section-trends"
+    });
+    trends.appendChild(el("button", {
+      class: "home-section-label home-trends-toggle", type: "button",
+      "aria-expanded": trendsOpen ? "true" : "false",
+      "data-testid": "home-trends-toggle",
+      on: { click: async () => {
+        state.prefs.homeTrendsOpen = !trendsOpen;
+        await Storage.setPref("homeTrendsOpen", !trendsOpen);
+        renderMainKeepScroll();
+      } }
+    },
+      el("span", {}, "Trends"),
+      el("span", { class: "trends-toggle-hint" },
+        trendsOpen ? "Hide" : "Nutrition · body · muscles · frequency"),
+      el("span", { class: "trends-toggle-chevron" + (trendsOpen ? " open" : ""), "aria-hidden": "true", html:
+        '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>' })
+    ));
+    trends.appendChild(el("div", { class: "home-section-body" },
       renderNutritionTrendCard(meals, goal, macroGoals, todayMacros, {
         estimate: !macrosArePersonal(macroGoals, energy),
         hideMacros: true,
@@ -5443,9 +5571,7 @@
       await renderBodyweightCard(),
       await buildMuscleBalanceBlock(completed, exById),
       renderHeatmap(completed)
-    );
-    // Tier 3: reference material. Same content, no card furniture.
-    trends.classList.add("home-chapter-quiet");
+    ));
     view.appendChild(trends);
 
     // Quiet personalisation cue if still on estimates (setup CTA also lives on food room)
