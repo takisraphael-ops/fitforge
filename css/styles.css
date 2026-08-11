@@ -4332,6 +4332,14 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 .energy-ring-center .energy-ring-sub { letter-spacing: 0.12em; }
 
 /* Overview: macro cards */
+/* Today against your own typical hour — the calibrator's voice, one line. */
+.nusual-line {
+  margin: 10px 2px 0;
+  font-size: 12px; line-height: 1.5; text-align: center;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .nmacro-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .nmacro-card {
   background: var(--bg-elev); border: 1px solid var(--border);
@@ -5502,9 +5510,11 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
 .nsaved-remind-ic svg { width: 100%; height: 100%; }
 
 .nsaved-hero {
+  /* A shortcut, not a hero: it kept full-card billing above the ring while
+     saying only "bookmark a meal". Compact row now; same bones, less felt. */
   position: relative; overflow: hidden; flex: 1; min-width: 0;
-  display: flex; align-items: center; gap: 12px;
-  padding: 13px 15px; border-radius: 16px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-radius: 12px;
   background: var(--bg-elev); border: 1px solid var(--border);
   cursor: pointer; text-align: left;
   transition: transform 120ms ease, border-color 120ms ease;
@@ -5512,14 +5522,14 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
 .nsaved-hero:active { transform: scale(0.99); }
 .nsaved-hero:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
 .nsaved-hero-ic {
-  flex: none; width: 40px; height: 40px; border-radius: 12px;
+  flex: none; width: 28px; height: 28px; border-radius: 9px;
   display: inline-flex; align-items: center; justify-content: center;
   color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
-.nsaved-hero-ic svg { width: 20px; height: 20px; }
+.nsaved-hero-ic svg { width: 15px; height: 15px; }
 .nsaved-hero-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.nsaved-hero-title { font-weight: 800; font-size: 16px; color: var(--text); }
-.nsaved-hero-sub { font-size: 12.5px; color: var(--text-faint); }
+.nsaved-hero-title { font-weight: 700; font-size: 13.5px; color: var(--text); }
+.nsaved-hero-sub { font-size: 11px; color: var(--text-faint); }
 .nsaved-hero-count {
   flex: none; min-width: 26px; height: 26px; padding: 0 8px; border-radius: 100px;
   display: inline-flex; align-items: center; justify-content: center;

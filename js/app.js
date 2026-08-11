@@ -14130,6 +14130,35 @@
 
   // Redesigned nutrition tab: a vertical card pager — Overview, then one card
   // per meal section, then a Trends card. Swipe up/down; dots on the right.
+  /** What this hour usually looks like, from the user's own logs. Median
+      kcal eaten by the current time of day across the last 28 days that
+      logged any food — median, not mean, so one feast day doesn't move it.
+      Refuses (returns null) below seven qualifying days or a ≈100 kcal
+      signal, in the calibrator's manner: no number the data can't carry. */
+  function usualByNow(meals, todayIso, now = new Date()) {
+    const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const cutoff = new Date(now); cutoff.setDate(cutoff.getDate() - 28);
+    const cutoffIso = U.todayISO(cutoff);
+    const byNow = new Map();
+    const anyLog = new Set();
+    for (const m of meals) {
+      if (!m.date || m.date === todayIso || m.date < cutoffIso) continue;
+      anyLog.add(m.date);
+      if (m.time && m.time <= hhmm) byNow.set(m.date, (byNow.get(m.date) || 0) + (m.kcal || 0));
+    }
+    if (anyLog.size < 7) return null;
+    // Days that logged food but nothing by this hour count as zero — leaving
+    // them out would inflate "usual" for every late eater.
+    const vals = [...anyLog].map(d => byNow.get(d) || 0).sort((a, b) => a - b);
+    const mid = Math.floor(vals.length / 2);
+    const median = vals.length % 2 ? vals[mid] : Math.round((vals[mid - 1] + vals[mid]) / 2);
+    if (median < 100) return null;
+    const todayByNow = meals
+      .filter(m => m.date === todayIso && m.time && m.time <= hhmm)
+      .reduce((s, m) => s + (m.kcal || 0), 0);
+    return { median: Math.round(median / 10) * 10, todayByNow, days: anyLog.size, hhmm };
+  }
+
   async function renderNutrition(view) {
     const NCHEV = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
     const NUP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>';
@@ -14531,10 +14560,10 @@
         el("div", { class: "npanel-eyebrow" }, dateEyebrow),
         el("h2", { class: "npanel-title" }, "Overview")
       ),
-      el("div", { class: "npanel-head-right" },
-        el("div", { class: "npanel-head-kcal accent" }, (remaining >= 0 ? remaining : Math.abs(remaining)).toLocaleString("en-GB")),
-        el("div", { class: "npanel-head-sub" }, remaining >= 0 ? "kcal left" : "kcal over")
-      )
+      // No kcal figure up here: the ring sixty pixels below is the single
+      // source for "left". The same number twice on one screen was the
+      // duplication this app keeps removing everywhere else.
+      null
     ));
 
     // Saved meals — quick re-log, given the prominent top spot. Logging itself
@@ -14627,6 +14656,17 @@
           el("span", { class: "nhub-legend-label" }, e.label)));
       }
       ov.appendChild(legend);
+    }
+
+    // The one genuinely new number this screen lacked: how today compares
+    // to your own typical day at this hour. Absent until the logs can
+    // carry it — same refusal manner as the TDEE calibrator.
+    {
+      const usual = usualByNow(meals, today);
+      if (usual) {
+        ov.appendChild(el("div", { class: "nusual-line", "data-testid": "usual-line" },
+          `Most days by ${usual.hhmm} you're at ≈${usual.median.toLocaleString("en-GB")} kcal — today ${usual.todayByNow.toLocaleString("en-GB")}`));
+      }
     }
 
     const g = macroGoals.goals || {};
