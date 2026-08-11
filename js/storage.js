@@ -465,7 +465,7 @@ window.Storage = (function () {
     saveMealTemplate, getMealTemplates, deleteMealTemplate,
     saveSupplement, getSupplements, deleteSupplement,
     saveSupplementLog, getSupplementLogs, deleteSupplementLog,
-    setPref, getPref,
+    setPref, getPref, getAllPrefs,
     exportAll, importAll, validateBackup, clearAll
   };
 })();
