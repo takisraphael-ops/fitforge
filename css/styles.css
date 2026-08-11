@@ -6584,6 +6584,50 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
    full-screen overlay rather than an in-place swap so the library keeps its
    scroll position — coming back to the top of a long grid after reading one
    article is how you stop opening a second. */
+/* ============ Learn hub ============
+   The tab lands here now: one search across exercises and articles, and the
+   old fork's two destinations as jump tiles. A library, not a question. */
+.learn-hub { margin-bottom: 22px; }
+.hub-search { width: 100%; min-height: 48px; font-size: 15px; }
+.hub-results { display: none; flex-direction: column; margin-top: 8px; }
+.hub-results.has-results {
+  display: flex;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  overflow: hidden; background: var(--bg-elev);
+}
+.hub-result {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 12px; min-height: 52px;
+  background: none; border: 0; cursor: pointer;
+  font-family: inherit; color: var(--text); text-align: left;
+}
+.hub-result + .hub-result { border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+.hub-result:active { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.hub-result-icon { flex: none; display: inline-flex; color: var(--text-faint); }
+.hub-result-icon.is-article { color: var(--accent); }
+.hub-result-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.hub-result-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hub-result-sub { font-size: 11.5px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hub-result-kind {
+  flex: none; font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+.hub-result-empty { padding: 12px; font-size: 12.5px; color: var(--text-faint); }
+.hub-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.hub-tile {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px; min-height: 64px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg) 40%, transparent);
+  cursor: pointer; font-family: inherit; color: var(--text); text-align: left;
+}
+.hub-tile:active { border-color: var(--accent); }
+.hub-tile-art { flex: none; width: 30px; height: 30px; color: var(--accent); }
+.hub-tile-art svg { width: 100%; height: 100%; }
+.hub-tile-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.hub-tile-label { font-size: 13.5px; font-weight: 700; }
+.hub-tile-sub { font-size: 10.5px; color: var(--text-faint); line-height: 1.35; }
+
 .learn-section { margin-bottom: 18px; }
 .learn-head { margin-bottom: 12px; }
 .learn-title { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }

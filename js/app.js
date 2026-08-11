@@ -2019,10 +2019,10 @@
         continue;
       }
       const active = state.tab === it.id || (it.id === "stats" && state.tab === "history");
-      // Learn is the one tab holding two unrelated destinations, so it forks
-      // rather than landing you on whichever happens to be at the top. Every
-      // other tab is one place and goes straight there.
-      const opens = it.id === "library" ? openLearnFork : () => switchTab(it.id);
+      // Every tab goes straight to its page. Learn used to fork through a
+      // full-screen chooser; the hub at the top of the tab now carries those
+      // two destinations as jump tiles instead — show, don't ask.
+      const opens = () => switchTab(it.id);
       const btn = el("button", {
         class: "dock-item" + (active ? " active" : ""),
         title: it.label,
@@ -3183,31 +3183,6 @@
           cls: "qa2-meal", testid: "quick-log-meal", art: QA_ART.meal,
           label: "Log meal", sub: "Add food to today",
           onPick: () => go("nutrition")
-        }
-      ]
-    });
-  }
-
-  /**
-   * The Learn tab holds two quite different things stacked on one page — the
-   * reading, then the exercise library with the body map at its head — and the
-   * map sits below the fold, so arriving on the tab only ever showed you one
-   * of them. Same fork as the +, two ways instead of three.
-   */
-  function openLearnFork() {
-    const go = (after) => { jumpTo("library", after); };
-    openForkSheet({
-      label: "Learn", testid: "learn-fork",
-      panels: [
-        {
-          cls: "qa2-learn", testid: "learn-fork-centre", art: QA_ART.learn,
-          label: "Learning Centre", sub: "Why the training works, and what the numbers mean",
-          onPick: () => go(() => window.scrollTo(0, 0))
-        },
-        {
-          cls: "qa2-bodymap", testid: "learn-fork-bodymap", art: QA_ART.bodymap,
-          label: "Body map", sub: "Tap a muscle to find exercises for it",
-          onPick: () => go(() => scrollToTestId("body-map"))
         }
       ]
     });
@@ -11543,6 +11518,97 @@
       el("button", { class: "btn", on: { click: closeModal } }, "Close")));
   }
 
+  /** One search across everything the app knows — 165+ exercises and every
+      article — with the fork's two destinations as jump tiles beneath it.
+      Ranking is deliberately simple: exact prefix beats word-prefix beats
+      substring, and exercises outrank articles at equal score because a gym
+      search is usually for a movement. */
+  function buildLearnHub(allExercises) {
+    const norm = (s) => (s || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+    const items = [];
+    for (const ex of (allExercises || [])) {
+      items.push({ kind: "exercise", key: ex.id, name: ex.name,
+        sub: (ex.category || "").replace(/_/g, " "), n: norm(ex.name) });
+    }
+    for (const a of (window.LEARN_ARTICLES || [])) {
+      items.push({ kind: "article", key: a.slug, name: a.title, sub: a.oneLiner || "", n: norm(a.title) });
+    }
+    const scoreOf = (item, q) => {
+      if (item.n === q) return 5;
+      if (item.n.startsWith(q)) return 4;
+      if (item.n.split(" ").some(w => w.startsWith(q))) return 3;
+      if (item.n.includes(q)) return 2;
+      // Every query word must land somewhere for a multi-word match.
+      const words = q.split(" ");
+      if (words.length > 1 && words.every(w => item.n.includes(w))) return 1;
+      return 0;
+    };
+
+    const input = el("input", {
+      class: "input hub-search", type: "search",
+      placeholder: "Search exercises and articles…",
+      "data-testid": "hub-search",
+      "aria-label": "Search exercises and articles"
+    });
+    const results = el("div", { class: "hub-results", "data-testid": "hub-results" });
+    const artIcon = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 6c-2-1.6-4.5-2-8-2v14c3.5 0 6 .4 8 2 2-1.6 4.5-2 8-2V4c-3.5 0-6 .4-8 2z"/><path d="M12 6v14"/></svg>';
+    const exIcon = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="9" y1="12" x2="15" y2="12"/><line x1="6.5" y1="9" x2="6.5" y2="15"/><line x1="17.5" y1="9" x2="17.5" y2="15"/></svg>';
+    const renderResults = () => {
+      results.innerHTML = "";
+      const q = norm(input.value);
+      results.classList.toggle("has-results", !!q);
+      if (!q) return;
+      const hits = items
+        .map(it => ({ it, s: scoreOf(it, q) }))
+        .filter(x => x.s > 0)
+        .sort((a, b) => b.s - a.s || (a.it.kind === "exercise" ? -1 : 1) || a.it.name.localeCompare(b.it.name))
+        .slice(0, 8);
+      if (!hits.length) {
+        results.appendChild(el("div", { class: "hub-result-empty", "data-testid": "hub-no-results" },
+          `Nothing matches “${input.value.trim()}” — try a muscle or a movement name`));
+        return;
+      }
+      for (const { it } of hits) {
+        results.appendChild(el("button", {
+          class: "hub-result", type: "button",
+          "data-testid": `hub-result-${it.kind}-${it.key}`,
+          on: { click: () => {
+            if (it.kind === "exercise") openExerciseDetail(it.key);
+            else openArticle(it.key);
+          } }
+        },
+          el("span", { class: `hub-result-icon is-${it.kind}`, "aria-hidden": "true", html: it.kind === "article" ? artIcon : exIcon }),
+          el("span", { class: "hub-result-main" },
+            el("span", { class: "hub-result-name" }, it.name),
+            el("span", { class: "hub-result-sub" }, it.sub)),
+          el("span", { class: "hub-result-kind" }, it.kind === "article" ? "article" : "exercise")
+        ));
+      }
+    };
+    input.addEventListener("input", renderResults);
+
+    const tile = (testid, art, label, sub, onPick) => el("button", {
+      class: "hub-tile", type: "button", "data-testid": testid,
+      on: { click: onPick }
+    },
+      el("span", { class: "hub-tile-art", "aria-hidden": "true", html: art }),
+      el("span", { class: "hub-tile-main" },
+        el("span", { class: "hub-tile-label" }, label),
+        el("span", { class: "hub-tile-sub" }, sub))
+    );
+
+    return el("div", { class: "learn-hub", "data-testid": "learn-hub" },
+      input,
+      results,
+      el("div", { class: "hub-tiles" },
+        tile("learn-fork-centre", QA_ART.learn, "Learning Centre",
+          "Why the training works", () => scrollToTestId("learn-section")),
+        tile("learn-fork-bodymap", QA_ART.bodymap, "Body map",
+          "Tap a muscle for its exercises", () => scrollToTestId("body-map"))
+      )
+    );
+  }
+
   async function renderLibrary(view) {
     const all = await getAllExercises();
     const bwKg = await getBodyweightKg();
@@ -11678,10 +11744,13 @@
       refresh(true);
     }
 
-    // Articles first, library below. The tab is the Learning Centre now: the
-    // map and the exercise grid are one section of it rather than the whole
-    // thing, and nothing that was here has moved somewhere else.
+    // The hub. Learn used to open with a full-screen two-button fork — a
+    // question where a library should be. Now the tab lands here: one search
+    // across everything the app knows, two jump tiles that keep the fork's
+    // destinations (and its testids — they are the same two doors), then the
+    // reading and the exercise library exactly where they always were.
     view.appendChild(el("h1", { class: "sr-only" }, "Learn"));
+    view.appendChild(buildLearnHub(all));
     view.appendChild(renderLearnSection());
     view.appendChild(el("div", { class: "learn-divider" },
       el("span", {}, "Exercise library")));
