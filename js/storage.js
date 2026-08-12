@@ -58,17 +58,11 @@ window.Storage = (function () {
   function onStorageHealth(cb) {
     if (typeof cb === "function") healthListeners.push(cb);
   }
-  const mem = {
-    workouts: new Map(),
-    meals: new Map(),
-    customExercises: new Map(),
-    prefs: new Map(),
-    bodyweights: new Map(),
-    templates: new Map(),
-    mealTemplates: new Map(),
-    supplements: new Map(),
-    supplementLogs: new Map()
-  };
+  // Built from STORES so a new store can never be forgotten here — the
+  // hardcoded literal this replaced was exactly one store behind the moment
+  // fsHandles arrived, which would have crashed every memory-mode write.
+  const mem = {};
+  for (const s of STORES) mem[s] = new Map();
 
   const memDeletes = {};
   for (const s of STORES) memDeletes[s] = new Set();

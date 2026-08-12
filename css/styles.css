@@ -2914,6 +2914,10 @@ body.has-storage-banner { padding-top: 52px; }
   background: color-mix(in srgb, var(--danger) 10%, var(--bg-elev));
 }
 .storage-health.tone-bad .storage-health-title { color: var(--danger); }
+.autoback-row { margin-bottom: 12px; }
+.autoback-line { line-height: 1.45; }
+.autoback-line.autoback-ok { color: var(--success); }
+.autoback-line.autoback-warn { color: var(--warn); }
 .import-preview-list {
   list-style: none;
   margin: 0;

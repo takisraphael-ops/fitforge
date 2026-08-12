@@ -7906,6 +7906,10 @@
     try {
       await Storage.saveWorkout(w);
       await Storage.setPref("activeWorkoutId", null);
+      // The silent half of data safety: rewrite the backup file while the
+      // session is fresh. Fire-and-forget — a backup hiccup must never
+      // block the celebration.
+      runAutoBackup("finish").catch(() => {});
     } catch (err) {
       console.error("finishWorkout save failed", err);
       toast("Could not save workout — try again");
@@ -17799,6 +17803,7 @@
       el("div", { class: "form-row mt-16" }, el("div", { style: "flex:1" },
         el("label", { class: "label" }, "Backup & restore"),
         buildStorageHealthRow(),
+        buildAutoBackupRow(),
         el("div", { class: "text-xs text-muted mb-8" },
           `Last backup: ${formatBackupWhen(state.prefs.lastBackupAt)}` +
           (state.prefs.lastBackupAt
@@ -18132,6 +18137,78 @@
     return row;
   }
 
+  /** The auto-backup row in Settings. Rendering is synchronous but the
+      truth (is a handle stored? does it still have permission?) lives in
+      IndexedDB, so the row is a host that fills itself in — same pattern
+      as every other async card in the app. Three honest states:
+      unsupported, not set up, and set up (with its health spelled out). */
+  function buildAutoBackupRow() {
+    const host = el("div", { class: "autoback-row", "data-testid": "auto-backup-row" });
+
+    if (!autoBackupSupported()) {
+      host.appendChild(el("div", { class: "autoback-line text-xs text-muted" },
+        "Automatic backups need Chrome or Edge. On this browser the app keeps reminding you to export instead."));
+      return host;
+    }
+
+    (async () => {
+      let handle = null;
+      try { handle = await Storage.getBackupHandle(); } catch (_) {}
+
+      if (!handle) {
+        host.appendChild(el("div", { class: "autoback-line text-xs text-muted" },
+          "Or let the app do it: pick a file once and it gets rewritten after every finished workout."));
+        host.appendChild(el("button", {
+          class: "btn btn-sm mt-8", "data-testid": "auto-backup-setup",
+          on: { click: setupAutoBackup }
+        }, "Set up automatic backups"));
+        return;
+      }
+
+      const perm = await backupHandlePermission(handle);
+      const name = handle.name || "backup file";
+      const line = el("div", { class: "autoback-line text-xs" });
+      const actions = el("div", { class: "row mt-8", style: "gap: 8px; flex-wrap: wrap" });
+
+      if (perm === "granted") {
+        const failed = state.autoBackupState === "error";
+        line.className += failed ? " autoback-warn" : " autoback-ok";
+        line.textContent = failed
+          ? `Auto-backup on (${name}), but the last write failed — try “Back up now”.`
+          : `Auto-backup on — ${name} is rewritten after every finished workout.`;
+        actions.appendChild(el("button", {
+          class: "btn btn-sm", "data-testid": "auto-backup-now",
+          on: { click: async (e) => {
+            e.target.disabled = true;
+            const ok = await runAutoBackup("manual");
+            toast(ok ? "Backup written" : "Backup failed — check Settings");
+            renderMain();
+          } }
+        }, "Back up now"));
+      } else {
+        // 'prompt' or 'denied': the handle survives but the browser wants a
+        // fresh yes. Say so — a paused backup that looks on is worse than none.
+        line.className += " autoback-warn";
+        line.setAttribute("data-testid", "auto-backup-paused");
+        line.textContent = `Auto-backup paused — the browser needs permission for ${name} again.`;
+        actions.appendChild(el("button", {
+          class: "btn btn-primary btn-sm", "data-testid": "auto-backup-reallow",
+          on: { click: reallowAutoBackup }
+        }, "Re-allow"));
+      }
+
+      actions.appendChild(el("button", {
+        class: "btn btn-ghost btn-sm", "data-testid": "auto-backup-off",
+        on: { click: disableAutoBackup }
+      }, "Turn off"));
+
+      host.appendChild(line);
+      host.appendChild(actions);
+    })();
+
+    return host;
+  }
+
   function formatBackupWhen(iso) {
     if (!iso) return "Never";
     try {
@@ -18179,6 +18256,105 @@
         }, "Later")
       )
     );
+  }
+
+  // ============ Silent auto-backup ============
+  //
+  // The whole backup system still had one human failure point: remembering
+  // to act on the reminder. Where the File System Access API exists (Chrome
+  // and Edge, Android and desktop), the user picks a file once and the app
+  // rewrites it after every finished workout and every import. iOS Safari
+  // has no such API, so there the reminders remain the mechanism — and
+  // Settings says which world you are in rather than pretending.
+
+  function autoBackupSupported() {
+    return typeof window.showSaveFilePicker === "function";
+  }
+
+  /** 'granted' | 'prompt' | 'denied' for a stored handle, defensively. */
+  async function backupHandlePermission(handle) {
+    try {
+      if (!handle) return "denied";
+      if (typeof handle.queryPermission !== "function") return "granted";
+      return await handle.queryPermission({ mode: "readwrite" });
+    } catch (_) {
+      return "denied";
+    }
+  }
+
+  /** One picker, one file, remembered forever. */
+  async function setupAutoBackup() {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: "fitforge-backup.json",
+        types: [{ description: "FitForge backup", accept: { "application/json": [".json"] } }]
+      });
+      await Storage.saveBackupHandle(handle);
+      const ok = await runAutoBackup("setup");
+      toast(ok ? `Auto-backup on — writing to ${handle.name} after every workout`
+               : "Auto-backup set up, but the first write failed — check Settings");
+      renderMain();
+    } catch (err) {
+      if (err && err.name === "AbortError") return; // user closed the picker
+      console.error("auto-backup setup failed", err);
+      toast("Could not set up auto-backup");
+    }
+  }
+
+  async function disableAutoBackup() {
+    await Storage.deleteBackupHandle();
+    toast("Auto-backup off — export reminders take over again");
+    renderMain();
+  }
+
+  /** Rewrite the backup file if configured. Returns true on a completed
+      write. Never throws at the caller: a failed silent backup must never
+      break the workout that triggered it — but it does not fail silently
+      either. Settings shows the state, and a permission lapse re-arms the
+      reminder system by leaving lastBackupAt untouched. */
+  async function runAutoBackup(reason) {
+    let handle;
+    try { handle = await Storage.getBackupHandle(); } catch (_) { return false; }
+    if (!handle) return false;
+    try {
+      const perm = await backupHandlePermission(handle);
+      if (perm === "denied") { state.autoBackupState = "denied"; return false; }
+      if (perm === "prompt") {
+        // requestPermission needs a user gesture; a background write can't
+        // ask. Flag it so Settings offers the one-tap re-allow.
+        state.autoBackupState = "needs-permission";
+        return false;
+      }
+      const data = await Storage.exportAll();
+      const writable = await handle.createWritable();
+      await writable.write(JSON.stringify(data, null, 2));
+      await writable.close();
+      state.autoBackupState = "ok";
+      state.autoBackupLastAt = new Date().toISOString();
+      // A completed silent backup is a real backup: quiet the reminders.
+      await markBackupDone({ exported: true });
+      return true;
+    } catch (err) {
+      console.error(`auto-backup (${reason}) failed`, err);
+      state.autoBackupState = "error";
+      return false;
+    }
+  }
+
+  /** The user-gesture path for a handle whose permission lapsed. */
+  async function reallowAutoBackup() {
+    const handle = await Storage.getBackupHandle();
+    if (!handle || typeof handle.requestPermission !== "function") return;
+    try {
+      const perm = await handle.requestPermission({ mode: "readwrite" });
+      if (perm === "granted") {
+        await runAutoBackup("reallow");
+        toast("Auto-backup re-enabled");
+      } else {
+        toast("Permission not granted — auto-backup stays paused");
+      }
+    } catch (_) { toast("Permission not granted — auto-backup stays paused"); }
+    renderMain();
   }
 
   async function exportData() {
@@ -18372,6 +18548,7 @@
         if (summary.meals) bits.push(`${summary.meals} meals`);
       }
       toast(bits.length ? `Imported ${bits.join(", ")}` : "Backup imported");
+      runAutoBackup("import").catch(() => {});
     } catch (err) {
       await alertDialog("Import failed: " + err.message, { title: "Import error" });
     } finally {
