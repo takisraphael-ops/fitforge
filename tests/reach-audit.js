@@ -250,11 +250,22 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await sleep(1300);
   });
 
-  // Straight through to the editor and its exercise picker — the sheet a
-  // blank back-logged session consists entirely of.
-  await check('past-session-editor', async () => {
+  // "Pick exercises" goes straight into the searchable exercise picker —
+  // the answer to a user who did bench and rows, not one of the presets.
+  await check('past-exercise-picker', async () => {
     await page.evaluate(() => document.querySelector('[data-testid="past-blank"]').click());
-    await sleep(1600);
+    await sleep(1400);
+  }, { shots: true });
+
+  // Confirming a pick lands in the editor with it already in place.
+  await check('past-session-editor', async () => {
+    await page.evaluate(() => {
+      const row = document.querySelector('.xrow');
+      (row.querySelector('button') || row).click();
+    });
+    await sleep(500);
+    await page.evaluate(() => document.querySelector('[data-testid="xpick-cta"]').click());
+    await sleep(1800);
   });
 
   await check('past-add-exercise', async () => {

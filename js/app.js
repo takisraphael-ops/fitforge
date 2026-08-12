@@ -7202,6 +7202,17 @@
         c.classList.toggle("active", on);
         c.setAttribute("aria-pressed", on ? "true" : "false");
       }
+      // A live search must bring its hits to you: answering "0" on the
+      // panel you happen to be parked on, with nine matches two swipes
+      // away, is worse than no search at all.
+      if (q && shown) {
+        const cur = GROUPS.find(g => g.key === activeKey);
+        const curHits = cur ? cur.items.filter(matches).length : 0;
+        if (!curHits) {
+          const firstWith = GROUPS.find(g => g.items.filter(matches).length > 0);
+          if (firstWith) goTo(firstWith.key);
+        }
+      }
       const hidden = ALL.length - shown;
       clear(filterNote);
       if (!shown) {
