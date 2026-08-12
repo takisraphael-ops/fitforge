@@ -18151,7 +18151,10 @@
       return host;
     }
 
-    (async () => {
+    // Settings lives in a modal, so renderMain() can't repaint this row —
+    // it refills itself after every action instead.
+    async function fill() {
+      host.textContent = "";
       let handle = null;
       try { handle = await Storage.getBackupHandle(); } catch (_) {}
 
@@ -18160,7 +18163,7 @@
           "Or let the app do it: pick a file once and it gets rewritten after every finished workout."));
         host.appendChild(el("button", {
           class: "btn btn-sm mt-8", "data-testid": "auto-backup-setup",
-          on: { click: setupAutoBackup }
+          on: { click: async () => { await setupAutoBackup(); fill(); } }
         }, "Set up automatic backups"));
         return;
       }
@@ -18182,7 +18185,7 @@
             e.target.disabled = true;
             const ok = await runAutoBackup("manual");
             toast(ok ? "Backup written" : "Backup failed — check Settings");
-            renderMain();
+            fill();
           } }
         }, "Back up now"));
       } else {
@@ -18193,18 +18196,19 @@
         line.textContent = `Auto-backup paused — the browser needs permission for ${name} again.`;
         actions.appendChild(el("button", {
           class: "btn btn-primary btn-sm", "data-testid": "auto-backup-reallow",
-          on: { click: reallowAutoBackup }
+          on: { click: async () => { await reallowAutoBackup(); fill(); } }
         }, "Re-allow"));
       }
 
       actions.appendChild(el("button", {
         class: "btn btn-ghost btn-sm", "data-testid": "auto-backup-off",
-        on: { click: disableAutoBackup }
+        on: { click: async () => { await disableAutoBackup(); fill(); } }
       }, "Turn off"));
 
       host.appendChild(line);
       host.appendChild(actions);
-    })();
+    }
+    fill();
 
     return host;
   }
