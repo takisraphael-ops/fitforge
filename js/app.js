@@ -7081,6 +7081,21 @@
     // venue and kit are separate axes: a session must match something in each
     // axis you've picked, but nothing in an axis you've left alone.
     const picked = { venue: new Set(), kit: new Set() };
+    // Free-text search: matches the session's name, its description, and the
+    // exercises inside it — "bench" finds every session that benches, which
+    // is how a lifter actually remembers a day.
+    let q = "";
+    const sessNorm = (v) => (v || "").toLowerCase();
+    const searchI = el("input", {
+      class: "input sess-search", type: "search",
+      placeholder: "Search sessions or exercises…",
+      "data-testid": "sess-search",
+      "aria-label": "Search sessions by name or exercise"
+    });
+    searchI.addEventListener("input", U.debounce(() => {
+      q = sessNorm(searchI.value.trim());
+      applyFilters();
+    }, 120));
     // "Fits my kit" hides sessions needing gear you've said you don't have.
     // On by default once a kit is configured, and always escapable.
     let kitOnly = myKit().size > 0;
@@ -7094,6 +7109,11 @@
     const anyBodyweight = ALL.some(t => t.bodyweightOnly);
 
     function matches(t) {
+      if (q && !(
+        sessNorm(t.name).includes(q) ||
+        sessNorm(t.desc).includes(q) ||
+        (t.exercises || []).some(e => sessNorm(e.name).includes(q))
+      )) return false;
       if (picked.venue.size && !(t.venue || []).some(v => picked.venue.has(v))) return false;
       if (picked.kit.size) {
         const hit = (picked.kit.has("bodyweight") && t.bodyweightOnly) ||
@@ -7167,7 +7187,8 @@
         shown += hits.length;
         clear(g.listEl);
         if (hits.length) hits.forEach(t => g.listEl.appendChild(cardFor(t)));
-        else g.listEl.appendChild(el("div", { class: "sess-panel-empty" }, "Nothing here with these filters."));
+        else g.listEl.appendChild(el("div", { class: "sess-panel-empty" },
+          q ? `Nothing here matches “${searchI.value.trim()}”.` : "Nothing here with these filters."));
         g.countEl.textContent = String(hits.length);
         const chip = chipRow.querySelector(`.xpick-chip[data-cat="${g.key}"]`);
         if (chip) chip.classList.toggle("is-dim", !hits.length);
@@ -7267,7 +7288,7 @@
       });
     }, { passive: true });
 
-    const body = el("div", { class: "xpick sess-pick" }, filterRow, filterNote, chipRow, pager, dotsRow);
+    const body = el("div", { class: "xpick sess-pick" }, searchI, filterRow, filterNote, chipRow, pager, dotsRow);
     applyFilters();
     return { body, refresh: () => { sync(); requestAnimationFrame(() => { const p = pager.querySelector(`.xpick-panel[data-cat="${activeKey}"]`); if (p) pager.scrollLeft = p.offsetLeft; }); } };
   }
@@ -15994,23 +16015,61 @@
     });
     const footer = el("div", {},
       el("button", { class: "btn", on: { click: closeModal } }, "Cancel"),
-      // Nothing in the library matches — start from an empty session and add
-      // exercises in the editor, same as any other correction.
-      // Deliberately not the primary button — the main path is "Log it" on a
-      // card, and an accent button down here would pull the eye off it.
+      // The session cards cover "I did one of my usual days". This covers
+      // "I did bench and rows": straight into the exercise picker, search
+      // first. It used to say "Blank session" and drop into an empty editor
+      // — a label that never admitted it led to exercises, which is exactly
+      // where a user reported getting lost.
       el("button", {
         class: "btn", "data-testid": "past-blank",
-        on: { click: () => { closeModal(); createPastWorkout(day, null); } }
-      }, "Blank session")
+        on: { click: () => { closeModal(); pickExercisesForPastDay(day); } }
+      }, "Pick exercises")
     );
     openModal(`What did you do on ${U.formatDate(day)}?`, picker.body, footer);
     picker.refresh();
   }
 
-  async function createPastWorkout(day, template) {
+  /** The exercise-first way to reconstruct a day: search or browse the full
+      library, tick what you did, and land in the editor with every pick
+      already in place. The empty-session escape lives here too, for the day
+      that fits nothing in the library. */
+  async function pickExercisesForPastDay(day) {
+    const all = await getAllExercises();
+    const picker = buildExercisePickerUI(all, {
+      confirmLabel: (n) => `Log ${n} on ${U.formatDate(day)}`,
+      customImmediate: true,
+      onConfirm: async (items) => {
+        closeModal();
+        const byId = new Map(all.map(e => [e.id, e]));
+        const exercises = items.map((it) => {
+          const def = byId.get(it.id) || {};
+          const ex = { exerciseId: it.id, name: it.name, category: def.category || "", muscles: def.muscles || [], sets: [] };
+          normalizeWorkoutExercise(ex, def);
+          ex.sets = [ex.type === "cardio" ? { durationMin: null, done: true }
+            : ex.type === "hold" ? { seconds: null, done: true }
+            : ex.type === "custom" ? { value: null, done: true }
+            : { weight: null, reps: null, done: true }];
+          return ex;
+        });
+        await createPastWorkout(day, null, exercises);
+      }
+    });
+    const footer = el("div", {},
+      el("button", { class: "btn", on: { click: closeModal } }, "Cancel"),
+      el("button", {
+        class: "btn", "data-testid": "past-empty",
+        on: { click: () => { closeModal(); createPastWorkout(day, null); } }
+      }, "Empty session")
+    );
+    openModal(`What did you train on ${U.formatDate(day)}?`, picker.body, footer);
+    picker.refresh();
+    setTimeout(picker.focus, 50);
+  }
+
+  async function createPastWorkout(day, template, presetExercises = null) {
     const at = new Date(day + "T12:00:00");
     const when = Number.isFinite(at.getTime()) ? at.getTime() : Date.now();
-    const exercises = await expandTemplateExercises(template);
+    const exercises = presetExercises || await expandTemplateExercises(template);
     // Every set arrives ticked: you are recording what happened, not working
     // through a plan, so the only job left is correcting the numbers.
     for (const ex of exercises) for (const s of (ex.sets || [])) s.done = true;
