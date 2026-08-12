@@ -3,10 +3,14 @@
 // (e.g. sandboxed preview iframes). All async so callers don't care which.
 window.Storage = (function () {
   const DB_NAME = "fitforge_db";
-  const DB_VERSION = 4;
+  // v5 adds fsHandles — the FileSystemFileHandle for silent auto-backup.
+  // Handles survive only via structured clone, never JSON, so they get
+  // their own store and their own raw write path, and stay out of
+  // exportAll: a handle inside a backup file would be garbage.
+  const DB_VERSION = 5;
   const STORES = [
     "workouts", "meals", "customExercises", "prefs", "bodyweights",
-    "templates", "mealTemplates", "supplements", "supplementLogs"
+    "templates", "mealTemplates", "supplements", "supplementLogs", "fsHandles"
   ];
 
   // Dynamically look up the storage engine so preview-time static analysers
@@ -317,6 +321,29 @@ window.Storage = (function () {
 
   // ==== Prefs ====
   async function setPref(key, value) { return put("prefs", { key, value }); }
+
+  // ==== File handles (auto-backup) ====
+  // Structured clone straight into IDB — cloneForStore's JSON round-trip
+  // would strip a FileSystemFileHandle down to an empty object.
+  async function putRaw(store, value) {
+    const d = await open();
+    if (!d) { mem[store].set(memKey(store, value), value); notifyHealth(); return value; }
+    return new Promise((res, rej) => {
+      try {
+        const tx = d.transaction(store, "readwrite");
+        tx.objectStore(store).put(value);
+        tx.oncomplete = () => res(value);
+        tx.onerror = () => rej(tx.error || new Error("put failed"));
+        tx.onabort = () => rej(tx.error || new Error("transaction aborted"));
+      } catch (err) { rej(err); }
+    });
+  }
+  async function saveBackupHandle(handle) { return putRaw("fsHandles", { id: "autoBackup", handle }); }
+  async function getBackupHandle() {
+    const row = await get("fsHandles", "autoBackup");
+    return row ? row.handle : null;
+  }
+  async function deleteBackupHandle() { return del("fsHandles", "autoBackup"); }
   /** Every pref in one transaction. Boot used to issue ~40 sequential reads
       for these — one IDB round-trip per preference, serialised. */
   async function getAllPrefs() {
@@ -466,6 +493,7 @@ window.Storage = (function () {
     saveSupplement, getSupplements, deleteSupplement,
     saveSupplementLog, getSupplementLogs, deleteSupplementLog,
     setPref, getPref, getAllPrefs,
+    saveBackupHandle, getBackupHandle, deleteBackupHandle,
     exportAll, importAll, validateBackup, clearAll
   };
 })();
