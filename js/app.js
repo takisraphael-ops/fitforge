@@ -99,7 +99,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=283").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=284").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -258,7 +258,7 @@
   // and shown at the foot of Settings. There was no way, from a phone, to
   // tell which build you were looking at — which cost several rounds of
   // debugging a fix that turned out never to have deployed.
-  const APP_VERSION = 283;
+  const APP_VERSION = 284;
   const isAccent = (id) => ACCENTS.some(a => a.id === id);
 
   // Keep the browser chrome (iOS status bar, Android task switcher) in step
@@ -16254,6 +16254,20 @@
           del
         );
       }
+      // A push-up is reps, full stop. This editor was the one surface still
+      // handing every strength-shaped set a kg box regardless of type —
+      // exactly where a user reported "kg on a bodyweight exercise".
+      if (ex.type === "bodyweight") {
+        return el("div", { class: "set-row set-row-edit" + (s.drop ? " is-drop" : ""), style: "grid-template-columns: 34px 1fr 60px 36px" },
+          el("div", { class: "set-index" }, String(i + 1) + (s.drop ? " •" : "")),
+          numCell(s, "reps", {
+            testid: "wd-reps",
+            pad: { unit: "reps", step: 1, wheel: { min: 1, max: 60 } }
+          }),
+          el("div", { class: "text-xs text-faint", style: "text-align:center" }, "reps"),
+          del
+        );
+      }
       const e1Text = () => {
         const l = U.e1rmLabel(s.weight, s.reps);
         return l ? `e1RM ${l}` : "—";
@@ -16338,9 +16352,25 @@
       // —— exercises ——
       for (const ex of (draft.exercises || [])) {
         const block = el("div", { class: "exercise-block", style: "margin-bottom: 12px" });
+        // Calisthenics can carry a vest or a belt: the same BW / BW +kg
+        // choice the live session offers, one tap here too. Anything else
+        // keeps its type; this is a switch, not a menu.
+        const canLoadBw = allowedTypesFor(null, ex).includes("weighted_bodyweight") &&
+          (ex.type === "bodyweight" || ex.type === "weighted_bodyweight");
+        const bwToggle = canLoadBw ? el("button", {
+          class: "chip chip-sm wd-bw-toggle" + (ex.type === "weighted_bodyweight" ? " active" : ""),
+          type: "button", "data-testid": "wd-bw-toggle",
+          title: ex.type === "weighted_bodyweight" ? "Logging added weight — tap for bodyweight only" : "Bodyweight — tap to log added weight",
+          on: { click: async () => {
+            ex.type = ex.type === "weighted_bodyweight" ? "bodyweight" : "weighted_bodyweight";
+            if (ex.type === "bodyweight") for (const st of (ex.sets || [])) st.weight = 0;
+            await persist();
+          } }
+        }, ex.type === "weighted_bodyweight" ? "BW +" + U.weightUnit() : "BW") : null;
         block.appendChild(el("div", { class: "exercise-block-header" },
           el("div", { class: "exercise-block-title" },
             ex.name,
+            bwToggle,
             exerciseKcalTotal(ex) > 0
               ? el("span", { class: "chip chip-sm", style: "margin-left:8px" }, `≈ ${exerciseKcalTotal(ex)} kcal`) : null),
           el("button", {

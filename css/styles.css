@@ -2754,6 +2754,10 @@ input:disabled.input,
 }
 .rpe-select.has-rpe { color: var(--accent); border-color: var(--accent); }
 
+/* The editor's BW / BW +kg switch — accent while added weight is on. */
+.wd-bw-toggle { margin-left: 8px; cursor: pointer; }
+.wd-bw-toggle.active { color: var(--accent); border-color: var(--accent); }
+
 /* Rest target chip in the exercise header; accent when it overrides default. */
 .rest-target-chip { cursor: pointer; font-variant-numeric: tabular-nums; }
 .rest-target-chip.is-custom { color: var(--accent); border-color: var(--accent); }

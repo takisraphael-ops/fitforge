@@ -137,7 +137,66 @@ const check = (label, ok, detail = '') => {
   check('with the picked exercise, sets arriving ticked', /Deadlift/i.test(created.names.join()) && created.ticked, created.names.join(', '));
   check('and the editor opens to fill in the numbers', created.editorOpen);
 
-  console.log('\n=== 3. the empty-session escape survives ===');
+  console.log('\n=== 3. a bodyweight exercise is reps, full stop ===');
+  // The editor was the one surface still handing every strength-shaped set
+  // a kg box regardless of type — a user caught it on push-ups. Reuse the
+  // editor we just landed in: add Push-Up alongside the deadlift.
+  await p.evaluate(() => document.querySelector('[data-testid="wd-add-exercise"]')?.scrollIntoView());
+  await p.evaluate(() => document.querySelector('[data-testid="wd-add-exercise"]')?.click());
+  await p.waitForTimeout(1000);
+  await p.evaluate(async () => {
+    const search = [...document.querySelectorAll('input')].find(i => /Search exercises/i.test(i.placeholder || ''));
+    search.value = 'push-up'; search.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 600));
+    const row = [...document.querySelectorAll('.xrow')].find(r => /^Push-Up/.test(r.textContent));
+    (row.querySelector('button') || row).click();
+    await new Promise(r => setTimeout(r, 400));
+    document.querySelector('[data-testid="xpick-cta"]')?.click();
+  });
+  await p.waitForTimeout(1600);
+  const bw = await p.evaluate(() => {
+    const pu = [...document.querySelectorAll('.exercise-block')].find(b => /Push-Up/.test(b.textContent));
+    const dl = [...document.querySelectorAll('.exercise-block')].find(b => /Deadlift/.test(b.textContent));
+    const cells = (blk) => blk ? [...blk.querySelectorAll('[data-testid="wd-weight"], [data-testid="wd-reps"]')].map(n => n.getAttribute('data-testid')) : null;
+    return {
+      pushup: cells(pu), toggle: pu?.querySelector('[data-testid="wd-bw-toggle"]')?.textContent || null,
+      deadlift: cells(dl), dlToggle: !!dl?.querySelector('[data-testid="wd-bw-toggle"]')
+    };
+  });
+  check('push-ups in the editor get reps only — no kg box',
+    !!bw.pushup && bw.pushup.join(',') === 'wd-reps', JSON.stringify(bw.pushup));
+  check('with a BW chip ready to load it', bw.toggle === 'BW', String(bw.toggle));
+  check('the barbell lift keeps weight and reps, and no chip',
+    !!bw.deadlift && bw.deadlift.join(',') === 'wd-weight,wd-reps' && !bw.dlToggle, JSON.stringify(bw.deadlift));
+
+  const loaded = await p.evaluate(async () => {
+    const pu = [...document.querySelectorAll('.exercise-block')].find(b => /Push-Up/.test(b.textContent));
+    pu?.querySelector('[data-testid="wd-bw-toggle"]')?.click();
+    await new Promise(r => setTimeout(r, 1200));
+    const pu2 = [...document.querySelectorAll('.exercise-block')].find(b => /Push-Up/.test(b.textContent));
+    const w = (await Storage.getWorkouts()).find(x => x.source === 'backlog');
+    return {
+      cells: pu2 ? [...pu2.querySelectorAll('[data-testid="wd-weight"], [data-testid="wd-reps"]')].map(n => n.getAttribute('data-testid')) : null,
+      chip: pu2?.querySelector('[data-testid="wd-bw-toggle"]')?.textContent,
+      type: w.exercises.find(e => e.exerciseId === 'push-up')?.type
+    };
+  });
+  check('one tap turns it into BW +kg — weighted calisthenics, not a missing feature',
+    !!loaded.cells && loaded.cells.includes('wd-weight') && loaded.type === 'weighted_bodyweight' && /BW \+/.test(loaded.chip || ''),
+    JSON.stringify(loaded));
+
+  const unloaded = await p.evaluate(async () => {
+    const pu = [...document.querySelectorAll('.exercise-block')].find(b => /Push-Up/.test(b.textContent));
+    pu?.querySelector('[data-testid="wd-bw-toggle"]')?.click();
+    await new Promise(r => setTimeout(r, 1200));
+    const w = (await Storage.getWorkouts()).find(x => x.source === 'backlog');
+    const ex = w.exercises.find(e => e.exerciseId === 'push-up');
+    return { type: ex?.type, weights: (ex?.sets || []).map(s => s.weight) };
+  });
+  check('tapping back zeroes the load — a bodyweight set stores 0, not a leftover',
+    unloaded.type === 'bodyweight' && unloaded.weights.every(w => w === 0), JSON.stringify(unloaded));
+
+  console.log('\n=== 4. the empty-session escape survives ===');
   await toSheet();
   await p.evaluate(() => document.querySelector('[data-testid="past-blank"]')?.click());
   await p.waitForTimeout(1200);
