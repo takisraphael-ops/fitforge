@@ -63,7 +63,8 @@ const SUITES = [
   { name: 'home-ledger', file: 'home-ledger.js', needsServer: true },
   { name: 'learn-hub', file: 'learn-hub.js', needsServer: true },
   { name: 'records-ledger', file: 'records-ledger.js', needsServer: true },
-  { name: 'nutrition-polish', file: 'nutrition-polish.js', needsServer: true }
+  { name: 'nutrition-polish', file: 'nutrition-polish.js', needsServer: true },
+  { name: 'past-session', file: 'past-session.js', needsServer: true }
 ];
 
 const up = () => new Promise((resolve) => {
