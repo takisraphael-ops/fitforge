@@ -4908,10 +4908,17 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
 }
 
 /* ================= The ignition cluster =================================
-   A cap sunk in a bezel, an engraved label, a ready ring, and a satellite
+   A cap sunk in a bezel, a printed label, the week ring, and a satellite
    control — the one button on the landing screen that should not look like a
    button. No red (that means over-budget here) and no photoreal metal; the
-   language transfers, the materials do not.                               */
+   language transfers, the materials do not.
+
+   The cap is machined flat, not domed. The dome shaded its rim toward black,
+   which read as lit metal on a dark ground and as a muddy sphere on a light
+   one — a light theme's accent is already the darkest thing on the screen,
+   so shading it further has nowhere to go. A solid cap with a hairline sheen
+   keeps the physicality in the bezel, where it survives every theme and all
+   four accent palettes without per-theme tuning.                          */
 .ignition {
   display: flex; align-items: center; gap: 18px;
   margin-top: 20px; min-width: 0;
@@ -4925,52 +4932,49 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   width: 116px; height: 116px; border-radius: 50%;
   border: 0; padding: 0; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
-  /* A dome: the highlight sits above centre so the cap reads as raised. */
-  background: radial-gradient(circle at 46% 28%,
-    color-mix(in srgb, var(--accent-hover) 52%, #fff) 0%,
-    var(--accent-hover) 30%,
-    var(--accent) 62%,
-    color-mix(in srgb, var(--accent) 64%, #000) 100%);
+  background: var(--accent);
   /* The bezel — a gap ring in the surface colour, then a machined edge. */
   box-shadow:
     0 0 0 4px var(--bg),
-    0 0 0 5.5px color-mix(in srgb, var(--accent) 42%, transparent),
-    0 14px 34px -10px color-mix(in srgb, var(--accent) 55%, transparent),
-    inset 0 -3px 10px color-mix(in srgb, #000 26%, transparent),
-    inset 0 2px 6px color-mix(in srgb, #fff 26%, transparent);
+    0 0 0 5.5px color-mix(in srgb, var(--accent) 40%, transparent),
+    0 10px 26px -12px color-mix(in srgb, var(--accent) 50%, transparent);
   transition: transform 120ms cubic-bezier(.2,.8,.2,1), box-shadow 120ms ease;
+}
+/* The hairline sheen: two soft glints, the way brushed metal catches light.
+   It rides a pseudo-element so the cap colour itself stays a flat token. */
+.ignition-btn::before {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(from 210deg,
+    transparent 0 12%, color-mix(in srgb, #fff 14%, transparent) 17%, transparent 24%,
+    transparent 55%, color-mix(in srgb, #fff 10%, transparent) 62%, transparent 70%);
+  pointer-events: none;
 }
 /* It has to feel like it goes in. */
 .ignition-btn:active {
   transform: scale(0.955);
   box-shadow:
     0 0 0 4px var(--bg),
-    0 0 0 5.5px color-mix(in srgb, var(--accent) 60%, transparent),
-    0 6px 16px -8px color-mix(in srgb, var(--accent) 50%, transparent),
-    inset 0 3px 12px color-mix(in srgb, #000 34%, transparent);
+    0 0 0 5.5px color-mix(in srgb, var(--accent) 58%, transparent),
+    0 5px 14px -8px color-mix(in srgb, var(--accent) 45%, transparent),
+    inset 0 2px 10px color-mix(in srgb, #000 22%, transparent);
 }
 .ignition-face { display: flex; flex-direction: column; align-items: center; gap: 3px; pointer-events: none; }
-/* Engraved, not printed: a dark face colour with a light edge under it. */
+/* Printed on the flat cap — the engraving shadow belonged to the dome. */
 .ignition-label {
   font-size: 19px; font-weight: 900; letter-spacing: 0.2em; text-indent: 0.2em;
   color: var(--on-accent);
-  text-shadow: 0 1px 0 color-mix(in srgb, #fff 26%, transparent);
 }
 .ignition-sub {
   font-size: 9.5px; font-weight: 800; letter-spacing: 0.22em; text-indent: 0.22em;
   color: color-mix(in srgb, var(--on-accent) 62%, transparent);
 }
-/* The ready ring. State, not ambience: it says the car is armed, and it is the
-   one thing on this screen you are meant to do. Slow and shallow on purpose. */
+/* The week ring. It pulsed as ambience once; now it is state — one arc
+   segment per session of the weekly goal, lit as they are banked, sharing
+   the ledger's rolling seven-day tally. Static by construction, so there is
+   nothing for reduced-motion to switch off. */
 .ignition-ring {
-  position: absolute; inset: -10px; border-radius: 50%;
-  border: 1.5px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  position: absolute; inset: -12px; width: calc(100% + 24px); height: calc(100% + 24px);
   pointer-events: none;
-  animation: ignReady 3s ease-in-out infinite;
-}
-@keyframes ignReady {
-  0%, 100% { opacity: .5;  transform: scale(1); }
-  50%      { opacity: .95; transform: scale(1.045); }
 }
 .ignition-side { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 9px; }
 .ignition-status {
@@ -5001,7 +5005,7 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   .ignition-hint { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ignition-ring { animation: none; opacity: .7; }
+  /* The week ring is static by construction; only the press motion remains. */
   .ignition-btn, .ignition-swap { transition: none; }
   .ignition-btn:active { transform: none; }
 }

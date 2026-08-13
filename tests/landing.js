@@ -239,12 +239,13 @@ const seed = async (o) => {
   //
   // Starting a workout is the biggest commitment the app asks for and it was a
   // rounded rectangle identical to every other primary button. It is a round
-  // cap in a bezel now, with a ready ring and a labelled satellite.
+  // cap in a bezel now, ringed by the week and beside a labelled satellite.
   //
   // The checks are about what makes it work rather than what makes it look
-  // good: it is round and large, it still scrolls the page, the ring is
-  // decoration that switches off, the satellite has a name, and holding it
-  // offers the same three ways in on every day of the week.
+  // good: it is round and large, it still scrolls the page, the ring tells the
+  // truth about the week (against storage, and against the ledger cell it
+  // shares a card with — never against itself), the satellite has a name, and
+  // holding it offers the same three ways in on every day of the week.
   console.log('\n=== 5. the ignition cluster ===');
   {
     await open({ plan: TRAIN, todaySlot: 'preset-pull', weekWork: 2 });
@@ -320,14 +321,52 @@ const seed = async (o) => {
     check('a tap starts the workout',
       await page.evaluate(() => Storage.getPref('activeWorkoutId').then(v => !!v)));
 
-    // The ready ring is decoration and has to switch off.
+    // The week ring is state, not ambience. The fixture banked two sessions
+    // this week and the goal pref defaults to four, so the ring must show
+    // exactly that — counted from what is painted (lit vs dim segments), and
+    // it must agree to the digit with the ledger's Week cell in the same card.
+    await open({ plan: TRAIN, todaySlot: 'preset-pull', weekWork: 2 });
+    const ring = await page.evaluate(() => {
+      const svg = document.querySelector('[data-testid="hero-start-workout"] .ignition-ring');
+      const segs = svg ? [...svg.querySelectorAll('path, circle')] : [];
+      const ledger = document.querySelector('[data-testid="ledger-week"] .ledger-value');
+      return {
+        segments: segs.length,
+        lit: segs.filter(s => parseFloat(s.style.opacity) > 0.6).length,
+        ledgerText: ledger ? ledger.textContent.trim() : null
+      };
+    });
+    console.log('   ', JSON.stringify(ring));
+    check('the ring has one segment per goal session', ring.segments === 4, String(ring.segments));
+    check('and lights exactly the sessions banked', ring.lit === 2, String(ring.lit));
+    check('and agrees with the ledger Week cell to the digit',
+      ring.ledgerText === '2 of 4', String(ring.ledgerText));
+
+    // A goal of one is a full circle, not a zero-length arc — and two banked
+    // sessions against a goal of one caps at all-lit rather than overdrawing.
+    await page.evaluate(() => Storage.setPref('weeklyWorkoutGoal', 1));
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(4200);
+    const one = await page.evaluate(() => {
+      const svg = document.querySelector('[data-testid="hero-start-workout"] .ignition-ring');
+      const segs = svg ? [...svg.querySelectorAll('path, circle')] : [];
+      return {
+        n: segs.length,
+        shape: segs[0] ? segs[0].tagName.toLowerCase() : null,
+        lit: segs.filter(s => parseFloat(s.style.opacity) > 0.6).length
+      };
+    });
+    check('a goal of one draws one full circle, lit once banked',
+      one.n === 1 && one.shape === 'circle' && one.lit === 1, JSON.stringify(one));
+
+    // Static by construction: nothing animates, with or without motion off.
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await open({ plan: TRAIN, todaySlot: 'preset-pull', weekWork: 2 });
     const still = await page.evaluate(() => {
       const r = document.querySelector('.ignition-ring');
       return r ? getComputedStyle(r).animationName : 'missing';
     });
-    check('with motion off the ready ring holds still', still === 'none', still);
+    check('with motion off the week ring holds still', still === 'none', still);
     await page.emulateMedia({ reducedMotion: 'no-preference' });
   }
 

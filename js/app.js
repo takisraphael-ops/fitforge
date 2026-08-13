@@ -99,7 +99,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=285").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=286").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -258,7 +258,7 @@
   // and shown at the foot of Settings. There was no way, from a phone, to
   // tell which build you were looking at — which cost several rounds of
   // debugging a fix that turned out never to have deployed.
-  const APP_VERSION = 285;
+  const APP_VERSION = 286;
   const isAccent = (id) => ACCENTS.some(a => a.id === id);
 
   // Keep the browser chrome (iOS status bar, Android task switcher) in step
@@ -4908,19 +4908,69 @@
   // one control on the landing screen that should not look like a button.
   //
   // Borrowed from an engine-start button: a round cap sunk in a bezel, an
-  // engraved label, a ring that says ready, and a satellite control beside it.
+  // engraved label, a ring around it, and a satellite control beside it.
   // Deliberately NOT borrowed: the red (red means over-budget here, and the
   // accent already means "you can touch this"), the flip cover (deliberate
   // friction is right for 1,000hp and wrong for something you do four times a
   // week — never add a step), and photoreal carbon and chrome, which read as
   // 2010 on a flat interface. The language transfers; the materials do not.
-  function ignitionCluster({ testId, onStart, onSwap, swapLabel }) {
+  //
+  // The ring is the week. It pulsed as ambience for two releases; permanent
+  // state is decoration, and decoration this close to the app's biggest
+  // commitment should be earning its place. Now it is a tachometer of arc
+  // segments — one per session of the weekly goal, lit as they are banked —
+  // sharing the rolling seven-day tally with the ledger's Week cell below,
+  // so the two can never disagree.
+  function weekRingSVG({ done, goal }) {
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", "0 0 140 140");
+    svg.setAttribute("class", "ignition-ring");
+    svg.setAttribute("aria-hidden", "true");
+    svg.dataset.done = String(Math.min(done, goal));
+    svg.dataset.goal = String(goal);
+    const C = 70, R = 66;
+    const lit = "var(--accent)";
+    const unlit = "color-mix(in srgb, var(--text) 24%, transparent)";
+    if (goal === 1) {
+      // One segment is a full circle; an arc from a point to itself draws nothing.
+      const ring = document.createElementNS(NS, "circle");
+      ring.setAttribute("cx", C); ring.setAttribute("cy", C); ring.setAttribute("r", R);
+      ring.setAttribute("fill", "none");
+      ring.setAttribute("stroke-width", "3");
+      ring.style.stroke = done >= 1 ? lit : unlit;
+      ring.style.opacity = done >= 1 ? "0.95" : "0.45";
+      svg.appendChild(ring);
+      return svg;
+    }
+    const slot = 360 / goal;
+    const trim = Math.min(7, slot * 0.18); // breathing room; stays visible at goal 14
+    const rad = (d) => (d * Math.PI) / 180;
+    for (let i = 0; i < goal; i++) {
+      const a0 = -90 + i * slot + trim, a1 = -90 + (i + 1) * slot - trim;
+      const p = document.createElementNS(NS, "path");
+      p.setAttribute("d",
+        `M ${C + R * Math.cos(rad(a0))} ${C + R * Math.sin(rad(a0))} ` +
+        `A ${R} ${R} 0 0 1 ${C + R * Math.cos(rad(a1))} ${C + R * Math.sin(rad(a1))}`);
+      p.setAttribute("fill", "none");
+      p.setAttribute("stroke-width", "3");
+      p.setAttribute("stroke-linecap", "round");
+      p.style.stroke = i < done ? lit : unlit;
+      p.style.opacity = i < done ? "0.95" : "0.45";
+      svg.appendChild(p);
+    }
+    return svg;
+  }
+
+  function ignitionCluster({ testId, onStart, onSwap, swapLabel, week }) {
     const btn = el("button", {
       class: "ignition-btn", type: "button", "data-testid": testId,
-      "aria-label": "Start workout",
+      "aria-label": week
+        ? `Start workout. ${Math.min(week.done, week.goal)} of ${week.goal} sessions this week`
+        : "Start workout",
       on: { click: onStart }
     },
-      el("span", { class: "ignition-ring", "aria-hidden": "true" }),
+      week ? weekRingSVG(week) : null,
       el("span", { class: "ignition-face" },
         el("span", { class: "ignition-label" }, "START"),
         el("span", { class: "ignition-sub" }, "WORKOUT")
@@ -4961,9 +5011,21 @@
     );
   }
 
+  // The same rolling seven-day window the ledger's Week cell counts. The
+  // ignition ring and that cell render inches apart in one card; they must
+  // come from one tally or they will eventually disagree.
+  function rollingWeekTally(completed) {
+    const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
+    return {
+      done: (completed || []).filter(w => new Date(w.date) >= weekAgo).length,
+      goal: Math.max(1, Number(state.prefs.weeklyWorkoutGoal) || 4)
+    };
+  }
+
   function buildTodayWorkoutHero(opts) {
     const { plan, tplById, exById } = opts;
     const hasPlan = planHasAny(plan);
+    const weekTally = rollingWeekTally(opts.completed);
     const todayKey = weekdayKeyFor();
     const assign = plan[todayKey];
     const arrow = '<svg viewBox="0 0 16 16" width="16" height="16"><path d="M3 8h9M8 3.5L12.5 8 8 12.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -5117,7 +5179,8 @@
             testId: "hero-start-focus",
             onStart: () => { pendingPickerCat = focusDay.cat; goTab("workout"); },
             onSwap: () => { pendingPickerCat = null; goTab("workout"); },
-            swapLabel: "Something else"
+            swapLabel: "Something else",
+            week: weekTally
           })
         )
       );
@@ -5155,7 +5218,8 @@
           ignitionCluster({
             testId: "hero-start-workout",
             onStart: () => startNewWorkout(tpl),
-            onSwap: () => goTab("workout")
+            onSwap: () => goTab("workout"),
+            week: weekTally
           })
         )
       );

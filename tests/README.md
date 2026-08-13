@@ -179,9 +179,15 @@ rounded rectangle identical to every other primary button. Its checks are about
 what makes it work rather than what makes it look good: round and ≥100px, its
 ring clear of the screen edge, hit-testable at its own centre, a `touch-action`
 it does not steal, a satellite control with a readable name, and the same three
-ways in whenever you hold it. Four mutations are caught — rectangle (1), the
-scroll opt-out removed (1), the reduced-motion rule dropped (1), the swap label
-removed (1).
+ways in whenever you hold it. The ring around the cap is the week — one arc
+segment per session of the weekly goal, lit as they are banked — and it is
+checked the way the rest-day summary is: against the fixture in storage (two
+banked, goal four) and against the ledger's Week cell it shares a card with,
+never against its own dataset. A goal of one is required to draw a full
+circle (an arc from a point to itself draws nothing), and banking past the
+goal caps at all-lit. Mutations caught — rectangle (1), the scroll opt-out
+removed (1), the swap label removed (1), the ring dropped or left ambient
+(3, verified failing against the domed pre-286 cap).
 
 Two things this file got wrong and now does not. Every fixture states what
 **today** is, because which hero renders depends on the weekday and the
