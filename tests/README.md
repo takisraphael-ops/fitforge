@@ -191,10 +191,15 @@ today — a literal `2` would fail on a Monday run. The open day is covered
 too: it used to fall back to a plain rectangle and a stacked second button,
 and is now required to carry the same cluster — cap, truthful ring, and the
 satellite renamed to the sessions library — with the old pair asserted gone.
-Mutations caught — rectangle (1), the scroll opt-out removed (1), the swap
-label removed (1), the ring dropped or left ambient (3, verified failing
-against the domed pre-286 cap), the open-day rectangle restored (4, verified
-failing against v286).
+The "Hold Start for more" hint is checked for both halves of its life: shown
+to a user who has never opened the hold menu, gone on the render after the
+first real use — the pref is `radialDiscovered`, the same mark the quick
+sheet's tip has always retired on, and the test drives the actual hold
+rather than writing the pref by hand. Mutations caught — rectangle (1), the
+scroll opt-out removed (1), the swap label removed (1), the ring dropped or
+left ambient (3, verified failing against the domed pre-286 cap), the
+open-day rectangle restored (4, verified failing against v286), the hint
+made permanent again (1, verified failing against v287).
 
 Two things this file got wrong and now does not. Every fixture states what
 **today** is, because which hero renders depends on the weekday and the
