@@ -321,11 +321,19 @@ const seed = async (o) => {
     check('a tap starts the workout',
       await page.evaluate(() => Storage.getPref('activeWorkoutId').then(v => !!v)));
 
-    // The week ring is state, not ambience. The fixture banked two sessions
-    // this week and the goal pref defaults to four, so the ring must show
-    // exactly that — counted from what is painted (lit vs dim segments), and
-    // it must agree to the digit with the ledger's Week cell in the same card.
+    // The week ring is state, not ambience: one segment per goal session,
+    // lit as banked — counted from what is painted (lit vs dim segments),
+    // asserted against what is actually in storage, and required to agree to
+    // the digit with the ledger's Week cell in the same card. The expected
+    // count is derived from storage rather than hardcoded at the fixture's
+    // 2, because the fixture seeds from Monday and stops at today — run on a
+    // Monday it banks one, and a literal here would fail on the weekday.
     await open({ plan: TRAIN, todaySlot: 'preset-pull', weekWork: 2 });
+    const banked = await page.evaluate(async () => {
+      const ws = await Storage.getWorkouts();
+      const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
+      return ws.filter(w => w.completedAt && new Date(w.date) >= weekAgo).length;
+    });
     const ring = await page.evaluate(() => {
       const svg = document.querySelector('[data-testid="hero-start-workout"] .ignition-ring');
       const segs = svg ? [...svg.querySelectorAll('path, circle')] : [];
@@ -336,11 +344,11 @@ const seed = async (o) => {
         ledgerText: ledger ? ledger.textContent.trim() : null
       };
     });
-    console.log('   ', JSON.stringify(ring));
+    console.log('   ', JSON.stringify({ banked, ...ring }));
     check('the ring has one segment per goal session', ring.segments === 4, String(ring.segments));
-    check('and lights exactly the sessions banked', ring.lit === 2, String(ring.lit));
+    check('and lights exactly the sessions banked', ring.lit === banked, `${ring.lit} vs ${banked} in storage`);
     check('and agrees with the ledger Week cell to the digit',
-      ring.ledgerText === '2 of 4', String(ring.ledgerText));
+      ring.ledgerText === `${banked} of 4`, String(ring.ledgerText));
 
     // A goal of one is a full circle, not a zero-length arc — and two banked
     // sessions against a goal of one caps at all-lit rather than overdrawing.
@@ -358,6 +366,42 @@ const seed = async (o) => {
     });
     check('a goal of one draws one full circle, lit once banked',
       one.n === 1 && one.shape === 'circle' && one.lit === 1, JSON.stringify(one));
+
+    // The open day used to fall back to a plain rectangle and a second
+    // stacked button — the one state that abandoned the ignition, on exactly
+    // the day the other ways in matter most. It gets the same cluster now:
+    // same cap, same truthful ring, the satellite carrying the sessions
+    // library. The fixture plans tomorrow and leaves today unset, which is
+    // what makes today an open day whatever weekday the suite runs on.
+    const notToday = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'][((new Date().getDay() + 6) % 7 + 1) % 7];
+    await open({ plan: { [notToday]: 'preset-push' }, weekWork: 2 });
+    const openDay = await page.evaluate(() => {
+      const n = document.querySelector('[data-testid="hero-start-open"]');
+      if (!n) return null;
+      const r = n.getBoundingClientRect();
+      const svg = n.querySelector('.ignition-ring');
+      const segs = svg ? [...svg.querySelectorAll('path, circle')] : [];
+      const swap = document.querySelector('[data-testid="hero-swap"]');
+      return {
+        w: Math.round(r.width),
+        round: Math.round(r.width) === Math.round(r.height) &&
+          (/50%|9999/.test(getComputedStyle(n).borderTopLeftRadius) ||
+           parseFloat(getComputedStyle(n).borderTopLeftRadius) >= r.width / 2 - 1),
+        segments: segs.length,
+        lit: segs.filter(s => parseFloat(s.style.opacity) > 0.6).length,
+        swapText: swap ? swap.textContent.trim() : null,
+        oldButtons: !!document.querySelector('[data-testid="hero-pick-session"]')
+      };
+    });
+    console.log('   open day ->', JSON.stringify(openDay));
+    check('an open day gets the ignition, not a rectangle',
+      !!openDay && openDay.round && openDay.w >= 100, openDay ? `${openDay.w}px` : 'missing');
+    check('its ring still tells the week',
+      !!openDay && openDay.segments === 4 && openDay.lit === banked,
+      openDay ? `${openDay.lit}/${openDay.segments} vs ${banked} in storage` : 'missing');
+    check('the satellite carries the sessions library',
+      !!openDay && openDay.swapText === 'Pick a session', openDay && openDay.swapText);
+    check('and the stacked pair of buttons is gone', !!openDay && !openDay.oldButtons);
 
     // Static by construction: nothing animates, with or without motion off.
     await page.emulateMedia({ reducedMotion: 'reduce' });

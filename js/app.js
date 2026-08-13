@@ -99,7 +99,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=286").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=287").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -258,7 +258,7 @@
   // and shown at the foot of Settings. There was no way, from a phone, to
   // tell which build you were looking at — which cost several rounds of
   // debugging a fix that turned out never to have deployed.
-  const APP_VERSION = 286;
+  const APP_VERSION = 287;
   const isAccent = (id) => ACCENTS.some(a => a.id === id);
 
   // Keep the browser chrome (iOS status bar, Android task switcher) in step
@@ -4977,9 +4977,12 @@
       )
     );
 
-    // Hold for the other ways in. None of these duplicates the swap beside it,
-    // and the set is the same three whatever the day holds — "Repeat" stays
-    // put on a fresh install and says so rather than going missing.
+    // Hold for the other ways in. The set is the same three whatever the day
+    // holds — "Repeat" stays put on a fresh install and says so rather than
+    // going missing. On planned and focus days none of these duplicates the
+    // swap beside it; on an open day the swap and "Sessions" deliberately
+    // meet, because the library is that day's main alternative and must be
+    // reachable without knowing the hold exists.
     attachRadial(btn, {
       label: "Other ways to start",
       // 116px of the page scroller: without this a drag that starts on the cap
@@ -5028,7 +5031,6 @@
     const weekTally = rollingWeekTally(opts.completed);
     const todayKey = weekdayKeyFor();
     const assign = plan[todayKey];
-    const arrow = '<svg viewBox="0 0 16 16" width="16" height="16"><path d="M3 8h9M8 3.5L12.5 8 8 12.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     const editLink = () => el("button", {
       class: "today-hero-edit", type: "button", "data-testid": "hero-edit-week",
       on: { click: openWeeklyPlanQuiz }
@@ -5225,7 +5227,12 @@
       );
     }
 
-    // Plan exists but today is open (or its template was deleted).
+    // Plan exists but today is open (or its template was deleted). This was
+    // the one state that fell back to a plain rectangle — precisely the
+    // control the ignition exists to not be, and the day when the other ways
+    // in matter most. Same cluster as a planned day; the satellite carries
+    // the sessions library, because an open day's real question is "what
+    // should I do?".
     return el("div", { class: "card today-hero today-hero-open", "data-testid": "today-hero" },
       el("div", { class: "row-between", style: "align-items:flex-start;gap:10px" },
         el("div", {},
@@ -5235,16 +5242,13 @@
         ),
         editLink()
       ),
-      el("button", {
-        class: "btn btn-primary btn-block today-hero-start mt-8", "data-testid": "hero-start-open",
-        on: { click: () => goTab("workout") }
-      }, "Start a workout", el("span", { class: "today-hero-arrow", html: arrow })),
-      // On an open day the real question is "what should I do?" — offer the
-      // ready-made library right here rather than making them go find it.
-      el("button", {
-        class: "btn btn-block mt-8", "data-testid": "hero-pick-session",
-        on: { click: () => { goTab("workout"); setTimeout(openSessionsSheet, 260); } }
-      }, "Pick a ready-made session")
+      ignitionCluster({
+        testId: "hero-start-open",
+        onStart: () => goTab("workout"),
+        onSwap: () => { goTab("workout"); setTimeout(openSessionsSheet, 260); },
+        swapLabel: "Pick a session",
+        week: weekTally
+      })
     );
   }
 
