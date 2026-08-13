@@ -99,7 +99,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=287").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=288").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -258,7 +258,7 @@
   // and shown at the foot of Settings. There was no way, from a phone, to
   // tell which build you were looking at — which cost several rounds of
   // debugging a fix that turned out never to have deployed.
-  const APP_VERSION = 287;
+  const APP_VERSION = 288;
   const isAccent = (id) => ACCENTS.some(a => a.id === id);
 
   // Keep the browser chrome (iOS status bar, Android task switcher) in step
@@ -5009,7 +5009,13 @@
           el("span", { class: "ignition-swap-ic", "aria-hidden": "true", html: '<svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 7h11M4 7l3-3M4 7l3 3M20 17H9m11 0l-3-3m3 3l-3 3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>' }),
           swapLabel || "Swap session"
         ),
-        el("div", { class: "ignition-hint" }, "Hold Start for more")
+        // The hint retires itself: attachRadial marks radialDiscovered the
+        // first time the hold menu opens anywhere, and after that this line
+        // is advice already taken — the same rule the quick sheet's tip has
+        // always followed, on the same pref.
+        (state.prefs && !state.prefs.radialDiscovered)
+          ? el("div", { class: "ignition-hint" }, "Hold Start for more")
+          : null
       )
     );
   }

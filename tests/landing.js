@@ -403,6 +403,40 @@ const seed = async (o) => {
       !!openDay && openDay.swapText === 'Pick a session', openDay && openDay.swapText);
     check('and the stacked pair of buttons is gone', !!openDay && !openDay.oldButtons);
 
+    // The hold hint retires itself. Every fixture above seeds
+    // radialDiscovered true, so first flip it back: a fresh user is told
+    // "Hold Start for more"; one real use of the hold sets the pref (that is
+    // attachRadial's own discovery mark), and on the next render the line is
+    // advice already taken and stops appearing — the quick sheet tip's rule,
+    // now enforced on the ignition too.
+    await open({ plan: TRAIN, todaySlot: 'preset-pull', weekWork: 2 });
+    await page.evaluate(() => Storage.setPref('radialDiscovered', false));
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(4200);
+    const hintFresh = await page.evaluate(() => {
+      const h = document.querySelector('.ignition-hint');
+      return h ? h.textContent.trim() : null;
+    });
+    check('a fresh user is taught the hold', hintFresh === 'Hold Start for more', String(hintFresh));
+
+    const at3 = await page.evaluate(() => {
+      const r = document.querySelector('[data-testid="hero-start-workout"]').getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await page.mouse.move(at3.x, at3.y);
+    await page.mouse.down();
+    await page.waitForTimeout(600);
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(4200);
+    const hintAfter = await page.evaluate(async () => ({
+      discovered: await Storage.getPref('radialDiscovered'),
+      hint: !!document.querySelector('.ignition-hint')
+    }));
+    check('one real hold retires it for good',
+      hintAfter.discovered === true && !hintAfter.hint, JSON.stringify(hintAfter));
+
     // Static by construction: nothing animates, with or without motion off.
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await open({ plan: TRAIN, todaySlot: 'preset-pull', weekWork: 2 });
