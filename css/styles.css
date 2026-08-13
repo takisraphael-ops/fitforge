@@ -5085,17 +5085,6 @@ html.dark[data-daypart="night"] { --hero-wash-a: #151c35; --hero-wash-b: #0b0d16
   font-size: 13px; font-weight: 500; color: var(--text); white-space: nowrap;
 }
 .today-hero-chip.is-more { color: var(--accent); font-weight: 700; }
-.today-hero-actions { display: flex; align-items: center; gap: 11px; margin-top: 16px; }
-.today-hero-start {
-  flex: 1; display: flex; align-items: center; justify-content: center; gap: 9px;
-  padding: 15px 16px; font-size: 16px; font-weight: 700; border-radius: 14px;
-}
-.today-hero-arrow { display: flex; }
-.today-hero-swap {
-  flex: none; width: 52px; height: 52px; border-radius: 14px;
-  background: var(--bg-sunken); border: 1px solid var(--border); color: var(--accent);
-  cursor: pointer; display: flex; align-items: center; justify-content: center;
-}
 .today-hero-browse, .today-hero-rest-cta { flex: none; }
 /* A quiet pill, not accent text. It sat on the eyebrow's baseline in the
    eyebrow's colour at a similar weight, so the eye read "TODAY · TUESDAY" and

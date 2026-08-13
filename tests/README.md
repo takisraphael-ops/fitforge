@@ -185,9 +185,16 @@ checked the way the rest-day summary is: against the fixture in storage (two
 banked, goal four) and against the ledger's Week cell it shares a card with,
 never against its own dataset. A goal of one is required to draw a full
 circle (an arc from a point to itself draws nothing), and banking past the
-goal caps at all-lit. Mutations caught — rectangle (1), the scroll opt-out
-removed (1), the swap label removed (1), the ring dropped or left ambient
-(3, verified failing against the domed pre-286 cap).
+goal caps at all-lit. The banked count is derived from storage at check time
+rather than hardcoded, because the fixture seeds from Monday and stops at
+today — a literal `2` would fail on a Monday run. The open day is covered
+too: it used to fall back to a plain rectangle and a stacked second button,
+and is now required to carry the same cluster — cap, truthful ring, and the
+satellite renamed to the sessions library — with the old pair asserted gone.
+Mutations caught — rectangle (1), the scroll opt-out removed (1), the swap
+label removed (1), the ring dropped or left ambient (3, verified failing
+against the domed pre-286 cap), the open-day rectangle restored (4, verified
+failing against v286).
 
 Two things this file got wrong and now does not. Every fixture states what
 **today** is, because which hero renders depends on the weekday and the
