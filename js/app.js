@@ -99,7 +99,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=289").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=290").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -258,7 +258,7 @@
   // and shown at the foot of Settings. There was no way, from a phone, to
   // tell which build you were looking at — which cost several rounds of
   // debugging a fix that turned out never to have deployed.
-  const APP_VERSION = 289;
+  const APP_VERSION = 290;
   const isAccent = (id) => ACCENTS.some(a => a.id === id);
 
   // Keep the browser chrome (iOS status bar, Android task switcher) in step
@@ -3251,8 +3251,15 @@
     // ghost outward from it. Anyone whose thumb lingers discovers the menu by
     // accident and never has to be told; anyone who taps crisply never sees it,
     // because it does not start until 130ms in.
+    //
+    // A trigger can bring its own progress cue (opts.holdCue): the ignition's
+    // week ring sweeps in place, and drawing the generic fill ring on top of
+    // it would be two clocks for one hold. The ghosts still come from here —
+    // where the slices will land is this module's knowledge, not the
+    // trigger's.
     let hint = null;
     function hideHint() {
+      if (opts.holdCue) opts.holdCue(false);
       if (!hint) return;
       hint.remove();
       hint = null;
@@ -3265,22 +3272,26 @@
       const circ = 2 * Math.PI * RING;
       const wrap = el("div", { class: "radial-hint", "data-testid": "radial-hint", "aria-hidden": "true" });
 
-      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      svg.setAttribute("viewBox", `0 0 ${box} ${box}`);
-      svg.setAttribute("class", "radial-hint-ring");
-      svg.style.cssText = `left:${cx}px; top:${cy}px; width:${box}px; height:${box}px`;
-      for (const [cls, extra] of [["radial-hint-track", ""], ["radial-hint-fill", `stroke-dasharray:${circ}; stroke-dashoffset:${circ}`]]) {
-        const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-        c.setAttribute("cx", box / 2); c.setAttribute("cy", box / 2);
-        c.setAttribute("r", RING); c.setAttribute("class", cls);
-        if (extra) c.style.cssText = extra;
-        svg.appendChild(c);
+      if (opts.holdCue) {
+        opts.holdCue(true);
+      } else {
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("viewBox", `0 0 ${box} ${box}`);
+        svg.setAttribute("class", "radial-hint-ring");
+        svg.style.cssText = `left:${cx}px; top:${cy}px; width:${box}px; height:${box}px`;
+        for (const [cls, extra] of [["radial-hint-track", ""], ["radial-hint-fill", `stroke-dasharray:${circ}; stroke-dashoffset:${circ}`]]) {
+          const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+          c.setAttribute("cx", box / 2); c.setAttribute("cy", box / 2);
+          c.setAttribute("r", RING); c.setAttribute("class", cls);
+          if (extra) c.style.cssText = extra;
+          svg.appendChild(c);
+        }
+        // The fill is the remaining hold, honestly: it starts when the hint
+        // does and completes exactly when the menu opens.
+        svg.querySelector(".radial-hint-fill").style.animation =
+          `radialHintFill ${RADIAL_HOLD_MS - RADIAL_HINT_MS}ms linear forwards`;
+        wrap.appendChild(svg);
       }
-      // The fill is the remaining hold, honestly: it starts when the hint does
-      // and completes exactly when the menu opens.
-      svg.querySelector(".radial-hint-fill").style.animation =
-        `radialHintFill ${RADIAL_HOLD_MS - RADIAL_HINT_MS}ms linear forwards`;
-      wrap.appendChild(svg);
 
       for (const [i, p] of layout(cx, cy, itemsOf()).entries()) {
         const g = el("div", {
@@ -5004,6 +5015,27 @@
       )
     );
 
+    // The hold cue rides the week ring. Holding sweeps a bright arc around
+    // the ring's own track — it starts when the radial's generic hint would,
+    // so a crisp tap never sees it, and its duration is set here from the
+    // radial's constants so it completes exactly as the menu opens: the same
+    // honest contract the small centred fill ring kept, drawn where this
+    // control's attention already lives instead of on top of the cap.
+    const holdNS = "http://www.w3.org/2000/svg";
+    const holdSvg = document.createElementNS(holdNS, "svg");
+    holdSvg.setAttribute("viewBox", "0 0 140 140");
+    holdSvg.setAttribute("class", "ignition-hold-arc");
+    holdSvg.setAttribute("aria-hidden", "true");
+    const holdArc = document.createElementNS(holdNS, "circle");
+    holdArc.setAttribute("cx", "70"); holdArc.setAttribute("cy", "70");
+    holdArc.setAttribute("r", "66");
+    holdArc.setAttribute("fill", "none");
+    holdArc.setAttribute("stroke-width", "3");
+    holdArc.setAttribute("pathLength", "100");
+    holdArc.style.animationDuration = (RADIAL_HOLD_MS - RADIAL_HINT_MS) + "ms";
+    holdSvg.appendChild(holdArc);
+    btn.appendChild(holdSvg);
+
     // Hold for the other ways in. The set is the same three whatever the day
     // holds — "Repeat" stays put on a fresh install and says so rather than
     // going missing. On planned and focus days none of these duplicates the
@@ -5012,6 +5044,7 @@
     // reachable without knowing the hold exists.
     attachRadial(btn, {
       label: "Other ways to start",
+      holdCue: (active) => btn.classList.toggle("is-holding", active),
       // 116px of the page scroller: without this a drag that starts on the cap
       // refuses to move the page, which is a lot of dead zone for a control
       // sitting in the middle of the landing screen.

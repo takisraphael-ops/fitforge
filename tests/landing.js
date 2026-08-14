@@ -486,7 +486,54 @@ const seed = async (o) => {
     check('with no history at all it still just says Ready',
       fresh === 'Ready', String(fresh));
 
-    // Static by construction: nothing animates, with or without motion off.
+    // The hold cue rides the week ring, not a foreign instrument on the cap.
+    // Mid-hold: the ring's track sweeps, its duration pinned to the radial's
+    // own constants (parsed from the source, so drift is a failure); the
+    // small centred fill ring is gone for this trigger; the ghost previews —
+    // which are the radial's knowledge of where its slices land — survive.
+    // The release steps 60px off the cap first, so no click fires and no
+    // workout starts under the remaining checks.
+    await open({ plan: TRAIN, todaySlot: 'preset-pull', weekWork: 2 });
+    const src = fs.readFileSync(path.resolve(__dirname, '..', 'js', 'app.js'), 'utf8');
+    const holdMs = Number((src.match(/RADIAL_HOLD_MS = (\d+)/) || [])[1]);
+    const hintMs = Number((src.match(/RADIAL_HINT_MS = (\d+)/) || [])[1]);
+    const at4 = await page.evaluate(() => {
+      const r = document.querySelector('[data-testid="hero-start-workout"]').getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await page.mouse.move(at4.x, at4.y);
+    await page.mouse.down();
+    await page.waitForTimeout(260);   // past the hint's 130ms, short of the 420ms hold
+    const mid = await page.evaluate(() => {
+      const btn = document.querySelector('[data-testid="hero-start-workout"]');
+      const arc = btn.querySelector('.ignition-hold-arc circle');
+      const cs = arc ? getComputedStyle(arc) : null;
+      return {
+        holding: btn.classList.contains('is-holding'),
+        anim: cs ? cs.animationName : null,
+        durMs: cs ? Math.round(parseFloat(cs.animationDuration) * 1000) : null,
+        centredRing: !!document.querySelector('.radial-hint-ring'),
+        ghosts: document.querySelectorAll('.radial-hint-ghost').length
+      };
+    });
+    console.log('   mid-hold ->', JSON.stringify(mid));
+    check('mid-hold the week ring sweeps',
+      mid.holding && mid.anim === 'ignHoldSweep', JSON.stringify({ holding: mid.holding, anim: mid.anim }));
+    check('and the sweep ends exactly when the menu opens',
+      hintMs + mid.durMs === holdMs, `${hintMs} + ${mid.durMs} vs ${holdMs}`);
+    check('the centred fill ring is gone for this trigger', !mid.centredRing);
+    check('the ghost previews survive', mid.ghosts === 3, String(mid.ghosts));
+    await page.mouse.move(at4.x, at4.y + 60, { steps: 4 });
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+    const withdrawn = await page.evaluate(() => {
+      const btn = document.querySelector('[data-testid="hero-start-workout"]');
+      return btn ? !btn.classList.contains('is-holding') : false;
+    });
+    check('releasing short of the hold withdraws the cue', withdrawn);
+
+    // Static by construction: nothing animates, with or without motion off —
+    // and mid-hold the sweep sits out along with the rest of the motion.
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await open({ plan: TRAIN, todaySlot: 'preset-pull', weekWork: 2 });
     const still = await page.evaluate(() => {
@@ -494,6 +541,20 @@ const seed = async (o) => {
       return r ? getComputedStyle(r).animationName : 'missing';
     });
     check('with motion off the week ring holds still', still === 'none', still);
+    const at5 = await page.evaluate(() => {
+      const r = document.querySelector('[data-testid="hero-start-workout"]').getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await page.mouse.move(at5.x, at5.y);
+    await page.mouse.down();
+    await page.waitForTimeout(260);
+    const quiet = await page.evaluate(() => {
+      const arc = document.querySelector('[data-testid="hero-start-workout"] .ignition-hold-arc circle');
+      return arc ? getComputedStyle(arc).animationName : 'missing';
+    });
+    check('and with motion off the hold sweep sits out', quiet === 'none', quiet);
+    await page.mouse.move(at5.x, at5.y + 60, { steps: 4 });
+    await page.mouse.up();
     await page.emulateMedia({ reducedMotion: 'no-preference' });
   }
 

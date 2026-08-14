@@ -4976,6 +4976,35 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   position: absolute; inset: -12px; width: calc(100% + 24px); height: calc(100% + 24px);
   pointer-events: none;
 }
+/* The hold cue. Holding the cap sweeps a bright arc around the week ring's
+   own track, replacing the radial's small centred fill ring, which sat on
+   top of the cap like a foreign instrument. The class arrives from the
+   radial's hint timing (never on a crisp tap) and the duration arrives
+   inline from RADIAL_HOLD_MS − RADIAL_HINT_MS, so the sweep completes
+   exactly as the menu opens and cannot drift from the constants. */
+.ignition-hold-arc {
+  position: absolute; inset: -12px; width: calc(100% + 24px); height: calc(100% + 24px);
+  pointer-events: none;
+}
+.ignition-hold-arc circle {
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  opacity: 0;
+  transform: rotate(-90deg);
+  transform-origin: center;
+}
+.ignition-btn.is-holding .ignition-hold-arc circle {
+  animation-name: ignHoldSweep;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+  /* animation-duration is inline, from the radial's own constants */
+}
+@keyframes ignHoldSweep {
+  from { opacity: .95; stroke-dashoffset: 100; }
+  to   { opacity: .95; stroke-dashoffset: 0; }
+}
 .ignition-side { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 9px; }
 .ignition-status {
   display: inline-flex; align-items: center; gap: 7px;
@@ -5005,9 +5034,11 @@ input.num-tap { cursor: pointer; caret-color: transparent; }
   .ignition-hint { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  /* The week ring is static by construction; only the press motion remains. */
+  /* The week ring is static by construction; only the press motion remains,
+     and the hold sweep goes with the rest of the motion. */
   .ignition-btn, .ignition-swap { transition: none; }
   .ignition-btn:active { transform: none; }
+  .ignition-btn.is-holding .ignition-hold-arc circle { animation-name: none; }
 }
 
 /* Banked this week — the rest day's answer to "what is this rest for". */
