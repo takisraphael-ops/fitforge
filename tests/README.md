@@ -205,7 +205,14 @@ caught — rectangle (1), the scroll opt-out removed (1), the swap label
 removed (1), the ring dropped or left ambient (3, verified failing against
 the domed pre-286 cap), the open-day rectangle restored (4, verified failing
 against v286), the hint made permanent again (1, verified failing against
-v287), READY made constant again (4, verified failing against v288).
+v287), READY made constant again (4, verified failing against v288), the
+hold cue dropped back to the centred fill ring (4, verified failing against
+v289). The hold-cue checks drive a real mid-hold press: the week ring's
+track must sweep with a duration equal to `RADIAL_HOLD_MS − RADIAL_HINT_MS`
+— both parsed from the source, so a drifted constant is a failure — the
+radial's centred fill ring must be absent for this trigger while its ghost
+previews survive, releasing short of the hold withdraws the cue, and under
+reduced motion the sweep sits out.
 
 Two things this file got wrong and now does not. Every fixture states what
 **today** is, because which hero renders depends on the weekday and the
