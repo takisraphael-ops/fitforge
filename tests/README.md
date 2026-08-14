@@ -195,11 +195,17 @@ The "Hold Start for more" hint is checked for both halves of its life: shown
 to a user who has never opened the hold menu, gone on the render after the
 first real use — the pref is `radialDiscovered`, the same mark the quick
 sheet's tip has always retired on, and the test drives the actual hold
-rather than writing the pref by hand. Mutations caught — rectangle (1), the
-scroll opt-out removed (1), the swap label removed (1), the ring dropped or
-left ambient (3, verified failing against the domed pre-286 cap), the
-open-day rectangle restored (4, verified failing against v286), the hint
-made permanent again (1, verified failing against v287).
+rather than writing the pref by hand. The status line beside the cap is
+checked for all four of its truths: a planned session never done before says
+"First time"; one with history says when it last happened (banked by
+templateId, dated yesterday so the check is weekday-proof); an open day says
+when anything was last trained, recomputed from storage with the suite's own
+arithmetic; and "Ready" survives only with no history at all. Mutations
+caught — rectangle (1), the scroll opt-out removed (1), the swap label
+removed (1), the ring dropped or left ambient (3, verified failing against
+the domed pre-286 cap), the open-day rectangle restored (4, verified failing
+against v286), the hint made permanent again (1, verified failing against
+v287), READY made constant again (4, verified failing against v288).
 
 Two things this file got wrong and now does not. Every fixture states what
 **today** is, because which hero renders depends on the weekday and the

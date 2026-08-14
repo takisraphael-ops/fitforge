@@ -437,6 +437,55 @@ const seed = async (o) => {
     check('one real hold retires it for good',
       hintAfter.discovered === true && !hintAfter.hint, JSON.stringify(hintAfter));
 
+    // The status line is last-trained context now, not a constant READY.
+    // Four truths, each against storage: a planned session never done before
+    // says so; one with history says when it last happened; an open day says
+    // when anything was; and "Ready" survives only with no history at all.
+    await open({ plan: TRAIN, todaySlot: 'preset-pull', weekWork: 2 });
+    const firstTime = await page.evaluate(() =>
+      document.querySelector('[data-testid="ignition-status"]')?.textContent.trim());
+    check('a planned session never done before says so',
+      firstTime === 'First time', String(firstTime));
+
+    // Bank this very session yesterday (by templateId) and the line becomes
+    // a date — "yesterday" is weekday-proof, unlike the Monday-seeded bank.
+    await page.evaluate(async () => {
+      const d = new Date(); d.setDate(d.getDate() - 1);
+      await Storage.saveWorkout({
+        id: 'pull-yesterday', name: 'Renamed', templateId: 'preset-pull',
+        date: U.todayISO(d), startedAt: d.getTime(),
+        completedAt: d.getTime() + 50 * 60 * 1000, durationSec: 50 * 60,
+        exercises: [{ exerciseId: 'bench-press-barbell', name: 'Bench', type: 'weighted',
+          sets: [{ weight: 60, reps: 8, done: true }] }]
+      });
+    });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(4200);
+    const lastTime = await page.evaluate(() =>
+      document.querySelector('[data-testid="ignition-status"]')?.textContent.trim());
+    check('a session with history says when it last happened',
+      lastTime === 'Last time · yesterday', String(lastTime));
+
+    // The open day speaks to any training, recomputed from storage with the
+    // suite's own arithmetic rather than read back from the app's.
+    await open({ plan: { [notToday]: 'preset-push' }, weekWork: 2 });
+    const openStatus = await page.evaluate(async () => {
+      const shown = document.querySelector('[data-testid="ignition-status"]')?.textContent.trim();
+      const ws = (await Storage.getWorkouts()).filter(w => w.completedAt && w.date);
+      const latest = ws.reduce((a, b) => (a.date > b.date ? a : b));
+      const d = Math.round((Date.parse(U.todayISO()) - Date.parse(latest.date)) / 86400000);
+      const want = d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`;
+      return { shown, want: `Last trained · ${want}` };
+    });
+    check('an open day says when anything was last trained',
+      openStatus.shown === openStatus.want, JSON.stringify(openStatus));
+
+    await open({ plan: TRAIN, todaySlot: 'preset-pull', weekWork: 0 });
+    const fresh = await page.evaluate(() =>
+      document.querySelector('[data-testid="ignition-status"]')?.textContent.trim());
+    check('with no history at all it still just says Ready',
+      fresh === 'Ready', String(fresh));
+
     // Static by construction: nothing animates, with or without motion off.
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await open({ plan: TRAIN, todaySlot: 'preset-pull', weekWork: 2 });
