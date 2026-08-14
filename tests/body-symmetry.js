@@ -217,5 +217,75 @@ for (const figure of ['male', 'female']) {
   }
 }
 
+console.log(`\n=== every badge sits on its own muscle ===`);
+// Existence was pinned above; placement was still on trust. A badge is a
+// count bubble drawn at raw {x, y} — nothing relates those coordinates to
+// the artwork, so a badge can float off its muscle (or sit on a neighbour)
+// and every render succeeds. Not hypothetical: the male back lower_back
+// badge was found at (139, 217), five units clear of the body's right flank
+// — a fossil of the one-sided artwork this suite's first section caught.
+// When the zone was redrawn symmetric about the spine, the badge stayed
+// where the old right-heavy artwork had been.
+//
+// The check is point-in-polygon against the zone's own paths, with a couple
+// of units of slack: four badges sit a hair outside an edge (0.1–1.2 units,
+// invisible under a 10-unit-radius bubble), and tightening them would be
+// churn, not correctness. Fifteen units is a different thing entirely.
+const BADGE_SLACK = 2;
+
+const insidePoly = ([x, y], poly) => {
+  let c = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i];
+    const [xj, yj] = poly[j];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c;
+  }
+  return c;
+};
+const distToPoly = ([x, y], poly) => {
+  let best = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const [x1, y1] = poly[i];
+    const [x2, y2] = poly[(i + 1) % poly.length];
+    const dx = x2 - x1, dy = y2 - y1;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / len2));
+    best = Math.min(best, Math.hypot(x - (x1 + t * dx), y - (y1 + t * dy)));
+  }
+  return best;
+};
+
+/** Badge coordinates per figure + view, from the same view blocks. */
+function badgePositions() {
+  const out = {};
+  const views = [...src.matchAll(/^ {6}(front|back): \{/gm)].map((m) => ({ view: m[1], at: m.index }));
+  for (let i = 0; i < views.length; i++) {
+    const block = src.slice(views[i].at, i + 1 < views.length ? views[i + 1].at : src.length);
+    const figure = Math.floor(i / 2) === 0 ? 'male' : 'female';
+    const bm = block.match(/badges: \{([\s\S]*?)\n {8}\}/);
+    out[`${figure} ${views[i].view}`] = bm
+      ? [...bm[1].matchAll(/(\w+): \{ x: ([\d.]+), y: ([\d.]+) \}/g)]
+          .map((m) => ({ zone: m[1], x: +m[2], y: +m[3] }))
+      : [];
+  }
+  return out;
+}
+
+{
+  const artwork = {};
+  for (const b of blocks) {
+    artwork[`${b.figure} ${b.view} ${b.zone}`] = b.paths.map(points).filter((p) => p.length);
+  }
+  for (const [where, list] of Object.entries(badgePositions())) {
+    for (const badge of list) {
+      const polys = artwork[`${where} ${badge.zone}`] || [];
+      const on = polys.some((p) => insidePoly([badge.x, badge.y], p));
+      const d = on ? 0 : Math.min(...polys.map((p) => distToPoly([badge.x, badge.y], p)), Infinity);
+      check(`${where} · ${badge.zone} badge sits on its muscle`, on || d <= BADGE_SLACK,
+        on ? 'inside' : `(${badge.x}, ${badge.y}) is ${d.toFixed(1)} units off the artwork`);
+    }
+  }
+}
+
 console.log(`\n${fails} failing check${fails === 1 ? '' : 's'}`);
 process.exit(fails ? 1 : 0);

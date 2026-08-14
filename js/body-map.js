@@ -473,7 +473,11 @@ window.BodyMap = (function () {
           midback: { x: 136, y: 156 },
           lats: { x: 140, y: 194 },
           triceps: { x: 183, y: 197 },
-          lower_back: { x: 139, y: 217 },
+          // In the right erector column, at its widest band — the column
+          // tapers to a sliver by y 217. The old (139, 217) floated off the
+          // flank entirely: it dated from when this zone's artwork sat
+          // right-of-midline only, and never moved when the zone was redrawn.
+          lower_back: { x: 122, y: 205 },
           forearms: { x: 181, y: 222 },
           glutes: { x: 149, y: 249 },
           hams: { x: 151, y: 279 },
