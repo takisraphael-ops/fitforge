@@ -66,7 +66,8 @@ const SUITES = [
   { name: 'nutrition-polish', file: 'nutrition-polish.js', needsServer: true },
   { name: 'past-session', file: 'past-session.js', needsServer: true },
   { name: 'auto-backup', file: 'auto-backup.js', needsServer: true },
-  { name: 'backup-share', file: 'backup-share.js', needsServer: true }
+  { name: 'backup-share', file: 'backup-share.js', needsServer: true },
+  { name: 'perf-budget', file: 'perf-budget.js', needsServer: true }
 ];
 
 const up = () => new Promise((resolve) => {
