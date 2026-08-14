@@ -146,5 +146,76 @@ for (const b of blocks) {
   }
 }
 
+console.log(`\n=== every declared zone is drawn, badged, and nothing more ===`);
+// The female back calf was the other class of this bug: not a zone drawn
+// unevenly, but a zone missing from one figure entirely — declared in ZONES,
+// rendered fine on the male, absent on the female, and invisible in testing
+// because every suite drove whichever figure the fixture happened to pick.
+// Area symmetry within a figure cannot see it. These checks close that class:
+// the declaration table, the artwork, and the badge positions must agree,
+// per figure, per view, in both directions.
+
+// ZONES declarations: name -> declared views. Coarse chip-only zones declare
+// views: [] and must own no artwork.
+const zoneDecls = {};
+{
+  const zsrc = src.slice(src.indexOf('const ZONES = {'), src.indexOf('const GEOMETRY = {'));
+  const heads = [...zsrc.matchAll(/^ {4}(\w+): \{/gm)];
+  for (let i = 0; i < heads.length; i++) {
+    const seg = zsrc.slice(heads[i].index, i + 1 < heads.length ? heads[i + 1].index : zsrc.length);
+    const vm = seg.match(/views:\s*\[([^\]]*)\]/);
+    zoneDecls[heads[i][1]] = vm
+      ? vm[1].split(',').map((s) => s.trim().replace(/"/g, '')).filter(Boolean)
+      : [];
+  }
+}
+check('the parser found the ZONES table', Object.keys(zoneDecls).length > 0,
+  `${Object.keys(zoneDecls).length} zones declared`);
+
+// Badge positions per figure + view, parsed the same way the artwork was.
+function badgeKeys() {
+  const out = {};
+  const views = [...src.matchAll(/^ {6}(front|back): \{/gm)].map((m) => ({ view: m[1], at: m.index }));
+  for (let i = 0; i < views.length; i++) {
+    const block = src.slice(views[i].at, i + 1 < views.length ? views[i + 1].at : src.length);
+    const figure = Math.floor(i / 2) === 0 ? 'male' : 'female';
+    const bm = block.match(/badges: \{([\s\S]*?)\n {8}\}/);
+    out[`${figure} ${views[i].view}`] = new Set(
+      bm ? [...bm[1].matchAll(/(\w+): \{/g)].map((m) => m[1]) : []);
+  }
+  return out;
+}
+
+const drawn = {};
+for (const b of blocks) {
+  const k = `${b.figure} ${b.view}`;
+  (drawn[k] = drawn[k] || new Set()).add(b.zone);
+}
+const badges = badgeKeys();
+
+for (const figure of ['male', 'female']) {
+  for (const view of ['front', 'back']) {
+    const k = `${figure} ${view}`;
+    const drawnHere = drawn[k] || new Set();
+    const badgedHere = badges[k] || new Set();
+    const declaredHere = Object.keys(zoneDecls).filter((z) => zoneDecls[z].includes(view));
+
+    const undrawn = declaredHere.filter((z) => !drawnHere.has(z));
+    check(`${k}: every declared zone has artwork`, undrawn.length === 0,
+      undrawn.length ? `missing: ${undrawn.join(', ')}` : `all ${declaredHere.length} drawn`);
+
+    const orphans = [...drawnHere].filter((z) => !(zoneDecls[z] || []).includes(view));
+    check(`${k}: every drawn zone is declared for this view`, orphans.length === 0,
+      orphans.length ? `undeclared: ${orphans.join(', ')}` : `${drawnHere.size} zones, all declared`);
+
+    const unbadged = [...drawnHere].filter((z) => !badgedHere.has(z));
+    const deadBadges = [...badgedHere].filter((z) => !drawnHere.has(z));
+    check(`${k}: badges and artwork agree`, unbadged.length === 0 && deadBadges.length === 0,
+      unbadged.length || deadBadges.length
+        ? `no badge: ${unbadged.join(', ') || '—'} · badge without artwork: ${deadBadges.join(', ') || '—'}`
+        : `${badgedHere.size} badges`);
+  }
+}
+
 console.log(`\n${fails} failing check${fails === 1 ? '' : 's'}`);
 process.exit(fails ? 1 : 0);
