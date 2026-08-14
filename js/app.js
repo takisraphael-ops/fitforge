@@ -99,7 +99,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=288").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=289").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -258,7 +258,7 @@
   // and shown at the foot of Settings. There was no way, from a phone, to
   // tell which build you were looking at — which cost several rounds of
   // debugging a fix that turned out never to have deployed.
-  const APP_VERSION = 288;
+  const APP_VERSION = 289;
   const isAccent = (id) => ACCENTS.some(a => a.id === id);
 
   // Keep the browser chrome (iOS status bar, Android task switcher) in step
@@ -4962,7 +4962,34 @@
     return svg;
   }
 
-  function ignitionCluster({ testId, onStart, onSwap, swapLabel, week }) {
+  // The status line beside the cap. "READY" was true but constant — the one
+  // line this close to the app's biggest commitment should carry what a
+  // lifter wants before committing. On a planned day that is when *this*
+  // session last happened (by templateId, with the name as fallback so a
+  // repeat-from-last still counts); a planned session never done before says
+  // so; open and focus days get the last time anything was trained. "Ready"
+  // survives only where it is the whole truth: no training history at all.
+  function lastTrainedLabel(completed, tpl) {
+    const all = (completed || []).filter(w => w.date);
+    if (!all.length) return "Ready";
+    const latest = (list) => list.reduce((a, b) => (a.date > b.date ? a : b));
+    const fmt = (iso) => {
+      const d = Math.round((Date.parse(U.todayISO()) - Date.parse(iso)) / 86400000);
+      if (d <= 0) return "today";
+      if (d === 1) return "yesterday";
+      if (d < 28) return `${d} days ago`;
+      if (d < 365) return `${Math.round(d / 7)} wks ago`;
+      return "over a year ago";
+    };
+    if (tpl) {
+      const mine = all.filter(w => w.templateId === tpl.id || w.name === tpl.name);
+      if (mine.length) return `Last time · ${fmt(latest(mine).date)}`;
+      return "First time";
+    }
+    return `Last trained · ${fmt(latest(all).date)}`;
+  }
+
+  function ignitionCluster({ testId, onStart, onSwap, swapLabel, week, status }) {
     const btn = el("button", {
       class: "ignition-btn", type: "button", "data-testid": testId,
       "aria-label": week
@@ -5000,8 +5027,8 @@
     return el("div", { class: "ignition" },
       btn,
       el("div", { class: "ignition-side" },
-        el("div", { class: "ignition-status" },
-          el("i", { class: "ignition-dot", "aria-hidden": "true" }), "Ready"),
+        el("div", { class: "ignition-status", "data-testid": "ignition-status" },
+          el("i", { class: "ignition-dot", "aria-hidden": "true" }), status || "Ready"),
         el("button", {
           class: "ignition-swap", type: "button", "data-testid": "hero-swap",
           title: "Start a different workout", on: { click: onSwap }
@@ -5188,7 +5215,8 @@
             onStart: () => { pendingPickerCat = focusDay.cat; goTab("workout"); },
             onSwap: () => { pendingPickerCat = null; goTab("workout"); },
             swapLabel: "Something else",
-            week: weekTally
+            week: weekTally,
+            status: lastTrainedLabel(opts.completed, null)
           })
         )
       );
@@ -5227,7 +5255,8 @@
             testId: "hero-start-workout",
             onStart: () => startNewWorkout(tpl),
             onSwap: () => goTab("workout"),
-            week: weekTally
+            week: weekTally,
+            status: lastTrainedLabel(opts.completed, tpl)
           })
         )
       );
@@ -5253,7 +5282,8 @@
         onStart: () => goTab("workout"),
         onSwap: () => { goTab("workout"); setTimeout(openSessionsSheet, 260); },
         swapLabel: "Pick a session",
-        week: weekTally
+        week: weekTally,
+        status: lastTrainedLabel(opts.completed, null)
       })
     );
   }
