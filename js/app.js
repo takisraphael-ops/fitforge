@@ -99,7 +99,7 @@
     if ("serviceWorker" in navigator) {
       // Register with a version query so browsers re-fetch sw.js after deploys.
       // Keep this ?v= in lockstep with index.html / sw.js on every version bump.
-      navigator.serviceWorker.register("./sw.js?v=290").then(reg => {
+      navigator.serviceWorker.register("./sw.js?v=291").then(reg => {
         // Nudge the waiting worker to activate immediately when one appears.
         const promote = (worker) => {
           if (!worker) return;
@@ -258,7 +258,7 @@
   // and shown at the foot of Settings. There was no way, from a phone, to
   // tell which build you were looking at — which cost several rounds of
   // debugging a fix that turned out never to have deployed.
-  const APP_VERSION = 290;
+  const APP_VERSION = 291;
   const isAccent = (id) => ACCENTS.some(a => a.id === id);
 
   // Keep the browser chrome (iOS status bar, Android task switcher) in step
@@ -18283,8 +18283,16 @@
     const host = el("div", { class: "autoback-row", "data-testid": "auto-backup-row" });
 
     if (!autoBackupSupported()) {
-      host.appendChild(el("div", { class: "autoback-line text-xs text-muted" },
-        "Automatic backups need Chrome or Edge. On this browser the app keeps reminding you to export instead."));
+      // Two honest no-API worlds: iOS Safari can still take a file through
+      // the share sheet, so exports there are one tap into Files or iCloud;
+      // anything older gets the plain reminder line.
+      const share = shareBackupSupported();
+      const line = el("div", { class: "autoback-line text-xs text-muted" },
+        share
+          ? "No automatic backups on this browser — exports go through the share sheet instead: one tap sends the file straight to Files or iCloud."
+          : "Automatic backups need Chrome or Edge. On this browser the app keeps reminding you to export instead.");
+      if (share) line.setAttribute("data-testid", "backup-share-note");
+      host.appendChild(line);
       return host;
     }
 
@@ -18369,7 +18377,9 @@
     const detail = status.reason || "Protect offline training data";
     const lastLine = status.lastAt
       ? `Last file: ${formatBackupWhen(status.lastAt)}`
-      : "Export a JSON file you can keep in Files or Drive.";
+      : (!autoBackupSupported() && shareBackupSupported())
+        ? "One tap opens the share sheet — save the file to Files or iCloud."
+        : "Export a JSON file you can keep in Files or Drive.";
     return el("div", { class: "card backup-cta-card", "data-testid": "backup-cta" },
       el("div", { class: "row-between", style: "gap: 10px; align-items: flex-start" },
         el("div", { style: "flex: 1; min-width: 0" },
@@ -18410,6 +18420,18 @@
 
   function autoBackupSupported() {
     return typeof window.showSaveFilePicker === "function";
+  }
+
+  /** iOS Safari's world: no file pickers, but the share sheet takes files —
+      one tap lands the backup in Files or iCloud. */
+  function shareBackupSupported() {
+    try {
+      if (typeof navigator.share !== "function" || typeof navigator.canShare !== "function") return false;
+      const probe = new File(["{}"], "fitforge-backup.json", { type: "application/json" });
+      return navigator.canShare({ files: [probe] });
+    } catch (_) {
+      return false;
+    }
   }
 
   /** 'granted' | 'prompt' | 'denied' for a stored handle, defensively. */
@@ -18500,11 +18522,37 @@
 
   async function exportData() {
     const data = await Storage.exportAll();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const json = JSON.stringify(data, null, 2);
+    const filename = `fitforge-backup-${U.todayISO()}.json`;
+
+    // Where auto-backup is impossible (no File System Access API) but the
+    // platform can share files — iOS Safari — the share sheet IS the export:
+    // one tap puts the file in Files or iCloud instead of a download the
+    // user has to go hunting for. And unlike the blind anchor below, the
+    // sheet reports cancellation — so a cancelled share is honestly not a
+    // backup, and the reminders stay armed.
+    if (!autoBackupSupported() && shareBackupSupported()) {
+      try {
+        const file = new File([json], filename, { type: "application/json" });
+        await navigator.share({ files: [file], title: "FitForge backup" });
+        toast("Backup shared — keep it in Files or iCloud");
+        await markBackupDone({ exported: true });
+        return;
+      } catch (err) {
+        if (err && err.name === "AbortError") {
+          toast("Share cancelled — no backup saved");
+          return;
+        }
+        // Any other share failure falls through to the plain download:
+        // the user asked for a backup and gets one.
+      }
+    }
+
+    const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `fitforge-backup-${U.todayISO()}.json`;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
     toast("Backup downloaded");
