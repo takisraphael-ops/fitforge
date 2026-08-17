@@ -146,5 +146,146 @@ for (const b of blocks) {
   }
 }
 
+console.log(`\n=== every declared zone is drawn, badged, and nothing more ===`);
+// The female back calf was the other class of this bug: not a zone drawn
+// unevenly, but a zone missing from one figure entirely — declared in ZONES,
+// rendered fine on the male, absent on the female, and invisible in testing
+// because every suite drove whichever figure the fixture happened to pick.
+// Area symmetry within a figure cannot see it. These checks close that class:
+// the declaration table, the artwork, and the badge positions must agree,
+// per figure, per view, in both directions.
+
+// ZONES declarations: name -> declared views. Coarse chip-only zones declare
+// views: [] and must own no artwork.
+const zoneDecls = {};
+{
+  const zsrc = src.slice(src.indexOf('const ZONES = {'), src.indexOf('const GEOMETRY = {'));
+  const heads = [...zsrc.matchAll(/^ {4}(\w+): \{/gm)];
+  for (let i = 0; i < heads.length; i++) {
+    const seg = zsrc.slice(heads[i].index, i + 1 < heads.length ? heads[i + 1].index : zsrc.length);
+    const vm = seg.match(/views:\s*\[([^\]]*)\]/);
+    zoneDecls[heads[i][1]] = vm
+      ? vm[1].split(',').map((s) => s.trim().replace(/"/g, '')).filter(Boolean)
+      : [];
+  }
+}
+check('the parser found the ZONES table', Object.keys(zoneDecls).length > 0,
+  `${Object.keys(zoneDecls).length} zones declared`);
+
+// Badge positions per figure + view, parsed the same way the artwork was.
+function badgeKeys() {
+  const out = {};
+  const views = [...src.matchAll(/^ {6}(front|back): \{/gm)].map((m) => ({ view: m[1], at: m.index }));
+  for (let i = 0; i < views.length; i++) {
+    const block = src.slice(views[i].at, i + 1 < views.length ? views[i + 1].at : src.length);
+    const figure = Math.floor(i / 2) === 0 ? 'male' : 'female';
+    const bm = block.match(/badges: \{([\s\S]*?)\n {8}\}/);
+    out[`${figure} ${views[i].view}`] = new Set(
+      bm ? [...bm[1].matchAll(/(\w+): \{/g)].map((m) => m[1]) : []);
+  }
+  return out;
+}
+
+const drawn = {};
+for (const b of blocks) {
+  const k = `${b.figure} ${b.view}`;
+  (drawn[k] = drawn[k] || new Set()).add(b.zone);
+}
+const badges = badgeKeys();
+
+for (const figure of ['male', 'female']) {
+  for (const view of ['front', 'back']) {
+    const k = `${figure} ${view}`;
+    const drawnHere = drawn[k] || new Set();
+    const badgedHere = badges[k] || new Set();
+    const declaredHere = Object.keys(zoneDecls).filter((z) => zoneDecls[z].includes(view));
+
+    const undrawn = declaredHere.filter((z) => !drawnHere.has(z));
+    check(`${k}: every declared zone has artwork`, undrawn.length === 0,
+      undrawn.length ? `missing: ${undrawn.join(', ')}` : `all ${declaredHere.length} drawn`);
+
+    const orphans = [...drawnHere].filter((z) => !(zoneDecls[z] || []).includes(view));
+    check(`${k}: every drawn zone is declared for this view`, orphans.length === 0,
+      orphans.length ? `undeclared: ${orphans.join(', ')}` : `${drawnHere.size} zones, all declared`);
+
+    const unbadged = [...drawnHere].filter((z) => !badgedHere.has(z));
+    const deadBadges = [...badgedHere].filter((z) => !drawnHere.has(z));
+    check(`${k}: badges and artwork agree`, unbadged.length === 0 && deadBadges.length === 0,
+      unbadged.length || deadBadges.length
+        ? `no badge: ${unbadged.join(', ') || '—'} · badge without artwork: ${deadBadges.join(', ') || '—'}`
+        : `${badgedHere.size} badges`);
+  }
+}
+
+console.log(`\n=== every badge sits on its own muscle ===`);
+// Existence was pinned above; placement was still on trust. A badge is a
+// count bubble drawn at raw {x, y} — nothing relates those coordinates to
+// the artwork, so a badge can float off its muscle (or sit on a neighbour)
+// and every render succeeds. Not hypothetical: the male back lower_back
+// badge was found at (139, 217), five units clear of the body's right flank
+// — a fossil of the one-sided artwork this suite's first section caught.
+// When the zone was redrawn symmetric about the spine, the badge stayed
+// where the old right-heavy artwork had been.
+//
+// The check is point-in-polygon against the zone's own paths, with a couple
+// of units of slack: four badges sit a hair outside an edge (0.1–1.2 units,
+// invisible under a 10-unit-radius bubble), and tightening them would be
+// churn, not correctness. Fifteen units is a different thing entirely.
+const BADGE_SLACK = 2;
+
+const insidePoly = ([x, y], poly) => {
+  let c = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i];
+    const [xj, yj] = poly[j];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c;
+  }
+  return c;
+};
+const distToPoly = ([x, y], poly) => {
+  let best = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const [x1, y1] = poly[i];
+    const [x2, y2] = poly[(i + 1) % poly.length];
+    const dx = x2 - x1, dy = y2 - y1;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / len2));
+    best = Math.min(best, Math.hypot(x - (x1 + t * dx), y - (y1 + t * dy)));
+  }
+  return best;
+};
+
+/** Badge coordinates per figure + view, from the same view blocks. */
+function badgePositions() {
+  const out = {};
+  const views = [...src.matchAll(/^ {6}(front|back): \{/gm)].map((m) => ({ view: m[1], at: m.index }));
+  for (let i = 0; i < views.length; i++) {
+    const block = src.slice(views[i].at, i + 1 < views.length ? views[i + 1].at : src.length);
+    const figure = Math.floor(i / 2) === 0 ? 'male' : 'female';
+    const bm = block.match(/badges: \{([\s\S]*?)\n {8}\}/);
+    out[`${figure} ${views[i].view}`] = bm
+      ? [...bm[1].matchAll(/(\w+): \{ x: ([\d.]+), y: ([\d.]+) \}/g)]
+          .map((m) => ({ zone: m[1], x: +m[2], y: +m[3] }))
+      : [];
+  }
+  return out;
+}
+
+{
+  const artwork = {};
+  for (const b of blocks) {
+    artwork[`${b.figure} ${b.view} ${b.zone}`] = b.paths.map(points).filter((p) => p.length);
+  }
+  for (const [where, list] of Object.entries(badgePositions())) {
+    for (const badge of list) {
+      const polys = artwork[`${where} ${badge.zone}`] || [];
+      const on = polys.some((p) => insidePoly([badge.x, badge.y], p));
+      const d = on ? 0 : Math.min(...polys.map((p) => distToPoly([badge.x, badge.y], p)), Infinity);
+      check(`${where} · ${badge.zone} badge sits on its muscle`, on || d <= BADGE_SLACK,
+        on ? 'inside' : `(${badge.x}, ${badge.y}) is ${d.toFixed(1)} units off the artwork`);
+    }
+  }
+}
+
 console.log(`\n${fails} failing check${fails === 1 ? '' : 's'}`);
 process.exit(fails ? 1 : 0);

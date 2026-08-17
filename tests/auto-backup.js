@@ -153,7 +153,7 @@ const check = (label, ok, detail = '') => { if (!ok) fails++; console.log(`   ${
       try { const j = JSON.parse(after); const w = (j.workouts || []).find(x => x.id === 'aw'); return !!(w && w.completedAt); } catch (_) { return false; }
     })());
     check('the home backup reminder card stays quiet after a silent backup',
-      await p.evaluate(() => !document.querySelector('[data-testid="home-backup-card"]')));
+      await p.evaluate(() => !document.querySelector('[data-testid="backup-cta"]')));
     check('no page errors across the finish', errs.length === 0, errs.join(' | '));
 
     // ============ 3. the handle survives a full reload =============
