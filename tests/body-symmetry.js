@@ -287,5 +287,30 @@ function badgePositions() {
   }
 }
 
+console.log(`\n=== no two badges collide ===`);
+// Placement (above) relates each badge to its artwork; nothing yet related
+// badges to each other. Two count bubbles are 10 units in radius, so centres
+// closer than 20 units draw as overlapping circles and both numbers become
+// unreadable. When the lower_back badge was re-placed for v292 its clearance
+// from the lats and glutes bubbles was checked by hand — arithmetic that
+// belongs here, where it runs every time, not in the head of whoever edits
+// coordinates next. The tightest legitimate pair today is 21.1 units
+// (male back, lats to lower_back), so the physical threshold has real
+// headroom without any tolerance fudge.
+const BADGE_RADIUS = 10;
+const MIN_GAP = BADGE_RADIUS * 2;
+
+for (const [where, list] of Object.entries(badgePositions())) {
+  let worst = { d: Infinity, pair: '' };
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      const d = Math.hypot(list[i].x - list[j].x, list[i].y - list[j].y);
+      if (d < worst.d) worst = { d, pair: `${list[i].zone} and ${list[j].zone}` };
+    }
+  }
+  check(`${where}: no badge bubbles overlap`, worst.d >= MIN_GAP,
+    `closest pair ${worst.pair} at ${worst.d.toFixed(1)} units (bubbles touch below ${MIN_GAP})`);
+}
+
 console.log(`\n${fails} failing check${fails === 1 ? '' : 's'}`);
 process.exit(fails ? 1 : 0);
